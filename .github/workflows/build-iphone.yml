@@ -28,7 +28,7 @@ jobs:
     runs-on: macos-15
     timeout-minutes: 30
     env:
-      APP_VERSION: 1.1.${{ github.run_number }}
+      APP_VERSION: 1.2.${{ github.run_number }}
       APP_BUILD: ${{ github.run_number }}
     defaults:
       run:
