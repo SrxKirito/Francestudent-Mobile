@@ -521,9 +521,9 @@ async function downloadGeneratedImage(src) {
     const name = "image-" + new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-") + "." + ext;
     await saveFile(name, bytes);
     const onIOS = window.Capacitor && typeof window.Capacitor.getPlatform === "function" && window.Capacitor.getPlatform() === "ios";
-    showToast("Image « " + name + " » enregistrée dans " + (onIOS ? "Fichiers > Sur mon iPhone > FranceStudent Chat" : "Téléchargements"));
+    showToast(onIOS ? "Image enregistrée dans Fichiers > Sur mon iPhone > FranceStudent Chat." : window.Capacitor?.getPlatform?.() === "android" ? "Image enregistrée à l’emplacement choisi." : "Téléchargement de l’image lancé.");
   } catch (error) {
-    showToast("Téléchargement impossible : " + (error && error.message ? error.message : error), true);
+    if (!/annulé/i.test(error?.message || "")) showToast("Téléchargement impossible : " + (error && error.message ? error.message : error), true);
   }
 }
 

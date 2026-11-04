@@ -234,6 +234,7 @@ function bindEvents() {
 }
 
 async function startApp() {
+  await initializeConversationStorage();
   saveStore();
   bindEvents();
   if (!store.session) {

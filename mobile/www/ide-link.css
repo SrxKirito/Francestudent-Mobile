@@ -85,3 +85,22 @@
 #france-ide.ide-control .ide-remembered-card p {color:var(--muted);}
 #france-ide.ide-control .ide-remembered-card button {margin:4px;}
 @media(max-height:600px) {#france-ide.ide-control header {padding-top:10px;padding-bottom:10px;}#france-ide.ide-control .ide-heading small {display:none;}#france-ide.ide-control [data-scroll] {min-height:28px;}#france-ide.ide-control [data-pending] {flex-shrink:1;min-height:0;max-height:25vh;}#france-ide.ide-control [data-compose] textarea {min-height:40px;max-height:70px;}#france-ide.ide-control [data-status] {padding-top:5px;padding-bottom:5px;}}
+
+/* France IDE : compositeur compact inspiré de la référence. */
+#france-ide.ide-control [data-compose] { margin:10px 0 0; padding:14px; background:#202022; border:1px solid #414144; border-radius:25px; box-shadow:inset 0 1px 0 #ffffff0c; }
+#france-ide.ide-control [data-compose] textarea { min-height:76px; padding:4px 2px 12px; border:0; outline:0; background:transparent; color:#f4f4f5; resize:vertical; }
+#france-ide.ide-control .ide-composer-bar { display:flex; align-items:center; gap:5px; flex-wrap:wrap; }
+#france-ide.ide-control [data-compose] .ide-icon-button { border:0; background:transparent; color:#f4f4f5; }
+#france-ide.ide-control [data-compose] [data-attach] svg { width:26px; height:26px; }
+#france-ide.ide-control [data-compose] .ide-send { width:46px; height:46px; min-height:46px; flex:0 0 46px; border-radius:50%; background:#345fec; color:#fff; }
+#france-ide.ide-control [data-compose] .ide-send:hover:not(:disabled) { background:#4d76f2; }
+#france-ide.ide-control [data-compose] :is(select,[data-open-tools],[data-model-settings]) { max-width:125px; min-height:38px; padding:7px 8px; border-radius:9px; font-size:12px; }
+#france-ide.ide-control .ide-remote-controls { display:flex; gap:8px; padding:10px 0; }
+#france-ide.ide-control :is([data-ide-browser],[data-ide-models]) { max-height:45vh; overflow:auto; margin:8px 0; padding:12px; background:var(--surface); border:1px solid var(--border); border-radius:14px; }
+#france-ide.ide-control :is([data-ide-browser],[data-ide-models]) header { padding:0 0 10px; border:0; justify-content:space-between; }
+#france-ide.ide-control [data-ide-models] label { display:grid; gap:5px; margin:10px 0; }
+#france-ide.ide-control [data-ide-models] select { width:100%; padding:10px; border-radius:10px; background:var(--bg); border:1px solid var(--border); }
+#france-ide.ide-control [data-ide-browser-list] details { margin:6px 0; padding:5px; border-radius:9px; border:1px solid var(--border); }
+#france-ide.ide-control [data-ide-browser-list] details button { display:block; width:100%; text-align:left; margin:4px 0; }
+#france-ide.ide-control .ide-history-entry { white-space:pre-wrap; overflow-wrap:anywhere; padding:8px 0; border-bottom:1px solid var(--border); }
+@media(max-width:390px) { #france-ide.ide-control [data-compose] :is(select,[data-open-tools],[data-model-settings]) { max-width:100px; font-size:11px; } }

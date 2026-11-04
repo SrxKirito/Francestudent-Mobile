@@ -82,6 +82,7 @@ function selectSettingsTab(name, focus) {
   if (name === "account" && typeof loadQuota === "function") loadQuota();
   if (name === "account" && typeof loadAccountActivity === "function") loadAccountActivity();
   if (name === "mcp" && !settingsLoaded.mcp) loadMcpServers();
+  if (name === "skills") loadAccountSkills();
   if (name === "general" && !settingsLoaded.general) loadGeneralSettings();
 }
 
@@ -592,7 +593,7 @@ async function changeAvatar(file) {
     const previous = store.avatar;
     store.avatar = dataUrl;
     try {
-      saveStore();
+      if (!saveStore()) throw new Error("Stockage indisponible");
     } catch {
       store.avatar = previous;
       avatarToast("Stockage plein : impossible d'enregistrer la photo.", true);
@@ -664,6 +665,17 @@ function setupSettings() {
   setupProjects();
   document.body.appendChild($("mcp-wizard"));
   $("mcp-refresh").addEventListener("click", loadMcpServers);
+  $("account-skills-refresh").addEventListener("click", loadAccountSkills);
+  $("account-skills-import").addEventListener("change", async event => {
+    const input = event.currentTarget, file = input.files?.[0]; if (!file) return;
+    const list = $("account-skills-list"); input.disabled = true;
+    try {
+      const form = new FormData(); form.append("files", file, /\.md$/i.test(file.name) ? "SKILL.md" : file.name);
+      await settingsApi("/skills", {method:"POST", body:form});
+      await loadAccountSkills();
+    } catch (error) { settingsNotice(list, "Import impossible : " + error.message, true); }
+    finally { input.value = ""; input.disabled = false; }
+  });
   $("mcp-form").addEventListener("submit", submitMcpForm);
   $("mcp-add").addEventListener("click", () => {
     $("mcp-form").reset();
@@ -678,4 +690,30 @@ function setupSettings() {
 
   $("logout").addEventListener("click", closeSettings);
   document.addEventListener("keydown", settingsKeydown, true);
+}
+
+async function loadAccountSkills() {
+  const list = $("account-skills-list");
+  settingsNotice(list, "Chargement des skills du compte…");
+  try {
+    const all = [], seen = new Set(), cursors = new Set(); let after = "";
+    do {
+      const query = new URLSearchParams({limit:"100"}); if (after) query.set("after", after);
+      const page = await settingsApi("/skills?" + query);
+      if (!page || !Array.isArray(page.data)) throw new Error("Réponse de skills invalide.");
+      for (const item of page.data) if (item && typeof item.id === "string" && !seen.has(item.id)) { seen.add(item.id); all.push(item); }
+      if (!page.has_more) break;
+      const next = String(page.last_id || page.data.at(-1)?.id || "");
+      if (!next || cursors.has(next) || all.length >= 2000) throw new Error("Pagination des skills invalide ou trop longue.");
+      cursors.add(next); after = next;
+    } while (true);
+    list.replaceChildren();
+    if (!all.length) { settingsNotice(list, "Aucun skill sur ce compte. Crée ou importe un skill sur France Student."); return; }
+    for (const skill of all) {
+      const card = settingsEl("div", "mcp-item");
+      card.append(settingsEl("strong", "", String(skill.name || skill.id)), settingsEl("p", "settings-hint", String(skill.description || "")));
+      if (skill.enabled === false || skill.disabled === true) card.append(settingsEl("p", "settings-hint", "Désactivé"));
+      list.append(card);
+    }
+  } catch (error) { settingsNotice(list, "Impossible de charger les skills : " + error.message, true); }
 }

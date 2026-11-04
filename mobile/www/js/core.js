@@ -53,12 +53,74 @@ function loadStore() {
   };
 }
 
-function saveStore() {
+// Conversations can contain images; IndexedDB avoids localStorage's small per-origin limit.
+// The old copy remains untouched until the first IndexedDB transaction commits.
+let conversationDatabase = null;
+let conversationWrite = null;
+let pendingConversations = null;
+let storageWarningAt = 0;
+function storageWarning(message) {
+  if (Date.now() - storageWarningAt < 30000) return;
+  storageWarningAt = Date.now();
+  if (typeof showToast === "function") showToast(message, true);
+  else console.error(message);
+}
+function openConversationDatabase() {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open("francestudent-conversations", 1);
+    request.onupgradeneeded = () => request.result.createObjectStore("state");
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error || new Error("Stockage indisponible"));
+    request.onblocked = () => reject(new Error("Stockage bloqué par une autre fenêtre"));
+  });
+}
+function conversationTransaction(mode, operation) {
+  return new Promise((resolve, reject) => {
+    const tx = conversationDatabase.transaction("state", mode);
+    const request = operation(tx.objectStore("state"));
+    tx.oncomplete = () => resolve(request.result);
+    tx.onerror = () => reject(tx.error || request.error);
+    tx.onabort = () => reject(tx.error || new Error("Enregistrement interrompu"));
+  });
+}
+async function initializeConversationStorage() {
   try {
-    localStorage.setItem(STORE_KEY, JSON.stringify(store));
+    conversationDatabase = await openConversationDatabase();
+    const saved = await conversationTransaction("readonly", objectStore => objectStore.get("conversations"));
+    if (Array.isArray(saved)) store.conversations = saved;
+    else await conversationTransaction("readwrite", objectStore => objectStore.put(store.conversations, "conversations"));
+    // Only now is it safe to remove the legacy copy from localStorage.
+    localStorage.setItem(STORE_KEY, JSON.stringify({ ...store, conversations: [] }));
   } catch (error) {
-    alert("Stockage plein : supprime d'anciennes discussions pour enregistrer les pièces jointes.");
+    if (conversationDatabase) conversationDatabase.close();
+    conversationDatabase = null;
+    storageWarning("Stockage des discussions indisponible. Les données existantes sont conservées ; vérifie l’espace disponible sur le téléphone.");
   }
+}
+function saveStore() {
+  let saved = true;
+  try {
+    localStorage.setItem(STORE_KEY, JSON.stringify(conversationDatabase ? { ...store, conversations: [] } : store));
+  } catch (error) {
+    saved = false;
+    storageWarning("Impossible d’enregistrer les réglages sur ce téléphone. Vérifie le stockage disponible.");
+  }
+  if (conversationDatabase) {
+    // Capture now so asynchronous writes cannot reorder or mutate earlier snapshots.
+    const snapshot = JSON.parse(JSON.stringify(store.conversations));
+    pendingConversations = snapshot;
+    if (!conversationWrite) {
+      conversationWrite = (async () => {
+        while (pendingConversations) {
+          const next = pendingConversations;
+          pendingConversations = null;
+          try { await conversationTransaction("readwrite", objectStore => objectStore.put(next, "conversations")); }
+          catch { storageWarning("Impossible d’enregistrer les discussions. Vérifie le stockage disponible sur le téléphone."); }
+        }
+      })().finally(() => { conversationWrite = null; });
+    }
+  }
+  return saved;
 }
 
 function cleanSession(raw) {

@@ -132,10 +132,18 @@ function makePdf(text) {
     while (line.length > 95) { lines.push(line.slice(0, 95)); line = line.slice(95); }
     lines.push(line);
   });
+  // Courier uses WinAnsiEncoding: encode its extra punctuation explicitly and
+  // refuse unsupported characters instead of silently corrupting the document.
+  const winAnsi = { '€':128, '‚':130, 'ƒ':131, '„':132, '…':133, '†':134, '‡':135,
+    'ˆ':136, '‰':137, 'Š':138, '‹':139, 'Œ':140, 'Ž':142, '‘':145, '’':146,
+    '“':147, '”':148, '•':149, '–':150, '—':151, '˜':152, '™':153, 'š':154,
+    '›':155, 'œ':156, 'ž':158, 'Ÿ':159 };
   const esc = (s) => Array.from(s).map((ch) => {
-    const c = ch.charCodeAt(0);
+    const c = ch.codePointAt(0);
     if (ch === BS || ch === '(' || ch === ')') return BS + ch;
-    return c < 256 ? ch : '?';
+    if (Object.prototype.hasOwnProperty.call(winAnsi, ch)) return String.fromCharCode(winAnsi[ch]);
+    if (c >= 32 && c <= 255 && !(c >= 127 && c <= 159)) return ch;
+    throw new Error('Le PDF ne prend pas en charge certains caractères. Demande une version texte ou retire les caractères spéciaux.');
   }).join('');
   const pages = [];
   for (let i = 0; i < lines.length; i += 68) pages.push(lines.slice(i, i + 68));
@@ -208,11 +216,12 @@ async function downloadCode(code, lang, block, button, forcedName) {
     const bytes = await generatedFileBytes(code, name);
     const path = String(await saveFile(name, bytes));
     const onIOS = window.Capacitor?.getPlatform?.() === 'ios';
-    showToast(onIOS ? 'Fichier enregistré dans Fichiers → Sur mon iPhone → FranceStudent Chat.' : 'Fichier enregistré dans Téléchargements.');
+    showToast(onIOS ? 'Fichier enregistré dans Fichiers → Sur mon iPhone → FranceStudent Chat.' : window.Capacitor?.getPlatform?.() === 'android' ? 'Fichier enregistré à l’emplacement choisi.' : 'Téléchargement lancé.');
     if (button && isCard) button.classList.add('saved');
     else if (button) { button.textContent = 'Enregistré'; button.title = path; }
   } catch (err) {
-    showToast('Échec du téléchargement de « ' + name + ' »' + (/\.pptx$/i.test(name) ? ' : ' + err.message : ''), true);
+    if (/annulé/i.test(err.message || '')) return;
+    showToast('Échec du téléchargement de « ' + name + ' » : ' + (err.message || 'erreur inconnue'), true);
     if (button && !isCard) button.textContent = 'Échec';
     console.error(err);
   } finally {
