@@ -3,6 +3,8 @@
 // Session bearers stay in memory; optional durable credentials use IDELinkVault.
 // Closing the panel pauses polling without submitting another task to the model.
 let franceIDESession = null;
+// Un brouillon reste en mémoire lors de la fermeture du panneau, jamais sur disque.
+let franceIDEDraft = "", franceIDESelectedGroups = null;
 const FRANCE_IDE_PRESETS = { code: ["files", "terminal", "skills"], explore: ["web", "skills"] };
 function franceIDEIcon(name) {
   const paths = { close: '<path d="m6 6 12 12M6 18 18 6"/>', add: '<path d="M12 5v14M5 12h14"/>', send: '<path d="M12 19V5m-6 6 6-6 6 6"/>', computer: '<rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8m-4-4v4"/>', stop: '<rect x="7" y="7" width="10" height="10" rx="1"/>' };
@@ -48,7 +50,9 @@ function openFranceIDE() {
   dialog.setAttribute("aria-labelledby", "ide-control-title");
   dialog.innerHTML = `<header><span class="ide-computer-icon">${franceIDEIcon("computer")}</span><div class="ide-heading"><h2 id="ide-control-title">France IDE</h2><small data-project>Ton espace de travail, à distance</small></div><button type="button" data-close class="ide-icon-button" aria-label="Fermer">${franceIDEIcon("close")}</button></header>
     <section data-connect><div data-remembered hidden class="ide-remembered-card"><strong>Ordinateur mémorisé</strong><p>Ouvre le même projet dans l’IDE. La reconnexion se fait automatiquement.</p><button type="button" data-reconnect>Retrouver mon ordinateur</button><button type="button" data-forget-local>Oublier cet ordinateur</button></div><div class="ide-connect-hero"><span class="ide-connect-symbol">${franceIDEIcon("computer")}</span><span class="ide-eyebrow">ORDINATEUR + IPHONE</span><h3>Continue là où tu en étais.</h3><p>Retrouve ton agent et ton projet. Envoie une idée, suis les étapes et garde la main sur chaque action.</p><button type="button" data-scan>Scanner le QR code</button><small>Sur l’ordinateur : ouvre ton projet → IDE Link → Activer.</small></div><details class="ide-manual"><summary>Utiliser un lien ou un PIN</summary><form data-pair><label>Lien d’association ou adresse<input type="url" required autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="https://…trycloudflare.com"></label><label>PIN, pour une adresse sans QR<input data-pin inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="off" placeholder="6 chiffres"></label><button type="submit">Connecter l’ordinateur</button></form></details></section>
-    <section data-control hidden><div class="ide-navigation"><div role="tablist" aria-label="Vue de la tâche"><button type="button" role="tab" id="ide-tab-chat" aria-selected="true" aria-controls="ide-chat-panel" tabindex="0" data-tab="chat">Conversation</button><button type="button" role="tab" id="ide-tab-activity" aria-selected="false" aria-controls="ide-activity-panel" tabindex="-1" data-tab="activity">Activité <span data-activity-count>0</span></button></div><button type="button" data-disconnect class="ide-disconnect">Déconnecter</button></div><div data-scroll><details data-plan hidden><summary>Plan de travail</summary><ol></ol></details><div id="ide-chat-panel" role="tabpanel" aria-labelledby="ide-tab-chat" data-messages></div><div id="ide-activity-panel" role="tabpanel" aria-labelledby="ide-tab-activity" data-activity hidden></div></div><div data-pending></div><details data-queue><summary>File d’attente <span data-queue-count>0</span></summary><div></div></details><details data-tools hidden><summary>Outils <span data-tool-count></span></summary><div class="ide-presets" role="group" aria-label="Préréglages des outils"><button type="button" data-preset="code">Coder</button><button type="button" data-preset="explore">Explorer</button><button type="button" data-preset="all">Complet</button></div><div data-tool-options></div><p class="ide-tools-note">Lecture, recherche dans le projet, plan et questions restent disponibles. Le choix s’applique à la prochaine demande et conserve les autorisations de l’IDE.</p></details><form data-compose><div data-attachments></div><textarea aria-label="Consigne pour l’agent" placeholder="Que veux-tu construire ?" rows="2" maxlength="30000" required></textarea><div class="ide-composer-bar"><button type="button" data-attach class="ide-icon-button" aria-label="Joindre des fichiers">${franceIDEIcon("add")}</button><input type="file" multiple data-files hidden><select aria-label="Mode de la demande"><option value="agent">Agent</option><option value="plan">Plan · lecture seule</option></select><button type="button" data-open-tools aria-controls="ide-tools-options" aria-expanded="false">Outils</button><span class="ide-composer-spacer"></span><button type="button" data-interrupt class="ide-icon-button" aria-label="Arrêter la tâche" title="Arrêter la tâche">${franceIDEIcon("stop")}</button><button type="submit" class="ide-send ide-icon-button" aria-label="Envoyer à l’ordinateur" title="Envoyer à l’ordinateur">${franceIDEIcon("send")}</button></div></form></section><p data-status role="status" aria-live="polite"></p>`;
+    <section data-control hidden><div class="ide-remote-controls"><button type="button" data-browse>Projets et discussions</button><button type="button" data-model-settings>Modèle et réflexion</button></div><section data-ide-browser hidden><header><strong>Projets et discussions de code</strong><button type="button" data-browser-close>Retour</button></header><p class="ide-tools-note">Lecture seule : les 50 discussions locales les plus récentes au maximum. La conversation active sur l’ordinateur ne change pas.</p><div data-ide-browser-list></div></section><section data-ide-models hidden><header><strong>Modèle et réflexion</strong><button type="button" data-model-close>Fermer</button></header><label>Modèle<select data-ide-model></select></label><label data-ide-reasoning-label>Réflexion<select data-ide-reasoning></select></label><p class="ide-tools-note">La réflexion est enregistrée sur le compte France Student.</p></section><div class="ide-navigation"><div role="tablist" aria-label="Vue de la tâche"><button type="button" role="tab" id="ide-tab-chat" aria-selected="true" aria-controls="ide-chat-panel" tabindex="0" data-tab="chat">Conversation</button><button type="button" role="tab" id="ide-tab-activity" aria-selected="false" aria-controls="ide-activity-panel" tabindex="-1" data-tab="activity">Activité <span data-activity-count>0</span></button></div><button type="button" data-disconnect class="ide-disconnect">Déconnecter</button></div><div data-scroll><details data-plan hidden><summary>Plan de travail</summary><ol></ol></details><div id="ide-chat-panel" role="tabpanel" aria-labelledby="ide-tab-chat" data-messages></div><div id="ide-activity-panel" role="tabpanel" aria-labelledby="ide-tab-activity" data-activity hidden></div></div><div data-pending></div><details data-queue><summary>File d’attente <span data-queue-count>0</span></summary><div></div></details><details data-tools hidden><summary>Outils <span data-tool-count></span></summary><div class="ide-presets" role="group" aria-label="Préréglages des outils"><button type="button" data-preset="code">Coder</button><button type="button" data-preset="explore">Explorer</button><button type="button" data-preset="all">Complet</button></div><div data-tool-options></div><p class="ide-tools-note">Lecture, recherche dans le projet, plan et questions restent disponibles. Le choix s’applique à la prochaine demande et conserve les autorisations de l’IDE.</p></details><form data-compose><div data-attachments></div><textarea aria-label="Consigne pour l’agent" placeholder="Que veux-tu construire ?" rows="2" maxlength="30000" required></textarea><div class="ide-composer-bar"><button type="button" data-attach class="ide-icon-button" aria-label="Joindre des fichiers">${franceIDEIcon("add")}</button><input type="file" multiple data-files hidden><select aria-label="Mode de la demande"><option value="agent">Agent</option><option value="plan">Plan · lecture seule</option></select><button type="button" data-open-tools aria-controls="ide-tools-options" aria-expanded="false">Outils</button><span class="ide-composer-spacer"></span><button type="button" data-interrupt class="ide-icon-button" aria-label="Arrêter la tâche" title="Arrêter la tâche">${franceIDEIcon("stop")}</button><button type="submit" class="ide-send ide-icon-button" aria-label="Envoyer à l’ordinateur" title="Envoyer à l’ordinateur">${franceIDEIcon("send")}</button></div></form></section><p data-status role="status" aria-live="polite"></p>`;
+  const composerBar = dialog.querySelector(".ide-composer-bar");
+  composerBar.insertBefore(dialog.querySelector("[data-model-settings]"), composerBar.querySelector(".ide-composer-spacer"));
   document.body.append(dialog); dialog.showModal();
   setupFranceIDE(dialog);
 }
@@ -57,7 +61,10 @@ function setupFranceIDE(dialog) {
   const connect = find("[data-connect]"), control = find("[data-control]");
   const pair = find("[data-pair]"), address = pair.querySelector('input[type="url"]');
   let closed = false, timer = null, polling = false, viewVersion = 0, revision = "", pendingSignature = "", queueSignature = "", planSignature = "", catalogSignature = "", idlePolls = 0, pollFailures = 0;
-  let selectedGroups = [...FRANCE_IDE_PRESETS.code], availableGroups = [], selectedFiles = [];
+  let selectedGroups = [...(franceIDESelectedGroups || FRANCE_IDE_PRESETS.code)], availableGroups = [], selectedFiles = [];
+  const composerText = find("[data-compose] textarea"); composerText.value = franceIDEDraft;
+  composerText.addEventListener("input", () => { franceIDEDraft = composerText.value; });
+  find("[data-ide-browser] .ide-tools-note").textContent = "Consulte les projets et discussions disponibles sur cet ordinateur. Les anciennes discussions sont en lecture seule ; la conversation active reste ouverte sur le PC.";
   let reconnecting = false, reconnectAfter = 0, reconnectFailures = 0;
   const savedComputer = () => typeof franceIDERemembered === "undefined" ? null : franceIDERemembered;
   const display = text => { if (!closed) status.textContent = text; };
@@ -77,7 +84,7 @@ function setupFranceIDE(dialog) {
     catch (error) { if (!closed && session === franceIDESession && [401, 429].includes(error.status)) expire(); display(error.message + (error.status ? "" : " Vérifie l’état dans l’IDE avant de renvoyer une action.")); return false; }
   }
   function node(tag, text, className) { const element = document.createElement(tag); element.textContent = text; if (className) element.className = className; return element; }
-  function button(parent, text, run) { const element = node("button", text); element.type = "button"; element.onclick = async () => { element.disabled = true; try { await run(); } finally { element.disabled = false; } }; parent.append(element); return element; }
+  function button(parent, text, run) { const element = node("button", text); element.type = "button"; element.onclick = async () => { element.disabled = true; try { await run(); } catch (error) { display(error.message); } finally { element.disabled = false; } }; parent.append(element); return element; }
   function render(data) {
     find("[data-project]").textContent = data.session?.project || "Ordinateur connecté";
     const messages = find("[data-messages]"), scroll = find("[data-scroll]"), activity = find("[data-activity]");
@@ -160,6 +167,7 @@ function setupFranceIDE(dialog) {
   }
   function updateToolLabels() {
     const count = selectedGroups.length;
+    franceIDESelectedGroups = [...selectedGroups];
     find("[data-tool-count]").textContent = `${count} groupes`;
     find("[data-open-tools]").textContent = `Outils · ${count}`;
     for (const input of find("[data-tool-options]").querySelectorAll("input")) input.checked = selectedGroups.includes(input.value);
@@ -225,6 +233,7 @@ function setupFranceIDE(dialog) {
     if (result.remembered && canRemember) { try { await saveRememberedLink(result.remembered, { guard: () => !closed && version === viewVersion }); remembered = true; } catch (error) { rememberFailure = error.message; } }
     else if (typeof forgetRememberedLink === "function") { try { await forgetRememberedLink(); } catch (error) { rememberFailure = error.message; } }
     if (closed || version !== viewVersion) return;
+    franceIDEDraft = ""; franceIDESelectedGroups = null; composerText.value = ""; selectedGroups = [...FRANCE_IDE_PRESETS.code]; catalogSignature = "";
     franceIDESession = { ...session, token: result.token, remembered, rememberWarning: rememberFailure ? rememberFailure + " La connexion actuelle reste temporaire sur cet iPhone." : "" }; viewVersion++; revision = "";
     address.value = ""; find("[data-pin]").value = ""; showSession(); await refresh(); if (timer === null && !closed && franceIDESession) timer = setTimeout(tick, 1500);
     if (rememberFailure) display(rememberFailure + " La connexion actuelle reste temporaire sur cet iPhone.");
@@ -235,8 +244,64 @@ function setupFranceIDE(dialog) {
     try { const value = await scanFranceIDEAddress(); if (value && !closed) { const parsed = ideLinkAddress(value); if (parsed.ticket) await associate(value); else { address.value = parsed.origin; find(".ide-manual").open = true; find("[data-pin]").focus(); display("QR reconnu. Saisis le PIN affiché sur l’ordinateur."); } } }
     catch (error) { display(error.message); } finally { scan.disabled = false; }
   };
+  async function ideData(payload) {
+    const session = franceIDESession; if (!session) throw new Error("Connecte d’abord l’ordinateur.");
+    const result = await franceIDECall(session, "/api/ide", payload);
+    if (closed || session !== franceIDESession) throw new Error("La connexion a changé.");
+    return result.data;
+  }
+  let ideCatalog = null;
+  async function loadIdeCatalog() {
+    const data = await ideData({action:"catalog"}); ideCatalog = data;
+    const models = find("[data-ide-model]"); models.replaceChildren();
+    const providers = new Map();
+    for (const model of data.models || []) { const provider = String(model.provider || "Autres"); let group = providers.get(provider); if (!group) { group = document.createElement("optgroup"); group.label = provider; providers.set(provider, group); models.append(group); } const option = document.createElement("option"); option.value = String(model.id); option.textContent = model.name; group.append(option); }
+    models.value = String(data.modelId);
+    const levels = find("[data-ide-reasoning]"); levels.replaceChildren();
+    const labels = {none:"Désactivée",minimal:"Minimale",low:"Faible",medium:"Moyenne",high:"Élevée",xhigh:"Très élevée"};
+    for (const level of data.reasoning?.levels || []) { const option = document.createElement("option"); option.value = level; option.textContent = labels[level] || level; levels.append(option); }
+    levels.value = data.reasoning?.level || ""; find("[data-ide-reasoning-label]").hidden = !levels.options.length;
+    const current = (data.models || []).find(model => String(model.id) === String(data.modelId));
+    find("[data-model-settings]").textContent = `${current?.name || "Modèle"}${levels.value ? " · " + (labels[levels.value] || levels.value) : ""} ▾`;
+    models.disabled = levels.disabled = !!data.busy;
+  }
+  find("[data-model-settings]").onclick = async () => { find("[data-ide-models]").hidden = false; try { await loadIdeCatalog(); } catch (error) { display(error.message); } };
+  find("[data-model-close]").onclick = () => { find("[data-ide-models]").hidden = true; };
+  find("[data-ide-model]").onchange = async event => { event.target.disabled = true; try { await ideData({action:"model",id:Number(event.target.value)}); await loadIdeCatalog(); display("Modèle modifié sur l’ordinateur."); } catch (error) { display(error.message); await loadIdeCatalog().catch(()=>{}); } finally { event.target.disabled = !!ideCatalog?.busy; } };
+  find("[data-ide-reasoning]").onchange = async event => { event.target.disabled = true; try { await ideData({action:"reasoning",modelId:ideCatalog.modelId,level:event.target.value}); await loadIdeCatalog(); display("Réflexion enregistrée sur le compte."); } catch (error) { display(error.message); await loadIdeCatalog().catch(()=>{}); } finally { event.target.disabled = !!ideCatalog?.busy; } };
+  async function showIdeHistory() {
+    const panel=find("[data-ide-browser]"), list=find("[data-ide-browser-list]"); panel.hidden=false; list.replaceChildren(node("p","Chargement…"));
+    panel.querySelector(".ide-tools-note").textContent = "Consulte les discussions locales récentes. Seules celles du projet ouvert sur le PC peuvent être reprises.";
+    try {
+      const data=await ideData({action:"history"}); list.replaceChildren();
+      const groups = new Map((data.projects || []).map(project => [project.id,{name:project.name,items:[]}]));
+      for (const item of data.discussions || []) { const group=groups.get(item.projectId); if (group) group.items.push(item); }
+      for (const {name,items} of groups.values()) { const group=document.createElement("details"), summary=node("summary",`${name} · ${items.length}`); group.append(summary);
+        if (!items.length) group.append(node("p", "Aucune discussion enregistrée.", "ide-tools-note"));
+        for (const item of items) button(group,item.title,async()=>{
+          const result = await ideData({action:"read",id:item.id});
+          list.replaceChildren();
+          button(list,"← Projets",showIdeHistory);
+          list.append(node("h3",result.title || "Discussion"),node("p",result.project,"ide-tools-note"));
+          button(list,"Reprendre cette discussion",async()=>{
+            if (!window.confirm("Reprendre cette discussion sur le PC et le téléphone ? Elle doit appartenir au projet actuellement ouvert sur le PC.")) return;
+            const resumed = await ideData({action:"resume",id:item.id});
+            panel.hidden = true;
+            revision = "";
+            await refresh();
+            display(resumed.message || "Discussion reprise sur le PC et le téléphone.");
+          });
+          for (const entry of result.entries || []) list.append(node("p",`${entry.type === "user" ? "Vous" : "Assistant"} : ${entry.text}`,"ide-history-entry"));
+        });
+        list.append(group);
+      }
+      if (!groups.size) list.append(node("p","Aucune discussion de code enregistrée."));
+    } catch(error) { list.replaceChildren(node("p",error.message)); }
+  }
+  find("[data-browse]").onclick = showIdeHistory;
+  find("[data-browser-close]").onclick = () => { find("[data-ide-browser]").hidden = true; };
   find("[data-interrupt]").onclick = () => action("/api/queue", { action: "interrupt" });
-  find("[data-disconnect]").onclick = async () => { if (await action("/api/disconnect")) { try { if (typeof forgetRememberedLink === "function") await forgetRememberedLink(); } catch (error) { display(error.message); } expire(); display("Appareil déconnecté. Son accès a été révoqué."); } };
+  find("[data-disconnect]").onclick = async () => { if (await action("/api/disconnect")) { try { if (typeof forgetRememberedLink === "function") await forgetRememberedLink(); } catch (error) { display(error.message); } franceIDEDraft = ""; franceIDESelectedGroups = null; composerText.value = ""; expire(); display("Appareil déconnecté. Son accès a été révoqué."); } };
   find("[data-reconnect]").onclick = async () => { reconnectAfter = 0; reconnectFailures = 0; await refresh(); if (timer === null && !closed && (franceIDESession || savedComputer())) timer = setTimeout(tick, 15000); };
   find("[data-forget-local]").onclick = async () => { try { await forgetRememberedLink(); expire(); display("Association retirée du coffre de cet iPhone."); } catch (error) { display(error.message); } };
   find("[data-compose]").onsubmit = async event => {
@@ -248,7 +313,7 @@ function setupFranceIDE(dialog) {
         const reader = new FileReader(); reader.onerror = () => reject(new Error("Lecture du fichier impossible."));
         reader.onload = () => { const mime = /^[a-z0-9.+-]+\/[a-z0-9.+-]+$/i.test(file.type) ? file.type : "application/octet-stream"; resolve({ name: file.name, kind: mime.startsWith("image/") ? "image" : "file", data: `data:${mime};base64,${String(reader.result).split(",")[1]}` }); }; reader.readAsDataURL(file);
       })));
-      if (await action("/api/tasks", { prompt: submittedPrompt, mode: form.querySelector("select").value, attachments, ...(availableGroups.length ? { toolGroups: [...selectedGroups] } : {}) })) { if (form.querySelector("textarea").value === submittedPrompt) form.querySelector("textarea").value = ""; selectedFiles = selectedFiles.filter(file => !files.includes(file)); showFiles(); }
+      if (await action("/api/tasks", { prompt: submittedPrompt, mode: form.querySelector("select").value, attachments, ...(availableGroups.length ? { toolGroups: [...selectedGroups] } : {}) })) { if (form.querySelector("textarea").value === submittedPrompt) { form.querySelector("textarea").value = ""; franceIDEDraft = ""; } selectedFiles = selectedFiles.filter(file => !files.includes(file)); showFiles(); }
     } catch (error) { display(error.message); } finally { submit.disabled = false; }
   };
   function showFiles() {

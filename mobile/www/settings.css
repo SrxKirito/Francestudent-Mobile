@@ -420,3 +420,28 @@ body.settings-open { overflow: hidden; }
   .theme-choices { gap: 8px; }
   .theme-swatch { height: 40px; }
 }
+
+/* Bibliothèque de skills du compte. */
+#panel-skills .account-skills-search { display:block; margin:18px 0; }
+#panel-skills .account-skills-search input { width:100%; box-sizing:border-box; min-height:42px; padding:10px 14px; border:1px solid var(--border); border-radius:12px; background:var(--surface); color:var(--text); }
+#panel-skills .account-skills-heading { display:flex; align-items:center; gap:8px; margin:20px 0 8px; }
+#account-skills-count { padding:2px 7px; border-radius:7px; background:var(--surface); color:var(--muted); font-size:11px; }
+#account-skills-list .account-skill-row { display:flex; align-items:center; gap:12px; min-width:0; padding:14px 2px; border-bottom:1px solid var(--border); }
+#account-skills-list .account-skill-icon { display:grid; place-items:center; flex:none; width:38px; height:38px; border-radius:11px; background:var(--surface); font-size:19px; }
+#account-skills-list .account-skill-details { flex:1; min-width:0; }
+#account-skills-list .account-skill-details strong { font-size:13px; }
+#account-skills-list .account-skill-description { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; margin:5px 0 0; color:var(--muted); font-size:12px; }
+#account-skills-list .is-expanded .account-skill-description { white-space:normal; overflow:visible; overflow-wrap:anywhere; line-height:1.5; }
+#account-skills-list .account-skill-open { flex:none; padding:8px 10px; border:1px solid var(--border); border-radius:10px; background:var(--surface); color:var(--text); font-size:12px; }
+#account-skills-list .account-skill-toggle { display:flex; align-items:center; gap:6px; flex:none; color:var(--muted); font-size:11px; }
+#account-skills-list .account-skill-toggle input { appearance:none; width:34px; height:20px; margin:0; border-radius:99px; background:#555; position:relative; }
+#account-skills-list .account-skill-toggle input::after { content:""; position:absolute; width:14px; height:14px; top:3px; left:3px; border-radius:50%; background:white; transition:transform .18s ease; }
+#account-skills-list .account-skill-toggle input:checked { background:#4b70ec; }
+#account-skills-list .account-skill-toggle input:checked::after { transform:translateX(14px); }
+#account-skills-list .account-skill-menu { position:relative; flex:none; }
+#account-skills-list .account-skill-menu summary { list-style:none; display:grid; place-items:center; width:38px; height:38px; border:1px solid var(--border); border-radius:11px; cursor:pointer; }
+#account-skills-list .account-skill-menu summary::-webkit-details-marker { display:none; }
+#account-skills-list .account-skill-actions { position:absolute; right:0; top:44px; z-index:5; padding:5px; background:var(--surface); border:1px solid var(--border); border-radius:11px; box-shadow:0 8px 30px #0005; }
+#account-skills-list .account-skill-actions button { border:0; background:transparent; color:#f17b7b; padding:10px 16px; }
+@media(max-width:420px) { #account-skills-list .account-skill-toggle span { display:none; } }
+@media(prefers-reduced-motion:reduce) { #account-skills-list .account-skill-toggle input::after { transition:none; } }

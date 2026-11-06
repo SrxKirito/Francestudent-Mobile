@@ -81,9 +81,20 @@
               <nav id="settings-tablist" class="settings-tabs" role="tablist" aria-label="Sections des paramètres">
                 <button type="button" class="settings-tab" role="tab" id="tab-account" data-tab="account" aria-controls="panel-account" aria-selected="true"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg><span>Compte</span></button>
                 <button type="button" class="settings-tab" role="tab" id="tab-general" data-tab="general" aria-controls="panel-general" aria-selected="false" tabindex="-1"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/></svg><span>Général</span></button>
+                <button type="button" class="settings-tab" role="tab" id="tab-skills" data-tab="skills" aria-controls="panel-skills" aria-selected="false" tabindex="-1"><span>Skills</span></button>
                 <button type="button" class="settings-tab" role="tab" id="tab-mcp" data-tab="mcp" aria-controls="panel-mcp" aria-selected="false" tabindex="-1"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 2v6M15 2v6M6 8h12v4a6 6 0 0 1-12 0V8zM12 18v4"/></svg><span>MCP</span></button>
               </nav>
               <div class="settings-panels">
+                <section id="panel-skills" class="settings-panel" data-panel="skills" role="tabpanel" aria-labelledby="tab-skills" hidden>
+                  <h3 class="settings-section-title">Skills France Student</h3>
+                  <p class="settings-hint">Les changements sont synchronisés avec ton compte France Student.</p>
+                  <label class="settings-btn" for="account-skills-import">Importer un skill</label><input id="account-skills-import" type="file" accept=".zip,.md" hidden>
+                  <button id="account-skills-refresh" type="button" class="settings-btn">Actualiser</button>
+                  <a href="https://ia.francestudent.org/skills" id="account-skills-manage" class="settings-btn" target="_blank" rel="noopener noreferrer">Gérer mes skills</a>
+                  <label class="account-skills-search"><span class="sr-only">Rechercher un skill</span><input id="account-skills-search" type="search" placeholder="Rechercher un skill" autocomplete="off"></label>
+                  <h4 class="account-skills-heading">Bibliothèque <span id="account-skills-count">0</span></h4>
+                  <div id="account-skills-list" aria-live="polite"></div>
+                </section>
                 <section id="panel-general" class="settings-panel" data-panel="general" role="tabpanel" aria-labelledby="tab-general" hidden>
                   <h3 class="settings-section-title">Apparence</h3>
                   <div class="theme-choices" role="radiogroup" aria-label="Thème">
