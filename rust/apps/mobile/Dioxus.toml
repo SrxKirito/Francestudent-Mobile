@@ -1,0 +1,8 @@
+[application]
+name = "FranceStudent Chat (Rust)"
+
+[web.app]
+title = "FranceStudent Chat"
+
+[bundle]
+identifier = "org.francestudent.chat.rustpreview"

@@ -1,0 +1,44 @@
+name: Construire le mobile Rust pour iPhone
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - 'rust-iphone-*'
+    paths:
+      - 'rust/**'
+      - '.github/workflows/build-rust-iphone.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios
+      - name: Installer la CLI Dioxus
+        run: cargo install dioxus-cli --version 0.7.10 --locked
+      - name: Compiler l’application iPhone
+        working-directory: rust/apps/mobile
+        run: dx bundle --ios --release --target aarch64-apple-ios --package-types ios --out-dir ../../../iphone-build
+      - name: Préparer l’IPA à signer
+        shell: bash
+        run: |
+          set -euo pipefail
+          app="$(find iphone-build -type d -name '*.app' -prune -print -quit)"
+          test -n "$app"
+          executable="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$app/Info.plist")"
+          lipo -verify_arch arm64 "$app/$executable"
+          mkdir -p iphone-artifact/Payload
+          ditto "$app" "iphone-artifact/Payload/$(basename "$app")"
+          ditto -c -k --sequesterRsrc --keepParent iphone-artifact/Payload iphone-artifact/FranceStudent-Rust-iPhone.ipa
+      - uses: actions/upload-artifact@v4
+        with:
+          name: FranceStudent-Rust-iPhone
+          path: iphone-artifact/FranceStudent-Rust-iPhone.ipa
+          if-no-files-found: error

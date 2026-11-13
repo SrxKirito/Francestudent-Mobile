@@ -1,0 +1,22 @@
+[package]
+name = "francestudent-chat"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[features]
+default = ["mobile"]
+mobile = ["dioxus/mobile"]
+
+[dependencies]
+chat-ui.workspace = true
+dioxus.workspace = true
+
+[target.'cfg(target_os = "android")'.dependencies]
+android-native-keyring-store = "1"
+keyring-core = "1"
+
+[target.'cfg(target_os = "ios")'.dependencies]
+core-foundation = "0.10"
+security-framework = "3.7"
+security-framework-sys = "2.17"
