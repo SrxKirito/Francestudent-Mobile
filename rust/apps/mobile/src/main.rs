@@ -4,6 +4,8 @@ use chat_ui::{Chat, Styles};
 use dioxus::prelude::*;
 
 #[cfg(any(target_os = "android", target_os = "ios"))]
+mod export;
+#[cfg(any(target_os = "android", target_os = "ios"))]
 mod session;
 
 fn main() {
@@ -12,7 +14,12 @@ fn main() {
 
 fn app() -> Element {
     #[cfg(any(target_os = "android", target_os = "ios"))]
-    use_context_provider(|| std::sync::Arc::new(session::MobileSession) as chat_ui::SecureSession);
+    {
+        use_context_provider(|| {
+            std::sync::Arc::new(session::MobileSession) as chat_ui::SecureSession
+        });
+        use_context_provider(|| chat_ui::FileExporter(export::save));
+    }
     rsx! {
         Styles {}
         main { class: "mobile-shell",

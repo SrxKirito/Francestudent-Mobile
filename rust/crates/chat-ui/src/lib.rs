@@ -5,12 +5,14 @@ use francestudent::{
     StreamProgress,
 };
 
+mod export;
 mod image_generation;
 mod mobile;
 mod session;
+pub use export::{ExportedFile, FileExporter};
 use image_generation::{GeneratedImages, ImageControls, ImageMode};
 use mobile::attachments::{Attachment, Attachments, PICKER_BRIDGE, prepare_attachments, release};
-use mobile::{MobilePage, Projects, Settings};
+use mobile::{Activity, MobilePage, Projects, Settings};
 use session::{Credentials, connect};
 pub use session::{SecureSession, SecureSessionStore};
 
@@ -158,6 +160,7 @@ fn generate(mut state: Signal<ChatState>, client: FranceStudent, request: Genera
                 image,
                 search,
             } => {
+                let requested_image = image.is_some();
                 let mut prepared = match client.prepare_image_request(prompt.clone(), image).await {
                     Ok(prepared) => prepared,
                     Err(error) => {
@@ -204,7 +207,7 @@ fn generate(mut state: Signal<ChatState>, client: FranceStudent, request: Genera
                 if result.is_ok() {
                     let mut progress = state.peek().progress.clone();
                     client
-                        .complete_generated_images(&mut progress, image.is_some())
+                        .complete_generated_images(&mut progress, requested_image)
                         .await;
                     state.write().progress = progress;
                 }
@@ -463,6 +466,8 @@ pub fn Chat(
                 Projects { state }
             } else if page == MobilePage::Settings {
                 Settings { state }
+            } else if page == MobilePage::Activity {
+                Activity { state }
             } else if history_open {
                 div { class: "history",
                     if let Some(project) = &view.project {
@@ -652,7 +657,7 @@ pub fn Chat(
                         }
                         if mobile {
                             ImageControls {
-                                mode: view.image_mode, disabled: busy,
+                                mode: view.image_mode.clone(), disabled: busy,
                                 on_change: move |mode| state.write().image_mode = mode
                             }
                         }

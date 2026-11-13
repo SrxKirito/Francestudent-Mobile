@@ -53,9 +53,9 @@ Vérifications Windows du port natif : saisie, sortie, redimensionnement et ferm
 
 Android et iPhone partagent l’interface Dioxus et le client HTTP Rust. Le chat texte propose la connexion par cookie de session, le choix du modèle, l’historique et la lecture en direct. L’écran **Projets** ouvre les projets du compte et leurs discussions, crée et modifie les projets, et demande confirmation avant leur suppression. Les nouvelles discussions sont associées au projet ouvert. L’écran **Réglages** enregistre sur le compte les instructions personnalisées, le niveau de réflexion GPT et les filtres de recherche web.
 
-Le composeur propose **Fichiers** et **Photos**. Le sélecteur système de la WebView contrôle la limite de 50 Mio par fichier avant de fournir ses données par tranches au client Rust. Les fichiers texte UTF-8 courts rejoignent le message, les images passent par la route image et les autres documents sont envoyés à la route fichiers du compte. La conversion JPEG reprend les formats d’image que la WebView peut décoder.
+Le composeur propose **Fichiers** et **Photos**. Le sélecteur système de la WebView contrôle la limite de 50 Mio par fichier avant de fournir ses données par tranches au client Rust. Les fichiers texte UTF-8 rejoignent le message s’ils tiennent dans la limite de l’API. Rust extrait aussi le texte des PDF, DOCX, PPTX, ODT et ODP. Le message indique que les images, la mise en page et les contenus intégrés sont omis dans cette extraction. Les fichiers non pris en charge, les PDF sans texte sur une page et les documents dépassant le budget d’extraction sont envoyés entiers à la route fichiers du compte. La conversion JPEG reprend les formats d’image que la WebView peut décoder.
 
-L’extraction locale et la conversion des pages PDF, les convertisseurs de documents bureautiques, la dictée, l’export de fichiers, IDE Link et les autres réglages de compte de l’application Capacitor restent à porter.
+La rasterisation locale des PDF scannés, l’extraction d’autres formats bureautiques, la dictée et IDE Link restent à porter.
 
 Depuis `apps/mobile/`, utiliser la CLI Dioxus 0.7 correspondant à la version du fichier `Cargo.lock` :
 

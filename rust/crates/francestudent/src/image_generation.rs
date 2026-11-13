@@ -12,32 +12,68 @@ const MAX_IMAGE_BYTES: usize = 6 * 1024 * 1024;
 const MAX_IMAGES: usize = 4;
 const IMAGE_FETCH_TIMEOUT: Duration = Duration::from_secs(15);
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub enum ImageModel {
     #[default]
     Flare,
     Sunburst,
+    Flare26,
+    Sunburst26,
     Image2,
+    Account(String),
 }
 
 impl ImageModel {
-    pub const ALL: [Self; 3] = [Self::Flare, Self::Sunburst, Self::Image2];
+    pub const ALL: [Self; 5] = [
+        Self::Sunburst26,
+        Self::Flare26,
+        Self::Sunburst,
+        Self::Flare,
+        Self::Image2,
+    ];
 
-    pub fn id(self) -> &'static str {
+    pub fn id(&self) -> &str {
         match self {
             Self::Flare => "gpt-image-2.5-flare",
             Self::Sunburst => "gpt-image-2.5-sunburst",
+            Self::Flare26 => "gpt-image-2.6-flare",
+            Self::Sunburst26 => "gpt-image-2.6-sunburst",
             Self::Image2 => "gpt-image-2",
+            Self::Account(id) => id,
         }
     }
 
-    pub fn label(self) -> &'static str {
+    pub fn label(&self) -> &str {
         match self {
             Self::Flare => "GPT Image 2.5 Flare",
             Self::Sunburst => "GPT Image 2.5 Sunburst",
+            Self::Flare26 => "GPT Image 2.6 Flare",
+            Self::Sunburst26 => "GPT Image 2.6 Sunburst",
             Self::Image2 => "GPT Image 2",
+            Self::Account(id) => id,
         }
     }
+
+    fn from_account(id: &str) -> Option<Self> {
+        Self::ALL
+            .into_iter()
+            .find(|model| model.id() == id)
+            .or_else(|| valid_model_id(id).then(|| Self::Account(id.to_owned())))
+    }
+}
+
+fn valid_model_id(id: &str) -> bool {
+    !id.is_empty()
+        && id.len() <= 100
+        && id
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'))
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ImageSettings {
+    pub enabled: bool,
+    pub model: ImageModel,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -46,6 +82,12 @@ pub struct GeneratedImage(Arc<str>);
 impl GeneratedImage {
     pub fn src(&self) -> &str {
         &self.0
+    }
+
+    pub fn export_data(&self) -> Option<(&'static str, Vec<u8>)> {
+        let (_, encoded) = self.src().split_once(',')?;
+        let bytes = STANDARD.decode(encoded).ok()?;
+        Some((image_mime(&bytes)?, bytes))
     }
 
     fn from_bytes(bytes: &[u8]) -> Option<Self> {
@@ -70,6 +112,31 @@ impl ImageProgress {
 }
 
 impl FranceStudent {
+    pub async fn image_settings(&self) -> Result<ImageSettings, Error> {
+        let data = self.get_json(&["user", "instructions"], &[]).await?;
+        ImageSettings::from_response(&data)
+    }
+
+    pub async fn save_image_settings(&self, settings: &ImageSettings) -> Result<(), Error> {
+        let id = settings.model.id();
+        if !valid_model_id(id) {
+            return Err(Error::InvalidResponse);
+        }
+        let body = json!({
+            "imageGenerationToolEnabled": settings.enabled,
+            "imageGenerationModel": id,
+        });
+        self.request(
+            Method::PATCH,
+            &["user", "instructions"],
+            &[],
+            Some(&body),
+            "application/json",
+        )
+        .await?;
+        Ok(())
+    }
+
     /// Configure l’outil du compte seulement pour une demande Image explicite.
     pub async fn prepare_image_request(
         &self,
@@ -79,17 +146,13 @@ impl FranceStudent {
         let Some(model) = model else {
             return Ok(prompt);
         };
-        let route = &["user", "instructions"];
-        let current = self.get_json(route, &[]).await?;
-        if current["imageGenerationToolEnabled"] != true
-            || current["imageGenerationModel"].as_str() != Some(model.id())
-        {
-            let body = json!({
-                "imageGenerationToolEnabled": true,
-                "imageGenerationModel": model.id(),
-            });
-            self.request(Method::PATCH, route, &[], Some(&body), "application/json")
-                .await?;
+        let current = self.image_settings().await?;
+        if !current.enabled || current.model != model {
+            self.save_image_settings(&ImageSettings {
+                enabled: true,
+                model: model.clone(),
+            })
+            .await?;
         }
         Ok(format!(
             "[Génération d'image] Utilise l’outil de génération d’image ({}) pour créer l’image décrite ci-dessous.\n\n{prompt}",
@@ -179,6 +242,24 @@ impl FranceStudent {
             bytes.extend_from_slice(&chunk);
         }
         GeneratedImage::from_bytes(&bytes).ok_or(Error::InvalidResponse)
+    }
+}
+
+impl ImageSettings {
+    pub(super) fn from_response(data: &Value) -> Result<Self, Error> {
+        if !data.is_object() {
+            return Err(Error::InvalidResponse);
+        }
+        let model = data["imageGenerationModel"]
+            .as_str()
+            .filter(|id| !id.is_empty())
+            .map(|id| ImageModel::from_account(id).ok_or(Error::InvalidResponse))
+            .transpose()?
+            .unwrap_or_default();
+        Ok(Self {
+            enabled: data["imageGenerationToolEnabled"] == true,
+            model,
+        })
     }
 }
 

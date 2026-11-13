@@ -90,6 +90,9 @@ pub(crate) fn connect(
         }
         if let Some(settings) = settings {
             view.set_web_search_mode(&settings.web_search_mode);
+            if let Some(image) = settings.image_settings {
+                view.image_mode.set_account_model(image.model);
+            }
         }
         if persistence_error.is_some() {
             view.error = persistence_error;

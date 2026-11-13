@@ -4,6 +4,7 @@ use francestudent::{FranceStudent, GeneralSettings};
 use crate::{ChatState, MobilePage};
 
 use super::web::WebSettings;
+use crate::image_generation::ImageModelSelect;
 
 const REASONING_LEVELS: [(&str, &str); 6] = [
     ("none", "Aucun"),
@@ -18,6 +19,7 @@ const REASONING_LEVELS: [(&str, &str); 6] = [
 struct SettingsPage {
     draft: Option<GeneralSettings>,
     saved_reasoning: String,
+    saved_image: Option<francestudent::ImageSettings>,
     loading: bool,
     feedback: Option<(String, bool)>,
 }
@@ -39,6 +41,10 @@ pub(crate) fn Settings(mut state: Signal<ChatState>) -> Element {
         section { class: "mobile-page", aria_label: "Réglages FranceStudent",
             div { class: "mobile-page-header",
                 h2 { "Réglages" }
+                button { r#type: "button", disabled: chat.busy,
+                    onclick: move |_| state.write().mobile_page = MobilePage::Activity,
+                    "Activité du compte"
+                }
                 button { r#type: "button", disabled: chat.busy,
                     onclick: move |_| state.write().mobile_page = MobilePage::Chat,
                     "Retour au chat"
@@ -89,6 +95,38 @@ pub(crate) fn Settings(mut state: Signal<ChatState>) -> Element {
                         }
                     }
                 }
+                if let Some(image) = &draft.image_settings {
+                    section { class: "mobile-form mobile-web-settings", aria_label: "Génération d’images",
+                        h3 { "Génération d’images" }
+                        label { class: "checkbox",
+                            input { r#type: "checkbox", checked: image.enabled, disabled,
+                                onchange: move |event| {
+                                    if let Some(image) = panel.write().draft.as_mut().and_then(|draft| draft.image_settings.as_mut()) {
+                                        image.enabled = event.checked();
+                                    }
+                                }
+                            }
+                            "Autoriser la génération d’images dans le chat"
+                        }
+                        ImageModelSelect {
+                            model: image.model.clone(),
+                            account_model: view.saved_image.as_ref().map(|image| image.model.clone()), disabled,
+                            on_change: move |model| {
+                                if let Some(image) = panel.write().draft.as_mut().and_then(|draft| draft.image_settings.as_mut()) {
+                                    image.model = model;
+                                }
+                            }
+                        }
+                        div { class: "mobile-page-actions",
+                            button { r#type: "button", disabled: disabled || view.saved_image.as_ref() == Some(image),
+                                onclick: move |_| save_image(state, panel),
+                                "Enregistrer le modèle d’image"
+                            }
+                        }
+                    }
+                } else {
+                    p { class: "muted", "Le réglage d’image du compte est indisponible." }
+                }
                 WebSettings { state, initial_mode: draft.web_search_mode.clone() }
             } else if view.loading {
                 p { class: "muted", role: "status", "Chargement des réglages…" }
@@ -123,10 +161,46 @@ async fn load(
         Ok(settings) => {
             state.write().set_web_search_mode(&settings.web_search_mode);
             view.saved_reasoning = settings.gpt_reasoning.clone();
+            view.saved_image = settings.image_settings.clone();
             view.draft = Some(settings);
         }
         Err(error) => view.feedback = Some((error.to_string(), true)),
     }
+}
+
+fn save_image(mut state: Signal<ChatState>, mut panel: Signal<SettingsPage>) {
+    let draft = panel
+        .peek()
+        .draft
+        .as_ref()
+        .and_then(|draft| draft.image_settings.clone());
+    let Some(draft) = draft else { return };
+    let client = {
+        let mut chat = state.write();
+        if chat.busy {
+            return;
+        }
+        let Some(client) = chat.client.clone() else {
+            return;
+        };
+        chat.busy = true;
+        client
+    };
+    panel.write().feedback = None;
+    spawn(async move {
+        let result = client.save_image_settings(&draft).await;
+        let mut chat = state.write();
+        chat.busy = false;
+        let mut view = panel.write();
+        view.feedback = Some(match result {
+            Ok(()) => {
+                chat.image_mode.set_account_model(draft.model.clone());
+                view.saved_image = Some(draft);
+                ("Modèle d’image enregistré.".into(), false)
+            }
+            Err(error) => (error.to_string(), true),
+        });
+    });
 }
 
 fn save(mut state: Signal<ChatState>, mut panel: Signal<SettingsPage>) {

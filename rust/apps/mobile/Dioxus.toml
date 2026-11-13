@@ -6,3 +6,7 @@ title = "FranceStudent Chat"
 
 [bundle]
 identifier = "org.francestudent.chat.rustpreview"
+
+[ios.plist]
+UIFileSharingEnabled = true
+LSSupportsOpeningDocumentsInPlace = true

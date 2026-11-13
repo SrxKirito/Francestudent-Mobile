@@ -14,12 +14,14 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use tokio::sync::Mutex;
 
+mod account_activity;
 mod attachments;
 mod image_generation;
 mod login;
 mod mobile;
+pub use account_activity::{AccountActivity, AccountQuota, TokenDay, TOKEN_ACTIVITY_DAYS};
 pub use attachments::{AttachmentUpload, MAX_ATTACHMENT_BYTES, UploadedAttachments};
-pub use image_generation::{GeneratedImage, ImageModel, ImageProgress};
+pub use image_generation::{GeneratedImage, ImageModel, ImageProgress, ImageSettings};
 pub use mobile::{GeneralSettings, Project, WebDomainSettings, WebFilterType, WebSearchMode};
 
 const SITE: &str = "https://ia.francestudent.org";

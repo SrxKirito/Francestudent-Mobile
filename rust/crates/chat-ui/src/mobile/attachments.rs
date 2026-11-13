@@ -6,8 +6,10 @@ use serde::Deserialize;
 
 use crate::ChatState;
 
+use super::document_text;
+
 const CHUNK_BYTES: usize = 48 * 1024;
-const MAX_INLINE_TEXT: usize = 50_000;
+const API_MESSAGE_CHARACTERS: usize = 1_000_000;
 
 pub(crate) const PICKER_BRIDGE: &str = include_str!("picker.js");
 
@@ -49,7 +51,6 @@ pub(crate) async fn prepare_attachments(
     prompt: &mut String,
 ) -> Result<UploadedAttachments, String> {
     let mut uploaded = UploadedAttachments::default();
-    let mut inline_left = MAX_INLINE_TEXT;
     for mut file in selected {
         if file.is_image() && !file.direct_image() && file.remote_id.is_none() {
             // Les valeurs interpolées sont numériques et vérifiées à la sélection.
@@ -75,12 +76,33 @@ pub(crate) async fn prepare_attachments(
         let id = match file.remote_id.clone() {
             Some(id) => id,
             None => {
-                let bytes = read_file(&file).await?;
-                if let Some(text) = inline_text(&file, &bytes, inline_left) {
-                    inline_left = inline_left.saturating_sub(text.len());
-                    prompt.push_str(&format!("\n\n--- Fichier joint : {} ---\n", file.name));
-                    prompt.push_str(text);
-                    prompt.push_str("\n--- Fin du fichier joint ---");
+                let mut bytes = read_file(&file).await?;
+                let header = format!("\n\n--- Fichier joint : {} ---\n", file.name);
+                let footer = "\n--- Fin du fichier joint ---";
+                let budget = API_MESSAGE_CHARACTERS.saturating_sub(
+                    prompt.encode_utf16().count() + header.encode_utf16().count() + footer.len(),
+                );
+                let inline = if let Some(text) = inline_text(&file, &bytes, budget) {
+                    Some(text.to_owned())
+                } else if budget > 0 && document_text::supported(&file.name, file.content_type()) {
+                    let name = file.name.clone();
+                    let content_type = file.content_type().to_owned();
+                    let (returned, extracted) = tokio::task::spawn_blocking(move || {
+                        let extracted =
+                            document_text::extract(&name, &content_type, &bytes, budget);
+                        (bytes, extracted)
+                    })
+                    .await
+                    .map_err(|_| format!("Impossible de traiter « {} ».", file.name))?;
+                    bytes = returned;
+                    extracted
+                } else {
+                    None
+                };
+                if let Some(text) = inline {
+                    prompt.push_str(&header);
+                    prompt.push_str(&text);
+                    prompt.push_str(footer);
                     continue;
                 }
                 let id = client
@@ -118,7 +140,7 @@ fn inline_text<'a>(file: &Attachment, bytes: &'a [u8], remaining: usize) -> Opti
         .trim_start_matches('\u{feff}');
     if !file.is_image()
         && !text.contains('\0')
-        && text.len() <= remaining
+        && text.encode_utf16().count() <= remaining
         && (file.content_type().starts_with("text/")
             || matches!(
                 file.content_type(),

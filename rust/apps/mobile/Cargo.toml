@@ -14,9 +14,13 @@ dioxus.workspace = true
 
 [target.'cfg(target_os = "android")'.dependencies]
 android-native-keyring-store = "1"
+jni = "0.21"
 keyring-core = "1"
+ndk-context = "0.1"
 
 [target.'cfg(target_os = "ios")'.dependencies]
 core-foundation = "0.10"
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSArray", "NSPathUtilities", "NSString"] }
 security-framework = "3.7"
 security-framework-sys = "2.17"
+tempfile = "3"

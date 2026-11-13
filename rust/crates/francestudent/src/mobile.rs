@@ -24,6 +24,8 @@ pub struct GeneralSettings {
     pub gpt_reasoning: String,
     #[serde(default, deserialize_with = "nullable_default")]
     pub web_search_mode: String,
+    #[serde(skip)]
+    pub image_settings: Option<super::ImageSettings>,
 }
 
 #[derive(Clone, Copy, Default, PartialEq)]
@@ -279,7 +281,11 @@ impl FranceStudent {
 
     pub async fn general_settings(&self) -> Result<GeneralSettings, Error> {
         let data = self.get_json(&["user", "instructions"], &[]).await?;
-        serde_json::from_value(data).map_err(|_| Error::InvalidResponse)
+        let image_settings = super::ImageSettings::from_response(&data).ok();
+        let mut settings: GeneralSettings =
+            serde_json::from_value(data).map_err(|_| Error::InvalidResponse)?;
+        settings.image_settings = image_settings;
+        Ok(settings)
     }
 
     pub async fn save_general_settings(
