@@ -17,6 +17,11 @@ autres ponts natifs ne sont pas terminés. Les transferts mobiles n'ont pas
 encore été validés sur appareil. Cette base n'est pas une preuve de parité
 fonctionnelle.
 
+La bibliothèque propose une liste paginée des fichiers du compte et affiche le
+quota. La suppression côté serveur nécessite une action explicite ; le classement
+par projet de l'ancienne bibliothèque reste local, car aucun rattachement direct
+de fichiers aux projets n'est documenté dans l'OpenAPI.
+
 Vérifications locales : `npm ci`, `npm run check`, `npm run build`, puis
 `cargo check --locked` dans `src-tauri`. Pour les tests du client, exécuter
 `cargo test --locked` dans `../tauri-api`. La compilation et les tests iOS
