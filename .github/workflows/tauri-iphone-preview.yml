@@ -1,0 +1,87 @@
+name: Vérifier la préversion Tauri iPhone
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [migration/tauri-mobile]
+    paths:
+      - 'mobile/tauri-api/**'
+      - 'mobile/tauri-next/**'
+      - 'mobile/www/**'
+      - 'docs/api-audit/openapi.json'
+      - '.github/workflows/tauri-iphone-preview.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tauri-iphone-preview-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ios-preview:
+    runs-on: macos-15
+    timeout-minutes: 90
+    defaults:
+      run:
+        working-directory: mobile/tauri-next
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_16.4.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: mobile/tauri-next/package-lock.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios
+      - name: Vérifier les outils Apple
+        run: |
+          set -euo pipefail
+          test -d "$DEVELOPER_DIR"
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-version
+          command -v pod
+          if ! command -v xcodegen >/dev/null; then brew install xcodegen; fi
+          ruby -e 'require "xcodeproj"'
+      - name: Installer les dépendances du client
+        run: npm ci
+      - name: Tester les contrats et l'interface
+        run: |
+          set -euo pipefail
+          npm test
+          npm run check
+          npm run build
+          cargo test --locked --manifest-path ../tauri-api/Cargo.toml
+          python3 -m unittest discover -s scripts -p 'test_verify_ios_ipa.py'
+      - name: Initialiser le projet iOS Tauri
+        run: npm run tauri -- ios init --ci --skip-targets-install
+      - name: Ajouter le manifeste de confidentialité
+        run: ruby scripts/install-ios-privacy.rb
+      - name: Construire l'IPA de préversion non signé
+        run: npm run tauri -- ios build --ci --target aarch64 --no-sign
+      - name: Vérifier et préparer l'artefact
+        run: |
+          set -euo pipefail
+          mapfile=()
+          while IFS= read -r -d '' file; do mapfile+=("$file"); done < <(find src-tauri/gen/apple -type f -name '*.ipa' -print0)
+          test "${#mapfile[@]}" -eq 1 || { echo "Nombre inattendu d'IPA : ${#mapfile[@]}"; exit 1; }
+          mkdir -p "$RUNNER_TEMP/tauri-ios-preview"
+          cp "${mapfile[0]}" "$RUNNER_TEMP/tauri-ios-preview/FranceStudent-Tauri-iPhone.ipa"
+          python3 scripts/verify-ios-ipa.py "$RUNNER_TEMP/tauri-ios-preview/FranceStudent-Tauri-iPhone.ipa" --config src-tauri/tauri.conf.json --executable-output "$RUNNER_TEMP/tauri-ios-preview/executable"
+          xcrun lipo "$RUNNER_TEMP/tauri-ios-preview/executable" -verify_arch arm64
+          rm "$RUNNER_TEMP/tauri-ios-preview/executable"
+      - name: Conserver l'IPA de préversion
+        uses: actions/upload-artifact@v4
+        with:
+          name: FranceStudent-Tauri-iPhone-preview
+          path: ${{ runner.temp }}/tauri-ios-preview/FranceStudent-Tauri-iPhone.ipa
+          if-no-files-found: error
+          retention-days: 7
