@@ -1,0 +1,5 @@
+/node_modules/
+/dist/
+/public/legacy/
+/src-tauri/target/
+/src-tauri/gen/
