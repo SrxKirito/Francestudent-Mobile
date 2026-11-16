@@ -19,6 +19,12 @@ autres ponts natifs ne sont pas terminés. Les transferts mobiles n'ont pas
 encore été validés sur appareil. Cette base n'est pas une preuve de parité
 fonctionnelle.
 
+La session de l'enveloppe Tauri est enregistrée dans le stockage sécurisé du
+système. Une session déjà présente dans son propre stockage Web est copiée et
+relue avant d'être retirée de ce stockage ; en cas de conflit ou d'erreur, la
+copie existante est conservée. Cela ne récupère pas automatiquement les
+données d'origine Capacitor, dont l'origine Web et le conteneur peuvent différer.
+
 La bibliothèque propose une liste paginée des fichiers du compte et affiche le
 quota. La suppression côté serveur nécessite une action explicite ; le classement
 par projet de l'ancienne bibliothèque reste local, car aucun rattachement direct

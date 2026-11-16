@@ -42,6 +42,9 @@ export function installLegacyTransport() {
   const bridge = Object.freeze({
     exchange: (session: string, deviceId: string) => invoke("legacy_exchange", { session, deviceId }),
     login: (input: { url: string; method: string; data?: string; headers: Record<string, string> }) => invoke("legacy_login", { input }),
+    readSession: () => invoke<string | null>("session_read"),
+    writeSession: (value: string) => invoke("session_write", { value }),
+    deleteSession: () => invoke("session_delete"),
     upload: uploadFile,
     request: (request: Request): Promise<Response> => new Promise((resolve, reject) => {
       const id = crypto.randomUUID();

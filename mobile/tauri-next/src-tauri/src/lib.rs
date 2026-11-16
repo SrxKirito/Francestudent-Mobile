@@ -13,6 +13,7 @@ use std::sync::{
 };
 use tauri::ipc::Channel;
 use tauri::{Emitter, State};
+use tauri_plugin_secure_keystore::{ItemKey, SecureKeystoreExt, SetItemRequest};
 use uuid::Uuid;
 
 #[derive(Default)]
@@ -194,6 +195,40 @@ async fn legacy_login(
     francestudent_api::login::request(input)
         .await
         .map_err(|e| e.to_string())
+}
+
+const SESSION_KEY: &str = "france-student-session";
+
+#[tauri::command]
+async fn session_read(app: tauri::AppHandle) -> Result<Option<String>, String> {
+    app.secure_keystore()
+        .get_item(ItemKey {
+            key: SESSION_KEY.into(),
+        })
+        .map(|result| result.value)
+        .map_err(|_| "Stockage sécurisé indisponible.".into())
+}
+
+#[tauri::command]
+async fn session_write(app: tauri::AppHandle, value: String) -> Result<(), String> {
+    if value.is_empty() || value.len() > 16384 {
+        return Err("Session invalide.".into());
+    }
+    app.secure_keystore()
+        .set_item(SetItemRequest {
+            key: SESSION_KEY.into(),
+            value,
+        })
+        .map_err(|_| "Écriture de la session impossible.".into())
+}
+
+#[tauri::command]
+async fn session_delete(app: tauri::AppHandle) -> Result<(), String> {
+    app.secure_keystore()
+        .delete_item(ItemKey {
+            key: SESSION_KEY.into(),
+        })
+        .map_err(|_| "Suppression de la session impossible.".into())
 }
 
 struct TransferGuard<'a> {
@@ -403,6 +438,7 @@ async fn cancel_generation(state: State<'_, AppState>, id: Uuid) -> Result<(), S
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_secure_keystore::init())
         .manage(AppState::default())
         .invoke_handler(tauri::generate_handler![
             connect,
@@ -413,6 +449,9 @@ pub fn run() {
             cancel_generation,
             legacy_exchange,
             legacy_login,
+            session_read,
+            session_write,
+            session_delete,
             legacy_request,
             legacy_cancel,
             upload_begin,

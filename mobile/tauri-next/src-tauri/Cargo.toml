@@ -13,6 +13,7 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 bytes = "1"
 tauri = { version = "2", features = [] }
+tauri-plugin-secure-keystore = "=0.0.2"
 francestudent-api = { path = "../../tauri-api" }
 futures-util = "0.3"
 reqwest = { version = "0.12", default-features = false, features = ["stream"] }
