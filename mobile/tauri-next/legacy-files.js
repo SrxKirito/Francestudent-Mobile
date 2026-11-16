@@ -8,6 +8,36 @@ const originalPreviewAttachment = previewAttachment;
 const originalSendMessage = sendMessage;
 const originalUpdateSendButton = updateSendButton;
 
+function tauriMessageFiles(message) {
+  const files = [];
+  const seen = new Set();
+  for (const [ids, kind, name] of [[message.usedFilesV2Ids, "file", "Fichier enregistré"], [message.usedFileIds, "legacy", "Fichier historique"]]) {
+    for (const id of Array.isArray(ids) ? ids : []) {
+      if (typeof id !== "string" || !id || seen.has(kind + ":" + id)) continue;
+      seen.add(kind + ":" + id);
+      files.push({ id: kind + ":" + id, name, kind: "file", remoteKind: kind, remoteId: id });
+    }
+  }
+  return files;
+}
+
+function tauriMergeMessageFiles(remote, local) {
+  const result = Array.isArray(local) ? local.slice() : [];
+  const keys = new Set(result.filter(file => file.remoteId).map(file => (file.remoteKind || "file") + ":" + file.remoteId));
+  for (const file of remote || []) if (!keys.has(file.remoteKind + ":" + file.remoteId)) result.push(file);
+  return result;
+}
+
+function tauriFindLocalMessage(server, messages, position) {
+  if (server.serverMessageId) {
+    const exact = messages.find(message => message.serverMessageId === server.serverMessageId);
+    if (exact) return exact;
+  }
+  const candidate = messages[position];
+  if (!candidate || candidate.serverMessageId) return null;
+  return candidate.content === server.content || candidate.prompt === server.content ? candidate : null;
+}
+
 function paintTauriUpload(file) {
   const remove = [...document.querySelectorAll("#attachments .attachment-remove")].find(button => button.dataset.id === file.id);
   if (!remove) return;
@@ -60,8 +90,19 @@ removeAttachment = function(id) {
 previewAttachment = async function(file) {
   const original = tauriSelectedFiles.get(file.id);
   if (original) return previewBlob(file.name, original);
-  if (!file.remoteId || file.remoteKind !== "file") return originalPreviewAttachment(file);
+  if (!file.remoteId || !["file", "legacy"].includes(file.remoteKind)) return originalPreviewAttachment(file);
   try {
+    if (file.remoteKind === "legacy") {
+      const metadata = await settingsApi("/files/" + encodeURIComponent(file.remoteId));
+      if (typeof metadata?.base64Data !== "string") throw new Error("Contenu du fichier historique non reconnu.");
+      const decoded = atob(metadata.base64Data);
+      const blob = new Blob([Uint8Array.from(decoded, c => c.charCodeAt(0))], { type: metadata.contentType || "application/octet-stream" });
+      return await previewBlob(metadata.pathname || file.name, blob);
+    }
+    if (file.name === "Fichier enregistré") {
+      const metadata = await settingsApi("/filesv2/" + encodeURIComponent(file.remoteId));
+      if (typeof metadata?.filename === "string") file.name = metadata.filename;
+    }
     const response = await apiFetch("/filesv2/" + encodeURIComponent(file.remoteId) + "/content", { accept: "*/*" });
     if (!response.ok) throw new Error("HTTP " + response.status);
     let blob = await response.blob();

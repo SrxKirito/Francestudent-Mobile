@@ -20,6 +20,13 @@ async function main() {
     URL, AbortController, Array, Date, Math, String
   });
   vm.runInContext(fs.readFileSync(require("node:path").join(__dirname, "legacy-files.js"), "utf8"), context);
+  const remote = context.tauriMessageFiles({ usedFilesV2Ids: ["file-v2-1", "file-v2-1"], usedFileIds: ["legacy-1"] });
+  assert.equal(remote.length, 2);
+  const merged = context.tauriMergeMessageFiles(remote, [{ remoteId: "file-v2-1", remoteKind: "file", name: "note.txt" }]);
+  assert.equal(merged.length, 2);
+  assert.equal(merged[0].name, "note.txt");
+  assert.equal(context.tauriFindLocalMessage({ serverMessageId: "m2", content: "x" }, [{ serverMessageId: "m1", content: "x" }, { serverMessageId: "m2", content: "y" }], 0).content, "y");
+  assert.equal(context.tauriFindLocalMessage({ serverMessageId: "m3", content: "autre" }, [{ content: "ancien" }], 0), null);
   const file = new File(["contenu"], "note.txt", { type: "text/plain" });
   await context.addFiles([file]);
   await Promise.resolve();
