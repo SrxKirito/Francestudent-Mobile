@@ -7,11 +7,13 @@
     "dev": "node prepare-legacy.cjs && vite --host 0.0.0.0",
     "build": "node prepare-legacy.cjs && vite build",
     "check": "svelte-check --tsconfig ./tsconfig.json",
-    "test": "node prepare-legacy.cjs && node test-legacy-bridge.cjs && node test-legacy-files.cjs && node test-legacy-storage.cjs && node test-legacy-login.cjs && node test-legacy-session.cjs && node test-conversation-storage.cjs",
+    "test": "node prepare-legacy.cjs && node test-legacy-bridge.cjs && node test-legacy-files.cjs && node test-legacy-storage.cjs && node test-legacy-login.cjs && node test-legacy-session.cjs && node test-conversation-storage.cjs && node test-save-file.cjs",
     "tauri": "tauri"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.0.0",
+    "@tauri-apps/plugin-dialog": "^2.8.4",
+    "@tauri-apps/plugin-fs": "^2.7.1",
     "svelte": "^5.0.0"
   },
   "devDependencies": {

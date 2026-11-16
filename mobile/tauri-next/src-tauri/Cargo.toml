@@ -14,6 +14,8 @@ tauri-build = { version = "2", features = [] }
 bytes = "1"
 tauri = { version = "2", features = [] }
 tauri-plugin-secure-keystore = "=0.0.2"
+tauri-plugin-dialog = "2"
+tauri-plugin-fs = "2"
 francestudent-api = { path = "../../tauri-api" }
 futures-util = "0.3"
 reqwest = { version = "0.12", default-features = false, features = ["stream"] }

@@ -1,4 +1,7 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
+import { save } from "@tauri-apps/plugin-dialog";
+import { open } from "@tauri-apps/plugin-fs";
+import { saveWithDialog } from "./save-file.js";
 
 type TransportEvent =
   | { kind: "started"; status: number; content_type: string | null }
@@ -46,6 +49,7 @@ export function installLegacyTransport() {
     readSession: () => invoke<string | null>("session_read"),
     writeSession: (value: string) => invoke("session_write", { value }),
     deleteSession: () => invoke("session_delete"),
+    saveFile: (name: string, bytes: Uint8Array) => saveWithDialog(save, open, name, bytes),
     upload: uploadFile,
     request: (request: Request): Promise<Response> => new Promise((resolve, reject) => {
       const id = crypto.randomUUID();
