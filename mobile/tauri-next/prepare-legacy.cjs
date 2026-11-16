@@ -19,6 +19,9 @@ index = removeOnce(index, /^\s*<script src="js\/ide-link-remembered\.js"><\/scri
 const core = '<script src="js/core.js"></script>';
 if (!index.includes(core)) throw new Error("Point d'entrée de l'interface historique introuvable");
 index = index.replace(core, core + '\n  <script src="js/tauri-bridge.js"></script>');
+const conversationsScript = '<script src="js/conversations.js"></script>';
+if (!index.includes(conversationsScript)) throw new Error("Historique des conversations introuvable");
+index = index.replace(conversationsScript, conversationsScript + '\n  <script src="js/tauri-chat-search.js"></script>');
 const composer = '<script src="js/composer.js"></script>';
 if (!index.includes(composer)) throw new Error("Éditeur historique introuvable");
 index = index.replace(composer, composer + '\n  <script src="js/tauri-files.js"></script>\n  <script src="js/tauri-storage.js"></script>');
@@ -28,7 +31,7 @@ index = index.replace(render, render + '\n  <script src="js/tauri-save.js"></scr
 const login = '<script src="js/login.js"></script>';
 if (!index.includes(login)) throw new Error("Connexion historique introuvable");
 index = index.replace(login, login + '\n  <script src="js/tauri-login.js"></script>');
-index = index.replace('</head>', '  <link rel="stylesheet" href="tauri-files.css">\n</head>');
+index = index.replace('</head>', '  <link rel="stylesheet" href="tauri-files.css">\n  <link rel="stylesheet" href="tauri-chat-search.css">\n</head>');
 const appScript = '<script src="app.js"></script>';
 if (!index.includes(appScript)) throw new Error("Démarrage de l'interface historique introuvable");
 index = index.replace(appScript, appScript + '\n  <script src="js/tauri-session.js"></script>');
@@ -39,6 +42,8 @@ fs.copyFileSync(path.join(__dirname, "legacy-storage.js"), path.join(destination
 fs.copyFileSync(path.join(__dirname, "legacy-login.js"), path.join(destination, "js/tauri-login.js"));
 fs.copyFileSync(path.join(__dirname, "legacy-session.js"), path.join(destination, "js/tauri-session.js"));
 fs.copyFileSync(path.join(__dirname, "legacy-save.js"), path.join(destination, "js/tauri-save.js"));
+fs.copyFileSync(path.join(__dirname, "remote-chat-search.js"), path.join(destination, "js/tauri-chat-search.js"));
+fs.copyFileSync(path.join(__dirname, "remote-chat-search.css"), path.join(destination, "tauri-chat-search.css"));
 const corePath = path.join(destination, "js/core.js");
 let coreSource = fs.readFileSync(corePath, "utf8");
 const initialSnapshot = 'JSON.stringify({ ...store, conversations: [] })';
