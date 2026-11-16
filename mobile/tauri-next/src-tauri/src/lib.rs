@@ -8,7 +8,7 @@ use serde::Serialize;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::{
-    atomic::{AtomicBool, Ordering},
+    atomic::{AtomicBool, AtomicU64, Ordering},
     Arc, Mutex,
 };
 use tauri::ipc::Channel;
@@ -20,6 +20,151 @@ struct AppState {
     api: Mutex<Option<Arc<ApiClient>>>,
     streaming: AtomicBool,
     transfers: Mutex<HashMap<String, tokio::sync::watch::Sender<bool>>>,
+    uploads: Mutex<HashMap<String, Upload>>,
+}
+
+#[derive(Clone)]
+struct Upload {
+    chunks: tokio::sync::mpsc::Sender<Vec<u8>>,
+    cancelled: tokio::sync::watch::Sender<bool>,
+    received: Arc<AtomicU64>,
+    size: u64,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+enum UploadEvent {
+    Ready,
+}
+
+struct UploadGuard<'a> {
+    state: &'a AppState,
+    id: String,
+}
+impl Drop for UploadGuard<'_> {
+    fn drop(&mut self) {
+        if let Ok(mut uploads) = self.state.uploads.lock() {
+            uploads.remove(&self.id);
+        }
+    }
+}
+
+fn supports_mime(supported: &[String], mime: &str) -> bool {
+    let mime = mime.to_ascii_lowercase();
+    !mime.is_empty()
+        && supported.iter().any(|item| {
+            let item = item.to_ascii_lowercase();
+            item == mime
+                || item == "*/*"
+                || item
+                    .strip_suffix("/*")
+                    .is_some_and(|prefix| mime.starts_with(&format!("{prefix}/")))
+        })
+}
+
+#[tauri::command]
+async fn upload_begin(
+    state: State<'_, AppState>,
+    id: String,
+    token: String,
+    name: String,
+    mime: String,
+    size: u64,
+    on_event: Channel<UploadEvent>,
+) -> Result<Value, String> {
+    Uuid::parse_str(&id).map_err(|_| "Identifiant de transfert invalide")?;
+    if name.is_empty() || name.len() > 1024 {
+        return Err("Nom de fichier invalide.".into());
+    }
+    let api = ApiClient::new(&format!("Bearer {token}")).map_err(|e| e.to_string())?;
+    let supported = api
+        .supported_mime_types()
+        .await
+        .map_err(|e| e.to_string())?;
+    if !supports_mime(&supported, &mime) {
+        return Err("Ce type de fichier n'est pas accepté par le serveur.".into());
+    }
+    let (chunks, receiver) = tokio::sync::mpsc::channel::<Vec<u8>>(2);
+    let (cancelled, mut cancel_rx) = tokio::sync::watch::channel(false);
+    {
+        let mut uploads = state.uploads.lock().map_err(|_| "Transfert indisponible")?;
+        if uploads.contains_key(&id) {
+            return Err("Transfert déjà actif.".into());
+        }
+        uploads.insert(
+            id.clone(),
+            Upload {
+                chunks,
+                cancelled: cancelled.clone(),
+                received: Arc::new(AtomicU64::new(0)),
+                size,
+            },
+        );
+    }
+    let _guard = UploadGuard { state: &state, id };
+    on_event
+        .send(UploadEvent::Ready)
+        .map_err(|e| e.to_string())?;
+    let stream = tokio_stream::wrappers::ReceiverStream::new(receiver)
+        .map(|bytes| Ok::<_, std::io::Error>(bytes::Bytes::from(bytes)));
+    tokio::select! {
+        result = api.upload_stream(name, &mime, size, stream) => result.map_err(|e| e.to_string()),
+        _ = cancel_rx.changed() => Err("Transfert annulé.".into()),
+    }
+}
+
+#[tauri::command]
+async fn upload_chunk(
+    state: State<'_, AppState>,
+    id: String,
+    bytes: Vec<u8>,
+) -> Result<(), String> {
+    if bytes.is_empty() || bytes.len() > 256 * 1024 {
+        return Err("Bloc de transfert invalide.".into());
+    }
+    let upload = state
+        .uploads
+        .lock()
+        .map_err(|_| "Transfert indisponible")?
+        .get(&id)
+        .cloned()
+        .ok_or("Transfert terminé ou annulé.")?;
+    upload
+        .received
+        .fetch_update(Ordering::AcqRel, Ordering::Acquire, |old| {
+            old.checked_add(bytes.len() as u64)
+                .filter(|&total| total <= upload.size)
+        })
+        .map_err(|_| "La taille annoncée a été dépassée.")?;
+    upload
+        .chunks
+        .send(bytes)
+        .await
+        .map_err(|_| "Transfert interrompu.".into())
+}
+
+#[tauri::command]
+fn upload_finish(state: State<'_, AppState>, id: String) -> Result<(), String> {
+    let mut uploads = state.uploads.lock().map_err(|_| "Transfert indisponible")?;
+    let upload = uploads.get(&id).ok_or("Transfert terminé ou annulé.")?;
+    if upload.received.load(Ordering::Acquire) != upload.size {
+        return Err("Le fichier n'a pas été entièrement transmis.".into());
+    }
+    uploads.remove(&id);
+    Ok(())
+}
+
+#[tauri::command]
+fn upload_cancel(state: State<'_, AppState>, id: String) -> Result<(), String> {
+    if let Some(upload) = state
+        .uploads
+        .lock()
+        .map_err(|_| "Transfert indisponible")?
+        .remove(&id)
+    {
+        let _ = upload.cancelled.send(true);
+    }
+    Ok(())
 }
 
 #[derive(Clone, Serialize)]
@@ -259,8 +404,26 @@ pub fn run() {
             cancel_generation,
             legacy_exchange,
             legacy_request,
-            legacy_cancel
+            legacy_cancel,
+            upload_begin,
+            upload_chunk,
+            upload_finish,
+            upload_cancel
         ])
         .run(tauri::generate_context!())
         .expect("erreur au lancement de France Student");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::supports_mime;
+
+    #[test]
+    fn mime_types_are_checked_against_the_server_list() {
+        let types = vec!["application/pdf".to_owned(), "image/*".to_owned()];
+        assert!(supports_mime(&types, "application/pdf"));
+        assert!(supports_mime(&types, "image/png"));
+        assert!(!supports_mime(&types, "application/octet-stream"));
+        assert!(!supports_mime(&types, ""));
+    }
 }

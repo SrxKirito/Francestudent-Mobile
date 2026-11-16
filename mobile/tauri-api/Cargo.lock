@@ -110,6 +110,7 @@ dependencies = [
 name = "francestudent-api"
 version = "0.1.0"
 dependencies = [
+ "bytes",
  "futures-util",
  "reqwest",
  "serde",

@@ -199,6 +199,26 @@ impl ApiClient {
         Ok(Self::check(request.send().await?).await?.json().await?)
     }
 
+    /// Upload a bounded stream with a known length, without buffering the file.
+    pub async fn upload_stream<S>(
+        &self,
+        filename: String,
+        mime: &str,
+        size: u64,
+        stream: S,
+    ) -> Result<Value, ApiError>
+    where
+        S: futures_util::Stream<Item = Result<bytes::Bytes, std::io::Error>> + Send + 'static,
+    {
+        let part = multipart::Part::stream_with_length(reqwest::Body::wrap_stream(stream), size)
+            .file_name(filename)
+            .mime_str(mime)?;
+        let request = self
+            .request(Method::POST, self.url(&["filesv2"]))
+            .multipart(multipart::Form::new().part("file", part));
+        Ok(Self::check(request.send().await?).await?.json().await?)
+    }
+
     pub async fn create_chat(&self, body: &ChatCreate) -> Result<Response, ApiError> {
         Self::check(
             self.request(Method::POST, self.url(&["chats", "stream"]))
@@ -511,6 +531,51 @@ mod tests {
         let result = api.upload_file(&path).await;
         tokio::fs::remove_file(&path).await.unwrap();
         assert_eq!(result.unwrap()["id"], "file-test");
+        server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn upload_stream_sends_multiple_chunks_with_length() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let request = String::from_utf8(read_request(&mut socket).await).unwrap();
+            assert!(request.starts_with("POST /filesv2 HTTP/1.1"));
+            assert!(request.contains("name=\"file\"; filename=\"test.txt\""));
+            assert!(
+                request.contains("Content-Type: text/plain")
+                    || request.contains("content-type: text/plain")
+            );
+            assert!(request.contains("abcd"));
+            let body = b"{\"id\":\"file-stream\"}";
+            socket
+                .write_all(
+                    format!(
+                        "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                        body.len()
+                    )
+                    .as_bytes(),
+                )
+                .await
+                .unwrap();
+            socket.write_all(body).await.unwrap();
+        });
+        let api = ApiClient::with_base(
+            Url::parse(&format!("http://{addr}/")).unwrap(),
+            "test-token",
+        )
+        .unwrap();
+        let stream = futures_util::stream::iter(vec![
+            Ok(bytes::Bytes::from_static(b"ab")),
+            Ok(bytes::Bytes::from_static(b"cd")),
+        ]);
+        assert_eq!(
+            api.upload_stream("test.txt".into(), "text/plain", 4, stream)
+                .await
+                .unwrap()["id"],
+            "file-stream"
+        );
         server.await.unwrap();
     }
 

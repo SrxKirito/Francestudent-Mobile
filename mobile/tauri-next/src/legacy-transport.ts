@@ -6,9 +6,42 @@ type TransportEvent =
   | { kind: "finished" };
 type Request = { token: string; method: string; path: string; accept: string; body?: string };
 
+async function uploadFile(file: File, token: string, signal: AbortSignal, progress: (sent: number, total: number) => void): Promise<unknown> {
+  const id = crypto.randomUUID();
+  const event = new Channel<{ kind: "ready" }>();
+  let ready!: () => void;
+  const started = new Promise<void>(resolve => { ready = resolve; });
+  event.onmessage = message => { if (message.kind === "ready") ready(); };
+  const task = invoke("upload_begin", { id, token, name: file.name, mime: file.type, size: file.size, onEvent: event });
+  // Observe early server failures while file chunks are still being prepared.
+  void task.catch(() => {});
+  const cancel = () => { void invoke("upload_cancel", { id }); };
+  signal.addEventListener("abort", cancel, { once: true });
+  try {
+    await Promise.race([started, task.then(() => { throw new Error("Transfert terminé avant son initialisation."); })]);
+    if (signal.aborted) throw new DOMException("Transfert annulé.", "AbortError");
+    const blockSize = 128 * 1024;
+    for (let offset = 0; offset < file.size; offset += blockSize) {
+      if (signal.aborted) throw new DOMException("Transfert annulé.", "AbortError");
+      const bytes = new Uint8Array(await file.slice(offset, offset + blockSize).arrayBuffer());
+      await invoke("upload_chunk", { id, bytes: Array.from(bytes) });
+      progress(offset + bytes.length, file.size);
+    }
+    if (signal.aborted) throw new DOMException("Transfert annulé.", "AbortError");
+    await invoke("upload_finish", { id });
+    return await task;
+  } catch (error) {
+    cancel();
+    throw error;
+  } finally {
+    signal.removeEventListener("abort", cancel);
+  }
+}
+
 export function installLegacyTransport() {
   const bridge = Object.freeze({
     exchange: (session: string, deviceId: string) => invoke("legacy_exchange", { session, deviceId }),
+    upload: uploadFile,
     request: (request: Request): Promise<Response> => new Promise((resolve, reject) => {
       const id = crypto.randomUUID();
       let started = false;

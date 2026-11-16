@@ -1,0 +1,2 @@
+.tauri-upload-status { font-size: 11px; color: var(--muted, #999); white-space: nowrap; }
+.tauri-upload-status button { border: 0; color: inherit; background: transparent; text-decoration: underline; cursor: pointer; }

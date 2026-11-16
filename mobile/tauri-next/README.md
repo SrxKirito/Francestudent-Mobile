@@ -9,9 +9,13 @@ France IDE restent intactes pour une réintégration ultérieure. La copie est
 générée et non versionnée ; la source existante reste intacte.
 
 Un adaptateur expérimental transmet l'échange de cookie et les requêtes API
-JSON au client Rust, avec streaming et annulation. La connexion par mot de
-passe, le stockage, les pièces jointes et les autres ponts natifs ne sont pas
-terminés. Cette base n'est pas une preuve de parité fonctionnelle.
+JSON au client Rust, avec streaming et annulation. Les fichiers choisis sont
+transférés à Files v2 en blocs limités, après consultation des types MIME ; les
+identifiants retournés sont conservés avec les messages. La connexion par mot
+de passe, la migration des données, la gestion complète du stockage et les
+autres ponts natifs ne sont pas terminés. Les transferts mobiles n'ont pas
+encore été validés sur appareil. Cette base n'est pas une preuve de parité
+fonctionnelle.
 
 Vérifications locales : `npm ci`, `npm run check`, `npm run build`, puis
 `cargo check --locked` dans `src-tauri`. Pour les tests du client, exécuter
