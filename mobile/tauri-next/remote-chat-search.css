@@ -1,0 +1,32 @@
+.remote-chat-search-status {
+  color: var(--muted, #aaa);
+  font-size: 11px;
+  line-height: 1.4;
+  margin: 2px 12px 8px;
+}
+
+.remote-chat-search-status[hidden] { display: none; }
+
+.remote-chat-search-results {
+  max-height: 180px;
+  overflow-y: auto;
+  margin: 0 6px 8px;
+}
+
+.remote-chat-search-results[hidden] { display: none; }
+
+.remote-chat-search-result {
+  display: block;
+  width: 100%;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 8px;
+  color: inherit;
+  background: transparent;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+
+.remote-chat-search-result:hover, .remote-chat-search-result:focus-visible {
+  background: var(--hover, #303030);
+}
