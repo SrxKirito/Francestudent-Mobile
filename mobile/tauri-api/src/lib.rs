@@ -26,6 +26,8 @@ pub enum ApiError {
     },
     #[error("Fichier inaccessible : {0}")]
     File(#[from] std::io::Error),
+    #[error("Cette route API n'est pas autorisée")]
+    UnsupportedRoute,
 }
 
 pub struct ApiClient {
@@ -77,6 +79,28 @@ impl ApiClient {
         self.http
             .request(method, url)
             .header(AUTHORIZATION, self.authorization.clone())
+    }
+
+    /// Transitional transport for the existing interface. The destination and
+    /// methods are checked against the captured OpenAPI; two existing legacy
+    /// operations remain explicitly allowed until their replacements are known.
+    pub async fn compatibility_request(
+        &self,
+        method: &str,
+        path: &str,
+        accept: &str,
+        body: Option<String>,
+    ) -> Result<Response, ApiError> {
+        let method =
+            Method::from_bytes(method.as_bytes()).map_err(|_| ApiError::UnsupportedRoute)?;
+        let url = checked_route(&self.base, &method, path)?;
+        let mut request = self.request(method, url).header("Accept", accept);
+        if let Some(body) = body {
+            request = request
+                .header("Content-Type", "application/json")
+                .body(body);
+        }
+        Ok(request.send().await?)
     }
 
     async fn check(response: Response) -> Result<Response, ApiError> {
@@ -230,10 +254,159 @@ impl ApiClient {
     }
 }
 
+fn checked_route(base: &Url, method: &Method, path: &str) -> Result<Url, ApiError> {
+    if !path.starts_with('/') || path.starts_with("//") || path.contains('\\') || path.contains('#')
+    {
+        return Err(ApiError::UnsupportedRoute);
+    }
+    let url = base.join(path).map_err(|_| ApiError::UnsupportedRoute)?;
+    if url.origin() != base.origin()
+        || url.path().to_ascii_lowercase().contains("%2f")
+        || url.path().to_ascii_lowercase().contains("%5c")
+    {
+        return Err(ApiError::UnsupportedRoute);
+    }
+    let actual: Vec<_> = url.path().split('/').collect();
+    static SPEC: std::sync::OnceLock<Value> = std::sync::OnceLock::new();
+    let spec = SPEC.get_or_init(|| {
+        serde_json::from_str(include_str!("../../../docs/api-audit/openapi.json"))
+            .expect("checked-in OpenAPI snapshot is valid")
+    });
+    let allowed = spec["paths"].as_object().is_some_and(|paths| {
+        paths.iter().any(|(pattern, item)| {
+            let segments: Vec<_> = pattern.split('/').collect();
+            segments.len() == actual.len()
+                && segments.iter().zip(&actual).all(|(expected, received)| {
+                    expected == received
+                        || (expected.starts_with('{')
+                            && expected.ends_with('}')
+                            && !received.is_empty())
+                })
+                && item.get(method.as_str().to_ascii_lowercase()).is_some()
+        })
+    });
+    let legacy = (method == Method::GET && url.path() == "/user/me")
+        || (method == Method::POST
+            && actual.len() == 5
+            && actual[1] == "mcp"
+            && actual[2] == "servers"
+            && !actual[3].is_empty()
+            && actual[4] == "discover");
+    if !allowed && !legacy {
+        return Err(ApiError::UnsupportedRoute);
+    }
+    Ok(url)
+}
+
+/// Existing site session exchange; this is a compatibility endpoint of the
+/// current application, not an OpenAPI operation.
+pub async fn exchange_session(session: &str, device_id: &str) -> Result<Value, ApiError> {
+    let base = Url::parse("https://ia.francestudent.org/").expect("fixed URL");
+    exchange_session_at(&base, session, device_id).await
+}
+
+async fn exchange_session_at(
+    base: &Url,
+    session: &str,
+    device_id: &str,
+) -> Result<Value, ApiError> {
+    if session.is_empty()
+        || device_id.is_empty()
+        || session.bytes().any(|c| c <= 32 || c == b';' || c >= 127)
+        || device_id.bytes().any(|c| c <= 32 || c == b';' || c >= 127)
+    {
+        return Err(ApiError::InvalidCredential);
+    }
+    let client = Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .connect_timeout(Duration::from_secs(15))
+        .timeout(Duration::from_secs(30))
+        .build()?;
+    let mut cookie = HeaderValue::from_str(&format!(
+        "next-auth.session-token={session}; francestudent-device-id={device_id}"
+    ))
+    .map_err(|_| ApiError::InvalidCredential)?;
+    cookie.set_sensitive(true);
+    let response = client
+        .get(base.join("api/auth/api-token").expect("valid base"))
+        .header("Cookie", cookie)
+        .header("Referer", "https://ia.francestudent.org/")
+        .header("francestudent-client-platform", "web_fs_ai")
+        .header("francestudent-client-version", "4005601")
+        .header("francestudent-device-id", device_id)
+        .send()
+        .await?;
+    Ok(ApiClient::check(response).await?.json().await?)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    #[test]
+    fn compatibility_routes_are_confined_to_the_snapshot() {
+        let base = Url::parse("https://api.francestudent.ai/").unwrap();
+        assert!(checked_route(&base, &Method::GET, "/chats?limit=20").is_ok());
+        assert!(checked_route(
+            &base,
+            &Method::POST,
+            "/chats/11111111-1111-1111-1111-111111111111"
+        )
+        .is_ok());
+        assert!(checked_route(&base, &Method::GET, "/user/me").is_ok());
+        assert!(checked_route(&base, &Method::POST, "/mcp/servers/abc/discover").is_ok());
+        for path in [
+            "//evil.example/chats",
+            "https://evil.example/",
+            "/chats/%2fsecret",
+            "/not-in-spec",
+            "/chats#fragment",
+        ] {
+            assert!(checked_route(&base, &Method::GET, path).is_err(), "{path}");
+        }
+        assert!(checked_route(&base, &Method::POST, "/public/health").is_err());
+    }
+
+    #[tokio::test]
+    async fn session_exchange_sends_cookie_only_to_the_fixed_endpoint() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let request = String::from_utf8(read_request(&mut socket).await)
+                .unwrap()
+                .to_ascii_lowercase();
+            assert!(request.starts_with("get /api/auth/api-token http/1.1"));
+            assert!(request.contains(
+                "cookie: next-auth.session-token=test-session; francestudent-device-id=device"
+            ));
+            let body = b"{\"accessToken\":\"test-token\",\"expiresIn\":300}";
+            socket
+                .write_all(
+                    format!(
+                        "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                        body.len()
+                    )
+                    .as_bytes(),
+                )
+                .await
+                .unwrap();
+            socket.write_all(body).await.unwrap();
+        });
+        let base = Url::parse(&format!("http://{addr}/")).unwrap();
+        assert_eq!(
+            exchange_session_at(&base, "test-session", "device")
+                .await
+                .unwrap()["accessToken"],
+            "test-token"
+        );
+        assert!(matches!(
+            exchange_session_at(&base, "x;other=y", "device").await,
+            Err(ApiError::InvalidCredential)
+        ));
+        server.await.unwrap();
+    }
 
     #[tokio::test]
     async fn chat_history_request_and_auth_error() {

@@ -7,6 +7,7 @@
     "dev": "node prepare-legacy.cjs && vite --host 0.0.0.0",
     "build": "node prepare-legacy.cjs && vite build",
     "check": "svelte-check --tsconfig ./tsconfig.json",
+    "test": "node test-legacy-bridge.cjs",
     "tauri": "tauri"
   },
   "dependencies": {

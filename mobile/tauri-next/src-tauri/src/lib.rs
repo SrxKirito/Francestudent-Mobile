@@ -4,11 +4,14 @@ use francestudent_api::{
     ApiClient,
 };
 use futures_util::StreamExt;
+use serde::Serialize;
 use serde_json::Value;
+use std::collections::HashMap;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc, Mutex,
 };
+use tauri::ipc::Channel;
 use tauri::{Emitter, State};
 use uuid::Uuid;
 
@@ -16,6 +19,114 @@ use uuid::Uuid;
 struct AppState {
     api: Mutex<Option<Arc<ApiClient>>>,
     streaming: AtomicBool,
+    transfers: Mutex<HashMap<String, tokio::sync::watch::Sender<bool>>>,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+enum TransportEvent {
+    Started {
+        status: u16,
+        content_type: Option<String>,
+    },
+    Chunk {
+        bytes: Vec<u8>,
+    },
+    Finished,
+}
+
+#[tauri::command]
+async fn legacy_exchange(session: String, device_id: String) -> Result<Value, String> {
+    francestudent_api::exchange_session(&session, &device_id)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+struct TransferGuard<'a> {
+    state: &'a AppState,
+    id: String,
+}
+impl Drop for TransferGuard<'_> {
+    fn drop(&mut self) {
+        if let Ok(mut transfers) = self.state.transfers.lock() {
+            transfers.remove(&self.id);
+        }
+    }
+}
+
+#[tauri::command]
+async fn legacy_request(
+    state: State<'_, AppState>,
+    id: String,
+    token: String,
+    method: String,
+    path: String,
+    accept: String,
+    body: Option<String>,
+    on_event: Channel<TransportEvent>,
+) -> Result<(), String> {
+    Uuid::parse_str(&id).map_err(|_| "Identifiant de requête invalide")?;
+    let (cancel, mut cancelled) = tokio::sync::watch::channel(false);
+    {
+        let mut transfers = state
+            .transfers
+            .lock()
+            .map_err(|_| "Transfert indisponible")?;
+        if transfers.contains_key(&id) {
+            return Err("Requête déjà active".into());
+        }
+        transfers.insert(id.clone(), cancel);
+    }
+    let _guard = TransferGuard { state: &state, id };
+    let api = ApiClient::new(&format!("Bearer {token}")).map_err(|e| e.to_string())?;
+    let response = tokio::select! {
+        result = api.compatibility_request(&method, &path, &accept, body) => result.map_err(|e| e.to_string())?,
+        _ = cancelled.changed() => return Ok(()),
+    };
+    let status = response.status().as_u16();
+    let content_type = response
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned);
+    on_event
+        .send(TransportEvent::Started {
+            status,
+            content_type,
+        })
+        .map_err(|e| e.to_string())?;
+    let mut stream = response.bytes_stream();
+    loop {
+        let next = tokio::select! {
+            next = stream.next() => next,
+            _ = cancelled.changed() => return Ok(()),
+        };
+        match next {
+            Some(Ok(bytes)) => on_event
+                .send(TransportEvent::Chunk {
+                    bytes: bytes.to_vec(),
+                })
+                .map_err(|e| e.to_string())?,
+            Some(Err(error)) => return Err(error.to_string()),
+            None => break,
+        }
+    }
+    on_event
+        .send(TransportEvent::Finished)
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+fn legacy_cancel(state: State<'_, AppState>, id: String) -> Result<(), String> {
+    let transfers = state
+        .transfers
+        .lock()
+        .map_err(|_| "Transfert indisponible")?;
+    if let Some(cancel) = transfers.get(&id) {
+        let _ = cancel.send(true);
+    }
+    Ok(())
 }
 
 fn client(state: &AppState) -> Result<Arc<ApiClient>, String> {
@@ -145,7 +256,10 @@ pub fn run() {
             get_chat,
             list_projects,
             generate,
-            cancel_generation
+            cancel_generation,
+            legacy_exchange,
+            legacy_request,
+            legacy_cancel
         ])
         .run(tauri::generate_context!())
         .expect("erreur au lancement de France Student");
