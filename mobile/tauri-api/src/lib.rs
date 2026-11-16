@@ -280,4 +280,98 @@ mod tests {
         assert_eq!(value["files"][0], "file-1");
         assert!(value.get("isPrivate").is_none());
     }
+
+    async fn read_request(socket: &mut tokio::net::TcpStream) -> Vec<u8> {
+        let mut request = Vec::new();
+        let mut buffer = [0_u8; 4096];
+        loop {
+            let n = socket.read(&mut buffer).await.unwrap();
+            assert_ne!(n, 0, "requête HTTP incomplète");
+            request.extend_from_slice(&buffer[..n]);
+            if let Some(end) = request.windows(4).position(|part| part == b"\r\n\r\n") {
+                let headers = String::from_utf8_lossy(&request[..end]);
+                let length = headers
+                    .lines()
+                    .find_map(|line| {
+                        let (name, value) = line.split_once(':')?;
+                        name.eq_ignore_ascii_case("content-length")
+                            .then(|| value.trim().parse::<usize>().unwrap())
+                    })
+                    .unwrap_or(0);
+                if request.len() >= end + 4 + length {
+                    return request;
+                }
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn upload_uses_multipart_file_field() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let request = read_request(&mut socket).await;
+            let request = String::from_utf8(request).unwrap();
+            assert!(request.starts_with("POST /filesv2 HTTP/1.1"));
+            assert!(request.contains("name=\"file\""));
+            assert!(request.contains("contenu de test"));
+            let body = b"{\"id\":\"file-test\"}";
+            let headers = format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", body.len());
+            socket.write_all(headers.as_bytes()).await.unwrap();
+            socket.write_all(body).await.unwrap();
+        });
+        let path = std::env::temp_dir().join(format!(
+            "fs-upload-{}-{}.txt",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        tokio::fs::write(&path, "contenu de test").await.unwrap();
+        let api = ApiClient::with_base(
+            Url::parse(&format!("http://{addr}/")).unwrap(),
+            "test-token",
+        )
+        .unwrap();
+        let result = api.upload_file(&path).await;
+        tokio::fs::remove_file(&path).await.unwrap();
+        assert_eq!(result.unwrap()["id"], "file-test");
+        server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn resume_uses_last_event_cursor() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let id = Uuid::parse_str("11111111-1111-1111-1111-111111111111").unwrap();
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let request = String::from_utf8(read_request(&mut socket).await).unwrap();
+            assert!(request.starts_with(
+                "GET /chats/11111111-1111-1111-1111-111111111111/stream?last_event_id=4 HTTP/1.1"
+            ));
+            let body = b"id: 5\nevent: completed\ndata: {}\n\n";
+            let headers = format!("HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", body.len());
+            socket.write_all(headers.as_bytes()).await.unwrap();
+            socket.write_all(body).await.unwrap();
+        });
+        let api = ApiClient::with_base(
+            Url::parse(&format!("http://{addr}/")).unwrap(),
+            "test-token",
+        )
+        .unwrap();
+        let bytes = api
+            .resume_stream(id, Some(4))
+            .await
+            .unwrap()
+            .bytes()
+            .await
+            .unwrap();
+        let events = sse::Parser::default().feed(&bytes).unwrap();
+        assert_eq!(events[0].id.as_deref(), Some("5"));
+        assert_eq!(events[0].event, "completed");
+        server.await.unwrap();
+    }
 }
