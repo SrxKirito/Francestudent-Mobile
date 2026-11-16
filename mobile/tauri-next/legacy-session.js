@@ -23,13 +23,6 @@ startApp = async function() {
     if (old && secure && old !== secure) throw new Error("Deux sessions locales différentes ont été trouvées. Les données ont été conservées.");
     if (old && !secure) { await writeVerifiedSession(old); secure = old; }
     store.session = secure || "";
-    saveStore = function() {
-      try {
-        const snapshot = { ...store };
-        delete snapshot.session;
-        localStorage.setItem(STORE_KEY, JSON.stringify(snapshot));
-      } catch { alert("Stockage plein : les données locales n'ont pas pu être enregistrées."); }
-    };
     secureSessionReady = true;
     return originalStartApp();
   } catch (error) {

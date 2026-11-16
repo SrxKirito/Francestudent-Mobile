@@ -35,6 +35,14 @@ fs.copyFileSync(path.join(__dirname, "legacy-files.js"), path.join(destination, 
 fs.copyFileSync(path.join(__dirname, "legacy-storage.js"), path.join(destination, "js/tauri-storage.js"));
 fs.copyFileSync(path.join(__dirname, "legacy-login.js"), path.join(destination, "js/tauri-login.js"));
 fs.copyFileSync(path.join(__dirname, "legacy-session.js"), path.join(destination, "js/tauri-session.js"));
+const corePath = path.join(destination, "js/core.js");
+let coreSource = fs.readFileSync(corePath, "utf8");
+const initialSnapshot = 'JSON.stringify({ ...store, conversations: [] })';
+const normalSnapshot = 'JSON.stringify(conversationDatabase ? { ...store, conversations: [] } : store)';
+if (!coreSource.includes(initialSnapshot) || !coreSource.includes(normalSnapshot)) throw new Error("Stockage historique des conversations introuvable");
+coreSource = coreSource.replace(initialSnapshot, 'JSON.stringify({ ...store, session: undefined, conversations: [] })');
+coreSource = coreSource.replace(normalSnapshot, 'JSON.stringify(conversationDatabase ? { ...store, session: undefined, conversations: [] } : { ...store, session: undefined })');
+fs.writeFileSync(corePath, coreSource);
 fs.copyFileSync(path.join(__dirname, "legacy-files.css"), path.join(destination, "tauri-files.css"));
 const composerPath = path.join(destination, "js/composer.js");
 const composerSource = fs.readFileSync(composerPath, "utf8");

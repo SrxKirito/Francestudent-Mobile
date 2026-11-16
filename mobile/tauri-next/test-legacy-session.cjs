@@ -12,7 +12,8 @@ function setup(oldSession, initialVault) {
   const context = vm.createContext({
     store: { session: oldSession, deviceId: "device", theme: "dark" }, STORE_KEY: "fs-chat-state",
     localStorage: { setItem(key, value) { assert.equal(key, "fs-chat-state"); saved = value; } },
-    saveStore() {}, bindEvents() {}, showLogin(value) { message = value; }, showToast() {}, alert() {},
+    saveStore() { const snapshot = { ...context.store }; delete snapshot.session; context.localStorage.setItem("fs-chat-state", JSON.stringify(snapshot)); },
+    bindEvents() {}, showLogin(value) { message = value; }, showToast() {}, alert() {},
     authError: text => new Error(text),
     tauriTransport: {
       readSession: async () => vault,
