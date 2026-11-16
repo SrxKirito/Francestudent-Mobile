@@ -1,4 +1,5 @@
 //! Centralized France Student API client, based on the checked-in OpenAPI snapshot.
+pub mod login;
 pub mod models;
 pub mod sse;
 
@@ -17,7 +18,7 @@ use uuid::Uuid;
 pub enum ApiError {
     #[error("Identifiant d'authentification invalide")]
     InvalidCredential,
-    #[error("Erreur réseau : {0}")]
+    #[error("Impossible de joindre le serveur")]
     Network(#[from] reqwest::Error),
     #[error("Le serveur a refusé la requête (HTTP {status})")]
     Http {
@@ -28,6 +29,8 @@ pub enum ApiError {
     File(#[from] std::io::Error),
     #[error("Cette route API n'est pas autorisée")]
     UnsupportedRoute,
+    #[error("Réponse trop volumineuse")]
+    ResponseTooLarge,
 }
 
 pub struct ApiClient {

@@ -41,6 +41,7 @@ async function uploadFile(file: File, token: string, signal: AbortSignal, progre
 export function installLegacyTransport() {
   const bridge = Object.freeze({
     exchange: (session: string, deviceId: string) => invoke("legacy_exchange", { session, deviceId }),
+    login: (input: { url: string; method: string; data?: string; headers: Record<string, string> }) => invoke("legacy_login", { input }),
     upload: uploadFile,
     request: (request: Request): Promise<Response> => new Promise((resolve, reject) => {
       const id = crypto.randomUUID();

@@ -187,6 +187,15 @@ async fn legacy_exchange(session: String, device_id: String) -> Result<Value, St
         .map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+async fn legacy_login(
+    input: francestudent_api::login::LoginRequest,
+) -> Result<francestudent_api::login::LoginResponse, String> {
+    francestudent_api::login::request(input)
+        .await
+        .map_err(|e| e.to_string())
+}
+
 struct TransferGuard<'a> {
     state: &'a AppState,
     id: String,
@@ -403,6 +412,7 @@ pub fn run() {
             generate,
             cancel_generation,
             legacy_exchange,
+            legacy_login,
             legacy_request,
             legacy_cancel,
             upload_begin,

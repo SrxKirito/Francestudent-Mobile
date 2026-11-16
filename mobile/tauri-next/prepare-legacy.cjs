@@ -22,11 +22,15 @@ index = index.replace(core, core + '\n  <script src="js/tauri-bridge.js"></scrip
 const composer = '<script src="js/composer.js"></script>';
 if (!index.includes(composer)) throw new Error("Éditeur historique introuvable");
 index = index.replace(composer, composer + '\n  <script src="js/tauri-files.js"></script>\n  <script src="js/tauri-storage.js"></script>');
+const login = '<script src="js/login.js"></script>';
+if (!index.includes(login)) throw new Error("Connexion historique introuvable");
+index = index.replace(login, login + '\n  <script src="js/tauri-login.js"></script>');
 index = index.replace('</head>', '  <link rel="stylesheet" href="tauri-files.css">\n</head>');
 fs.writeFileSync(indexPath, index);
 fs.copyFileSync(path.join(__dirname, "legacy-bridge.js"), path.join(destination, "js/tauri-bridge.js"));
 fs.copyFileSync(path.join(__dirname, "legacy-files.js"), path.join(destination, "js/tauri-files.js"));
 fs.copyFileSync(path.join(__dirname, "legacy-storage.js"), path.join(destination, "js/tauri-storage.js"));
+fs.copyFileSync(path.join(__dirname, "legacy-login.js"), path.join(destination, "js/tauri-login.js"));
 fs.copyFileSync(path.join(__dirname, "legacy-files.css"), path.join(destination, "tauri-files.css"));
 const composerPath = path.join(destination, "js/composer.js");
 const composerSource = fs.readFileSync(composerPath, "utf8");

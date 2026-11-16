@@ -12,7 +12,9 @@ Un adaptateur expérimental transmet l'échange de cookie et les requêtes API
 JSON au client Rust, avec streaming et annulation. Les fichiers choisis sont
 transférés à Files v2 en blocs limités, après consultation des types MIME ; les
 identifiants retournés sont conservés avec les messages. La connexion par mot
-de passe, la migration des données, la gestion complète du stockage et les
+de passe utilise le parcours existant avec un transport Rust limité aux deux
+domaines observés ; elle reste à valider avec un compte de test autorisé. La
+migration des données, la gestion complète du stockage et les
 autres ponts natifs ne sont pas terminés. Les transferts mobiles n'ont pas
 encore été validés sur appareil. Cette base n'est pas une preuve de parité
 fonctionnelle.
