@@ -6,13 +6,14 @@ type TransportEvent =
   | { kind: "finished" };
 type Request = { token: string; method: string; path: string; accept: string; body?: string };
 
-async function uploadFile(file: File, token: string, signal: AbortSignal, progress: (sent: number, total: number) => void): Promise<unknown> {
+async function uploadFile(file: File, token: string, signal: AbortSignal, progress: (sent: number, total: number) => void, kind: "file" | "skill" = "file"): Promise<unknown> {
   const id = crypto.randomUUID();
   const event = new Channel<{ kind: "ready" }>();
   let ready!: () => void;
   const started = new Promise<void>(resolve => { ready = resolve; });
   event.onmessage = message => { if (message.kind === "ready") ready(); };
-  const task = invoke("upload_begin", { id, token, name: file.name, mime: file.type, size: file.size, onEvent: event });
+  const mime = file.type || (kind === "skill" ? "application/octet-stream" : "");
+  const task = invoke("upload_begin", { id, token, name: file.name, mime, size: file.size, kind, onEvent: event });
   // Observe early server failures while file chunks are still being prepared.
   void task.catch(() => {});
   const cancel = () => { void invoke("upload_cancel", { id }); };

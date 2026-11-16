@@ -125,11 +125,16 @@ async function beginTauriUpload(entry) {
   renderAttachments(); updateSendButton();
   let lastPaint = 0;
   try {
-    const token = await getAccessToken();
-    const result = await tauriTransport.upload(file, token, controller.signal, (sent, total) => {
+    const send = async force => tauriTransport.upload(file, await getAccessToken(force), controller.signal, (sent, total) => {
       entry.uploadProgress = total ? sent / total : 1;
       if (Date.now() - lastPaint > 120 || sent === total) { paintTauriUpload(entry); lastPaint = Date.now(); }
     });
+    let result;
+    try { result = await send(false); }
+    catch (error) {
+      if (!controller.signal.aborted && /HTTP 401\b/.test(String(error?.message || error))) result = await send(true);
+      else throw error;
+    }
     if (controller.signal.aborted) return;
     if (!result || typeof result.id !== "string" || !result.id) throw new Error("Identifiant de fichier absent dans la réponse du serveur.");
     entry.remoteId = result.id; entry.remoteKind = "file"; entry.uploadState = "done";

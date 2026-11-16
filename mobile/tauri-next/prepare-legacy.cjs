@@ -58,6 +58,13 @@ const renderFiles = 'if (message.role === "user" && message.attachments) renderM
 if (!conversations.includes(renderFiles)) throw new Error("Affichage des pièces jointes introuvable");
 conversations = conversations.replace(renderFiles, 'if (message.attachments && message.attachments.length) renderMessageAttachments(bubble, message.attachments);');
 fs.writeFileSync(conversationsPath, conversations);
+const streamPath = path.join(destination, "js/stream.js");
+let stream = fs.readFileSync(streamPath, "utf8");
+const imageUpload = 'postAttachment("/files/upload", { data: src, mime: info[1], name: "image-precedente." + ext })';
+if (!stream.includes(imageUpload) || !stream.includes('images.push(remoteId);')) throw new Error("Réutilisation d'image générée introuvable");
+stream = stream.replace(imageUpload, 'postAttachment("/filesv2", { data: src, mime: info[1], name: "image-precedente." + ext })');
+stream = stream.replace('images.push(remoteId);', 'files.push(remoteId);');
+fs.writeFileSync(streamPath, stream);
 const libraryPath = path.join(destination, "js/library.js");
 let library = fs.readFileSync(libraryPath, "utf8");
 const projectLabel = "'Classer '+record.name+' dans un projet'";

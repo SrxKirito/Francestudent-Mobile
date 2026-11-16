@@ -71,6 +71,7 @@ async fn upload_begin(
     name: String,
     mime: String,
     size: u64,
+    kind: String,
     on_event: Channel<UploadEvent>,
 ) -> Result<Value, String> {
     Uuid::parse_str(&id).map_err(|_| "Identifiant de transfert invalide")?;
@@ -78,12 +79,18 @@ async fn upload_begin(
         return Err("Nom de fichier invalide.".into());
     }
     let api = ApiClient::new(&format!("Bearer {token}")).map_err(|e| e.to_string())?;
-    let supported = api
-        .supported_mime_types()
-        .await
-        .map_err(|e| e.to_string())?;
-    if !supports_mime(&supported, &mime) {
-        return Err("Ce type de fichier n'est pas accepté par le serveur.".into());
+    match kind.as_str() {
+        "file" => {
+            let supported = api
+                .supported_mime_types()
+                .await
+                .map_err(|e| e.to_string())?;
+            if !supports_mime(&supported, &mime) {
+                return Err("Ce type de fichier n'est pas accepté par le serveur.".into());
+            }
+        }
+        "skill" => (),
+        _ => return Err("Type de transfert non pris en charge.".into()),
     }
     let (chunks, receiver) = tokio::sync::mpsc::channel::<Vec<u8>>(2);
     let (cancelled, mut cancel_rx) = tokio::sync::watch::channel(false);
@@ -108,8 +115,15 @@ async fn upload_begin(
         .map_err(|e| e.to_string())?;
     let stream = tokio_stream::wrappers::ReceiverStream::new(receiver)
         .map(|bytes| Ok::<_, std::io::Error>(bytes::Bytes::from(bytes)));
+    let upload = async {
+        if kind == "skill" {
+            api.upload_skill_stream(name, &mime, size, stream).await
+        } else {
+            api.upload_stream(name, &mime, size, stream).await
+        }
+    };
     tokio::select! {
-        result = api.upload_stream(name, &mime, size, stream) => result.map_err(|e| e.to_string()),
+        result = upload => result.map_err(|e| e.to_string()),
         _ = cancel_rx.changed() => Err("Transfert annulé.".into()),
     }
 }

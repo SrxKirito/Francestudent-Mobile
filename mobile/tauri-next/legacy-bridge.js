@@ -21,7 +21,15 @@ function tauriChatRequest(path, method, body) {
 }
 
 apiFetch = async function(path, { method = "GET", body, accept = "application/json", stream = false } = {}, retried = false) {
-  if (typeof FormData !== "undefined" && body instanceof FormData) throw new Error("L'envoi de fichiers n'est pas encore disponible dans cette version de migration.");
+  if (typeof FormData !== "undefined" && body instanceof FormData) {
+    const kind = path === "/skills" && method === "POST" ? "skill" : path === "/filesv2" && method === "POST" ? "file" : "";
+    const field = kind === "skill" ? "files" : "file";
+    const entries = [...body.entries()];
+    if (!kind || entries.length !== 1 || entries[0][0] !== field || typeof entries[0][1]?.slice !== "function") throw new Error("Ce formulaire de fichier ne peut pas encore être envoyé.");
+    const token = await getAccessToken(retried);
+    const result = await tauriTransport.upload(entries[0][1], token, new AbortController().signal, () => {}, kind);
+    return new Response(JSON.stringify(result), { status: 200, headers: { "content-type": "application/json" } });
+  }
   const token = await getAccessToken(retried);
   const request = tauriChatRequest(path, method, body);
   const response = await tauriTransport.request({ ...request, method, token, accept });

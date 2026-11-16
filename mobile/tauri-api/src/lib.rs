@@ -213,13 +213,47 @@ impl ApiClient {
     where
         S: futures_util::Stream<Item = Result<bytes::Bytes, std::io::Error>> + Send + 'static,
     {
+        self.multipart_stream("filesv2", "file", filename, mime, size, stream)
+            .await
+    }
+
+    pub async fn upload_skill_stream<S>(
+        &self,
+        filename: String,
+        mime: &str,
+        size: u64,
+        stream: S,
+    ) -> Result<Value, ApiError>
+    where
+        S: futures_util::Stream<Item = Result<bytes::Bytes, std::io::Error>> + Send + 'static,
+    {
+        self.multipart_stream("skills", "files", filename, mime, size, stream)
+            .await
+    }
+
+    async fn multipart_stream<S>(
+        &self,
+        route: &str,
+        field: &str,
+        filename: String,
+        mime: &str,
+        size: u64,
+        stream: S,
+    ) -> Result<Value, ApiError>
+    where
+        S: futures_util::Stream<Item = Result<bytes::Bytes, std::io::Error>> + Send + 'static,
+    {
         let part = multipart::Part::stream_with_length(reqwest::Body::wrap_stream(stream), size)
             .file_name(filename)
             .mime_str(mime)?;
         let request = self
-            .request(Method::POST, self.url(&["filesv2"]))
-            .multipart(multipart::Form::new().part("file", part));
-        Ok(Self::check(request.send().await?).await?.json().await?)
+            .request(Method::POST, self.url(&[route]))
+            .multipart(multipart::Form::new().part(field.to_owned(), part));
+        let response = Self::check(request.send().await?).await?;
+        if response.content_length() == Some(0) {
+            return Ok(Value::Null);
+        }
+        Ok(response.json().await?)
     }
 
     pub async fn create_chat(&self, body: &ChatCreate) -> Result<Response, ApiError> {
@@ -578,6 +612,35 @@ mod tests {
                 .await
                 .unwrap()["id"],
             "file-stream"
+        );
+        server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn skill_upload_uses_documented_files_field_and_accepts_empty_response() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let request = String::from_utf8(read_request(&mut socket).await).unwrap();
+            assert!(request.starts_with("POST /skills HTTP/1.1"));
+            assert!(request.contains("name=\"files\"; filename=\"SKILL.md\""));
+            socket
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+                .await
+                .unwrap();
+        });
+        let api = ApiClient::with_base(
+            Url::parse(&format!("http://{addr}/")).unwrap(),
+            "test-token",
+        )
+        .unwrap();
+        let stream = futures_util::stream::iter(vec![Ok(bytes::Bytes::from_static(b"abc"))]);
+        assert_eq!(
+            api.upload_skill_stream("SKILL.md".into(), "text/markdown", 3, stream)
+                .await
+                .unwrap(),
+            Value::Null
         );
         server.await.unwrap();
     }
