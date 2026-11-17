@@ -27,6 +27,7 @@ const progress = {
   "POST /chats/{chatId}/shares": ["Implémentée", "Permissions et serveur à vérifier"],
   "PATCH /chats/{chatId}/shares": ["Implémentée", "Permissions et serveur à vérifier"],
   "DELETE /chats/{chatId}/shares": ["Implémentée", "Permissions et serveur à vérifier"],
+  "PATCH /messages/{messageId}": ["Implémentée", "Synchronisation du vote non testée"],
   "GET /chats/{chatId}/stream": ["Implémentée", "Reprise SSE simulée ; appareil à vérifier"],
   "POST /filesv2": ["Implémentée", "Multipart simulé ; appareil et serveur à vérifier"],
   "GET /filesv2": ["Implémentée", "Pagination simulée ; serveur à vérifier"],

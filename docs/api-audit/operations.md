@@ -81,7 +81,7 @@ Le statut « À adapter » indique un travail ou une validation restant à faire
 | MCP Servers | `POST /mcp/servers/{serverId}` | Modifier un serveur MCP de l'utilisateur authentifie | À adapter | Non testée |
 | MCP Servers | `POST /mcp/servers/{serverId}/oauth/start` | Demarrer l'autorisation OAuth d'un serveur MCP | À adapter | Non testée |
 | MCP Servers | `POST /mcp/servers/oauth/complete` | Terminer l'autorisation OAuth d'un serveur MCP | À adapter | Non testée |
-| Messages | `PATCH /messages/{messageId}` | Mettre a jour le vote d'un message | À adapter | Non testée |
+| Messages | `PATCH /messages/{messageId}` | Mettre a jour le vote d'un message | Implémentée | Synchronisation du vote non testée |
 | Metrics | `GET /metrics` | Exporter les metriques Prometheus | À adapter | Non testée |
 | Metrics | `GET /metrics/chat-streams` | Consulter l'impact de la limite de streams | À adapter | Non testée |
 | Models | `GET /models` | Lister les modeles disponibles | À adapter | Non testée |
