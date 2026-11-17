@@ -51,6 +51,8 @@ export function installLegacyTransport() {
     deleteSession: () => invoke("session_delete"),
     saveFile: (name: string, bytes: Uint8Array) => saveWithDialog(save, open, name, bytes),
     saveResponse: (name: string, response: Response) => saveResponseWithDialog(save, open, name, response),
+    canOpenSavedFile: () => invoke<boolean>("speech_supported").catch(() => false),
+    openSavedFile: (path: string) => invoke("plugin:file-preview|open", { path }),
     upload: uploadFile,
     request: (request: Request): Promise<Response> => new Promise((resolve, reject) => {
       const id = crypto.randomUUID();

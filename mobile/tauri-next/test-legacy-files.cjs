@@ -102,3 +102,26 @@ async function testBoundedPreviewAndDownload() {
   assert.equal(context.tauriDecodedFileResponse(binary), binary);
 }
 testBoundedPreviewAndDownload().then(() => console.log("Aperçu borné et téléchargement décodé par blocs vérifiés.")).catch(error => { console.error(error); process.exitCode = 1; });
+
+async function testDownloadTauriRemoteFile() {
+  const notices = [];
+  let openedPath = null;
+  const context = vm.createContext({
+    renderAttachments() {}, removeAttachment() {}, previewAttachment() {}, sendMessage() {}, updateSendButton() {},
+    apiFetch: async () => new Response("fichier test", { headers: { "content-type": "application/octet-stream" } }),
+    tauriTransport: {
+      saveResponse: async (name, res) => "/path/to/" + name,
+      canOpenSavedFile: async () => true,
+      openSavedFile: async (path) => { openedPath = path; }
+    },
+    showToast: value => notices.push(value),
+    confirm: () => true,
+    URL, AbortController, Array, Date, Math, String, Blob, Response, TransformStream, TextDecoder, Uint8Array
+  });
+  vm.runInContext(fs.readFileSync(require("node:path").join(__dirname, "legacy-files.js"), "utf8"), context);
+  await context.downloadTauriRemoteFile({ remoteId: "file-123", name: "rapport.pdf" });
+  assert.equal(openedPath, "/path/to/rapport.pdf");
+  assert.ok(notices.some(t => t.includes("Fichier enregistré.")));
+}
+testDownloadTauriRemoteFile().then(() => console.log("Téléchargement et ouverture de fichier vérifiés.")).catch(error => { console.error(error); process.exitCode = 1; });
+

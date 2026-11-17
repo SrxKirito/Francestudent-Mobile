@@ -172,8 +172,12 @@ async function downloadTauriRemoteFile(file) {
   try {
     const response = await apiFetch("/filesv2/" + encodeURIComponent(file.remoteId) + "/content", { accept: "*/*" });
     if (!response.ok) throw new Error("HTTP " + response.status);
-    await tauriTransport.saveResponse(file.name, tauriDecodedFileResponse(response));
+    const path = await tauriTransport.saveResponse(file.name, tauriDecodedFileResponse(response));
     showToast("Fichier enregistré.");
+    if (await tauriTransport.canOpenSavedFile() && confirm("Fichier enregistré. L’ouvrir maintenant ?")) {
+      try { await tauriTransport.openSavedFile(path); }
+      catch (error) { showToast("Ouverture impossible : " + (error?.message || error), true); }
+    }
   } catch (error) { showToast("Téléchargement impossible : " + (error?.message || error), true); }
 }
 
