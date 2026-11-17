@@ -29,10 +29,11 @@ async function main() {
 
   const lockedId = "11111111-1111-1111-1111-111111111111";
   const otherId = "22222222-2222-2222-2222-222222222222";
-  const lockedConversation = { id: "local-locked", chatId: lockedId, title: "Secret", messages: [{ content: "privé" }] };
+  // The `serverLocked` flag is persisted locally, so the chat stays hidden after a restart.
+  const lockedConversation = { id: "local-locked", chatId: lockedId, serverLocked: true, title: "Secret", messages: [{ content: "privé" }] };
   const otherConversation = { id: "local-other", chatId: otherId, title: "Public", messages: [{ content: "ouvert" }] };
 
-  const server = { pin: "1234", accessOpen: false, locked: new Set([lockedId]) };
+  const server = { pin: "1234", token: null, tokenSeq: 0, destructiveCalls: 0, locked: new Set([lockedId]) };
   const calls = [], notices = [], events = [], documentListeners = {};
   let current = otherConversation, newConversationCalls = 0, renderCalls = 0;
 
@@ -54,29 +55,35 @@ async function main() {
     apiFetch: async (route, options = {}) => {
       const method = options.method || "GET";
       const body = typeof options.body === "string" ? JSON.parse(options.body) : undefined;
-      calls.push({ route, method, body });
-      if (route === "/locked-chats/status" && method === "GET") return reply(200, { hasPin: !!server.pin, accessOpen: server.accessOpen });
+      calls.push({ route, method, body, lockedAccess: options.lockedAccess });
+      // The server only honours the token it issued last (a new one replaces the previous one).
+      const granted = server.token !== null && options.lockedAccess === server.token;
+      const issueToken = () => { server.token = "token-" + (++server.tokenSeq); return { accessToken: server.token, idleTimeoutSeconds: 300 }; };
+      if (route === "/locked-chats/status" && method === "GET") return reply(200, { hasPin: !!server.pin, accessOpen: granted });
       if (route === "/locked-chats/access" && method === "POST") {
         if (body?.pin !== server.pin) return reply(403, { message: "PIN incorrect" });
-        server.accessOpen = true;
-        return reply(204);
+        return reply(200, issueToken());
       }
-      if (route === "/locked-chats/access" && method === "DELETE") { server.accessOpen = false; return reply(204); }
-      if (route === "/locked-chats" && method === "GET") return reply(200, { items: [...server.locked].map(id => ({ id, title: "Chat " + id.slice(0, 4) })) });
+      if (route === "/locked-chats/access" && method === "DELETE") { if (granted) server.token = null; return reply(204); }
+      if (route === "/locked-chats" && method === "GET") {
+        if (!granted) return reply(403, { message: "Accès fermé" });
+        return reply(200, { chats: [...server.locked].map(id => ({ id, title: "Chat " + id.slice(0, 4) })), hasMore: false });
+      }
       if (route.startsWith("/locked-chats/chats/")) {
+        if (!granted) return reply(403, { message: "Accès fermé" });
         const id = decodeURIComponent(route.slice("/locked-chats/chats/".length));
         if (method === "PUT") { server.locked.add(id); return reply(204); }
         if (method === "DELETE") { server.locked.delete(id); return reply(204); }
       }
       if (route === "/locked-chats/pin") {
-        if (method === "POST") { server.pin = body.pin; return reply(201, {}); }
+        if (method === "POST") { server.pin = body.pin; return reply(200, issueToken()); }
         if (method === "PUT") {
           if (body?.currentPin !== server.pin) return reply(403, { message: "PIN incorrect" });
           server.pin = body.newPin; return reply(204);
         }
         if (method === "DELETE") {
-          if (body?.pin !== server.pin) return reply(403, { message: "PIN incorrect" });
-          server.pin = null; server.locked.clear(); server.accessOpen = false; return reply(204);
+          // Must never be reached: it would permanently delete the locked conversations.
+          server.destructiveCalls++; server.pin = null; server.locked.clear(); return reply(204);
         }
       }
       return reply(404, { message: "Route inattendue" });
@@ -92,6 +99,8 @@ async function main() {
   // Synchronisation initiale (status + liste) au chargement du module.
   await flush();
   assert.equal(lockedConversation.serverLocked, true);
+  assert.equal(calls.some(call => call.route === "/locked-chats" && call.method === "GET"), false, "pas de liste verrouillée sans jeton après un démarrage");
+  assert.equal(ctx.conversationMatches(lockedConversation, ""), false, "chat verrouillé masqué au démarrage");
   calls.length = 0;
 
   // 1. getStatus
@@ -123,6 +132,7 @@ async function main() {
   const items = await api.list();
   assert.equal(calls[0].route, "/locked-chats");
   assert.equal(calls[0].method, "GET");
+  assert.equal(calls[0].lockedAccess, server.token, "la liste doit porter le jeton d'accès");
   assert.equal(items.length, 1);
   assert.equal(items[0].id, lockedId);
   assert.equal(api.isChatLocked(lockedId), true);
@@ -133,6 +143,7 @@ async function main() {
   assert.equal(await api.lockChat(otherId), true);
   assert.equal(calls[0].route, `/locked-chats/chats/${otherId}`);
   assert.equal(calls[0].method, "PUT");
+  assert.equal(calls[0].lockedAccess, server.token, "le verrouillage doit porter le jeton d'accès");
   assert.equal(otherConversation.serverLocked, true);
   assert.equal(api.isChatLocked(otherId), true);
   await assert.rejects(api.lockChat("pas-un-uuid"), /invalide/);
@@ -167,10 +178,14 @@ async function main() {
   // 9. closeAccess + masquage via conversationMatches
   current = lockedConversation;
   const newConversationBefore = newConversationCalls;
+  const tokenBeforeClose = server.token;
+  assert.ok(tokenBeforeClose, "un jeton doit être détenu avant la fermeture");
   calls.length = 0;
   state = await api.closeAccess();
   assert.equal(calls[0].route, "/locked-chats/access");
   assert.equal(calls[0].method, "DELETE");
+  assert.equal(calls[0].lockedAccess, tokenBeforeClose, "la fermeture révoque le jeton côté serveur");
+  assert.equal(server.token, null);
   assert.equal(state.accessOpen, false);
   assert.equal(ctx.conversationMatches(lockedConversation, ""), false);
   assert.equal(ctx.conversationMatches(otherConversation, ""), true);
@@ -193,25 +208,54 @@ async function main() {
   assert.equal(ctx.conversationMatches(lockedConversation, ""), false);
   await flush();
   assert.ok(calls.some(call => call.route === "/locked-chats/access" && call.method === "DELETE"));
-  assert.equal(server.accessOpen, false);
+  assert.equal(server.token, null, "le jeton est révoqué côté serveur en arrière-plan");
 
-  // 8. removePin
+  // Une ouverture qui se termine alors que l'app est en arrière-plan est révoquée aussitôt.
   calls.length = 0;
-  await assert.rejects(api.removePin("0000"), /PIN incorrect/);
+  await api.openAccess("5678");
+  assert.equal(api.state().accessOpen, false, "pas d'accès ouvert en arrière-plan");
+  await flush();
+  assert.equal(server.token, null, "jeton obtenu en arrière-plan révoqué");
+  ctx.document.visibilityState = "visible";
+
+  // 8. removePin : toujours refusé, aucune route destructive atteinte
+  calls.length = 0;
+  await assert.rejects(api.removePin("5678"), /indisponible/);
+  await assert.rejects(ctx.apiFetch("/locked-chats/pin", { method: "DELETE", body: JSON.stringify({ pin: "5678" }) }), /interdite/);
+  assert.equal(calls.length, 0, "aucune requête ne doit partir");
+  assert.equal(server.destructiveCalls, 0);
+  assert.equal(server.locked.has(lockedId), true);
   assert.equal(api.state().hasPin, true);
-  calls.length = 0;
-  state = await api.removePin("5678");
-  assert.equal(calls[0].route, "/locked-chats/pin");
-  assert.equal(calls[0].method, "DELETE");
-  assert.deepEqual(calls[0].body, { pin: "5678" });
-  assert.equal(state.hasPin, false);
-  assert.equal(state.accessOpen, false);
-  assert.equal(state.lockedIds.length, 0);
-  assert.equal(lockedConversation.serverLocked, undefined);
-  assert.equal(ctx.conversationMatches(lockedConversation, ""), true);
+  assert.equal(lockedConversation.serverLocked, true);
+  assert.equal(ctx.conversationMatches(lockedConversation, ""), false);
+
+  // Routes verrouillées sans jeton : refusées sans appel réseau
+  await assert.rejects(api.list(), /fermé/);
+  await assert.rejects(api.lockChat(otherId), /fermé/);
+  await assert.rejects(ctx.apiFetch(`/chats/${lockedId}`), /fermé/);
+  assert.equal(calls.length, 0, "aucune requête ne doit partir sans jeton");
+  const publicResponse = await ctx.apiFetch(`/chats/${otherId}`);
+  assert.equal(publicResponse.status, 404);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].lockedAccess, undefined, "un chat non verrouillé ne reçoit pas de jeton");
+
+  // Expiration : le serveur refuse le jeton -> l'accès se referme localement
+  await api.openAccess("5678");
+  assert.equal(api.state().accessOpen, true);
+  server.token = null;
+  await assert.rejects(api.list(), /fermé/);
+  assert.equal(api.state().accessOpen, false, "un jeton refusé ferme l'accès");
+  assert.equal(ctx.conversationMatches(lockedConversation, ""), false, "chat re-masqué après expiration");
+
+  // Le jeton ne fuit ni dans l'état public ni dans les évènements
+  await api.openAccess("5678");
+  const leaked = JSON.stringify([api.state(), events.map(event => event.detail), notices]);
+  assert.equal(leaked.includes("token-"), false, "le jeton ne doit jamais être exposé");
+  await api.closeAccess();
+  assert.equal(server.token, null);
 
   assert.ok(events.some(event => event.type === "francestudent:locked-chats"));
   assert.ok(renderCalls > 0);
   assert.equal(notices.length, 0, "aucun message d'erreur ne doit être affiché");
 }
-main().then(() => console.log("Locked chats : statut, accès, PIN, verrouillage, masquage et arrière-plan vérifiés.")).catch(error => { console.error(error); process.exitCode = 1; });
+main().then(() => console.log("Locked chats : jeton d'accès, PIN, verrouillage, masquage, expiration, arrière-plan et refus de la réinitialisation vérifiés.")).catch(error => { console.error(error); process.exitCode = 1; });
