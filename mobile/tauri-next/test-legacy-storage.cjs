@@ -18,6 +18,7 @@ async function main() {
   const calls = [];
   const context = vm.createContext({
     openLibrary: async () => {},
+    store: { session: "test-session" },
     document: { getElementById: () => dialog, createElement: tag => new Node(tag) },
     settingsApi: async (path, options) => {
       calls.push([path, options?.method || "GET"]);
@@ -44,5 +45,9 @@ async function main() {
   await list.children[0].children[2].onclick();
   assert.equal(list.childElementCount, 1);
   assert.ok(calls.some(([path, method]) => path === "/filesv2/one" && method === "DELETE"));
+  context.store.session = "other-session";
+  await list.children[0].children[2].onclick();
+  assert.equal(list.childElementCount, 1);
+  assert.ok(!calls.some(([path, method]) => path === "/filesv2/two" && method === "DELETE"));
 }
 main().then(() => console.log("Stockage : pagination et suppression confirmée vérifiées.")).catch(error => { console.error(error); process.exitCode = 1; });

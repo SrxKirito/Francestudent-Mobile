@@ -16,10 +16,13 @@ openLibrary = async function(initialKind) {
   section.append(usage, status, list, more);
   dialog.querySelector("header").after(toggle, section);
   let cursor = ""; let loaded = false; let loading = false;
+  const session = store.session;
+  const sessionActive = () => Boolean(session) && store.session === session;
 
   async function loadUsage() {
     try {
       const data = await settingsApi("/filesv2/usage");
+      if (!sessionActive()) return;
       if (Number.isFinite(data?.usedBytes) && Number.isFinite(data?.maxBytes)) {
         const mb = value => (value / (1024 * 1024)).toLocaleString("fr-FR", { maximumFractionDigits: 1 });
         usage.textContent = "Stockage utilisé : " + mb(data.usedBytes) + " Mo sur " + mb(data.maxBytes) + " Mo.";
@@ -28,11 +31,14 @@ openLibrary = async function(initialKind) {
   }
 
   async function loadPage() {
-    if (loading) return;
+    if (loading || !sessionActive()) return;
     loading = true; more.disabled = true; status.textContent = "Chargement des fichiers…";
     try {
       const page = await settingsApi("/filesv2?limit=30" + (cursor ? "&after=" + encodeURIComponent(cursor) : ""));
+      if (!sessionActive()) return;
       if (!Array.isArray(page?.data)) throw new Error("Liste de fichiers non reconnue.");
+      const next = typeof page.last_id === "string" ? page.last_id : "";
+      if (page.has_more === true && (!next || next === cursor)) throw new Error("Curseur de pagination indisponible.");
       for (const file of page.data) {
         if (typeof file?.id !== "string" || !file.id) continue;
         const row = document.createElement("div"); row.className = "storage-row";
@@ -41,7 +47,9 @@ openLibrary = async function(initialKind) {
         preview.onclick = () => previewAttachment({ name: label.textContent, kind: "file", remoteKind: "file", remoteId: file.id });
         const remove = document.createElement("button"); remove.type = "button"; remove.textContent = "Supprimer";
         remove.onclick = async () => {
+          if (!sessionActive()) { status.textContent = "La session a changé. Rouvre la bibliothèque."; return; }
           if (!confirm("Supprimer ce fichier du stockage France Student ?")) return;
+          if (!sessionActive()) return;
           remove.disabled = true;
           try {
             const result = await settingsApi("/filesv2/" + encodeURIComponent(file.id), { method: "DELETE" });
@@ -52,8 +60,6 @@ openLibrary = async function(initialKind) {
         };
         row.append(label, preview, remove); list.append(row);
       }
-      const next = typeof page.last_id === "string" ? page.last_id : "";
-      if (page.has_more === true && (!next || next === cursor)) throw new Error("Curseur de pagination indisponible.");
       cursor = next; more.hidden = page.has_more !== true;
       status.textContent = list.childElementCount ? "" : "Aucun fichier enregistré.";
       loaded = true;
@@ -63,6 +69,7 @@ openLibrary = async function(initialKind) {
 
   more.onclick = () => { more.textContent = "Charger plus"; void loadPage(); };
   toggle.onclick = () => {
+    if (!sessionActive()) { status.textContent = "La session a changé. Rouvre la bibliothèque."; return; }
     section.hidden = !section.hidden;
     toggle.setAttribute("aria-expanded", String(!section.hidden));
     if (!section.hidden && !loaded && !loading) { void loadUsage(); void loadPage(); }
