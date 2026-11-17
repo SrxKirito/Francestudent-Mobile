@@ -3,3 +3,4 @@
 /public/legacy/
 /src-tauri/target/
 /src-tauri/gen/
+/scripts/__pycache__/
