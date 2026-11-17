@@ -55,11 +55,19 @@ impl ApiClient {
         let mut authorization =
             HeaderValue::from_str(authorization).map_err(|_| ApiError::InvalidCredential)?;
         authorization.set_sensitive(true);
-        let http = Client::builder()
-            .redirect(reqwest::redirect::Policy::none())
-            .connect_timeout(Duration::from_secs(15))
-            .read_timeout(Duration::from_secs(300))
-            .build()?;
+        // Reuse connection pools across calls without sharing credentials.
+        static HTTP: std::sync::OnceLock<Client> = std::sync::OnceLock::new();
+        let http = match HTTP.get() {
+            Some(client) => client.clone(),
+            None => {
+                let client = Client::builder()
+                    .redirect(reqwest::redirect::Policy::none())
+                    .connect_timeout(Duration::from_secs(15))
+                    .read_timeout(Duration::from_secs(300))
+                    .build()?;
+                HTTP.get_or_init(|| client).clone()
+            }
+        };
         Ok(Self {
             http,
             base,
