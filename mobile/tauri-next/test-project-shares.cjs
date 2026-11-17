@@ -8,6 +8,9 @@ class Node {
   append(...nodes) { for (const node of nodes) { node.parent = this; this.children.push(node); } }
   replaceChildren() { this.children = []; }
   remove() { this.parent.children = this.parent.children.filter(node => node !== this); }
+  setAttribute(name, value) { this[name] = value; }
+  addEventListener() {}
+  after(...nodes) { this.parent.append(...nodes); }
 }
 async function main() {
   const spec = JSON.parse(fs.readFileSync(path.join(__dirname, "../../docs/api-audit/openapi.json"), "utf8"));
@@ -16,9 +19,10 @@ async function main() {
   assert.ok(spec.paths["/projects/{projectId}/shares/{targetUserId}"].delete);
   assert.deepEqual(spec.components.schemas.ProjectShareCreateDto.required, ["userEmail"]);
   const id = "11111111-1111-1111-1111-111111111111", calls = [];
+  const editor = new Node(), form = new Node(); editor.append(form);
   let fail = false;
   const context = vm.createContext({
-    openProjectEditor() {}, store: { session: "session" }, document: { createElement: () => new Node() },
+    openProjectEditor() {}, store: { session: "session" }, document: { createElement: () => new Node(), getElementById: key => key === "project-editor" ? editor : key === "project-form" ? form : null },
     confirm: () => true, encodeURIComponent, Number, Object, String,
     async settingsApi(route, options = {}) {
       calls.push([route, options]);
@@ -45,5 +49,20 @@ async function main() {
   await context.refreshProjectShares();
   assert.match(context.status.textContent, /HTTP 403/);
   assert.throws(() => context.shareProjectRoute("../other"), /invalide/);
+  fail = false;
+  context.openProjectEditor({ id });
+  const toggle = editor.children[1], panel = editor.children[2];
+  assert.equal(toggle.hidden, false);
+  assert.equal(panel.hidden, true);
+  toggle.onclick();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(panel.hidden, false);
+  assert.equal(panel.children[3].children.length, 2);
+  context.openProjectEditor(null);
+  assert.equal(toggle.hidden, true);
+  const html = fs.readFileSync(path.join(__dirname, "public/legacy/index.html"), "utf8");
+  assert.ok(html.indexOf('js/projects.js') < html.indexOf('js/tauri-project-shares.js'));
+  assert.ok(html.indexOf('js/tauri-project-shares.js') < html.indexOf('src="app.js"'));
+  assert.ok(html.includes('tauri-project-shares.css'));
 }
 main().then(() => console.log("Partage de projet : contrats, propriétaires, suppression et erreurs vérifiés.")).catch(error => { console.error(error); process.exitCode = 1; });

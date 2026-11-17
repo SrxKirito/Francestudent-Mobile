@@ -31,7 +31,10 @@ index = index.replace(render, render + '\n  <script src="js/tauri-save.js"></scr
 const login = '<script src="js/login.js"></script>';
 if (!index.includes(login)) throw new Error("Connexion historique introuvable");
 index = index.replace(login, login + '\n  <script src="js/tauri-login.js"></script>');
-index = index.replace('</head>', '  <link rel="stylesheet" href="tauri-files.css">\n  <link rel="stylesheet" href="tauri-chat-search.css">\n  <link rel="stylesheet" href="tauri-archived-chats.css">\n</head>');
+const projects = '<script src="js/projects.js"></script>';
+if (!index.includes(projects)) throw new Error("Gestion des projets introuvable");
+index = index.replace(projects, projects + '\n  <script src="js/tauri-project-shares.js"></script>');
+index = index.replace('</head>', '  <link rel="stylesheet" href="tauri-files.css">\n  <link rel="stylesheet" href="tauri-chat-search.css">\n  <link rel="stylesheet" href="tauri-archived-chats.css">\n  <link rel="stylesheet" href="tauri-project-shares.css">\n</head>');
 const appScript = '<script src="app.js"></script>';
 if (!index.includes(appScript)) throw new Error("Démarrage de l'interface historique introuvable");
 index = index.replace(appScript, appScript + '\n  <script src="js/tauri-session.js"></script>');
@@ -43,6 +46,8 @@ fs.copyFileSync(path.join(__dirname, "legacy-login.js"), path.join(destination, 
 fs.copyFileSync(path.join(__dirname, "legacy-session.js"), path.join(destination, "js/tauri-session.js"));
 fs.copyFileSync(path.join(__dirname, "legacy-speech.js"), path.join(destination, "js/tauri-speech.js"));
 fs.copyFileSync(path.join(__dirname, "legacy-save.js"), path.join(destination, "js/tauri-save.js"));
+fs.copyFileSync(path.join(__dirname, "project-shares.js"), path.join(destination, "js/tauri-project-shares.js"));
+fs.copyFileSync(path.join(__dirname, "project-shares.css"), path.join(destination, "tauri-project-shares.css"));
 fs.copyFileSync(path.join(__dirname, "remote-chat-search.js"), path.join(destination, "js/tauri-chat-search.js"));
 fs.copyFileSync(path.join(__dirname, "remote-chat-search.css"), path.join(destination, "tauri-chat-search.css"));
 fs.copyFileSync(path.join(__dirname, "archived-chats.js"), path.join(destination, "js/tauri-archived-chats.js"));
