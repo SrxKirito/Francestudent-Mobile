@@ -5,6 +5,12 @@ name: Compiler la version de transition (export seul, sans publication)
 # Ce workflow ne crée aucune Release, ne touche pas source.json et ne pousse rien :
 # il fournit seulement un artefact à installer à la main. Publier est une décision humaine.
 on:
+  # Lancement par push : seulement quand ce fichier change sur la branche de migration
+  # (le bouton « Run workflow » exige ce fichier sur main). Version par défaut : voir APP_VERSION.
+  push:
+    branches: [migration/tauri-mobile]
+    paths:
+      - '.github/workflows/ios-transition-build.yml'
   workflow_dispatch:
     inputs:
       app_version:
@@ -24,7 +30,7 @@ jobs:
     runs-on: macos-15
     timeout-minutes: 45
     env:
-      APP_VERSION: ${{ inputs.app_version }}
+      APP_VERSION: ${{ inputs.app_version || '1.2.40' }}
     steps:
       - uses: actions/checkout@v7.0.1
         with:
