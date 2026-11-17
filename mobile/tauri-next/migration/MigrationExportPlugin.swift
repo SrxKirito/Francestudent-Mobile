@@ -1,4 +1,6 @@
 import Foundation
+import UIKit
+import WebKit
 import Capacitor
 
 // Install in the Capacitor target and register only for the migration release.
@@ -11,11 +13,28 @@ public final class MigrationExportPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "begin", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "append", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "commit", returnType: CAPPluginReturnPromise),
-        CAPPluginMethod(name: "abort", returnType: CAPPluginReturnPromise)
+        CAPPluginMethod(name: "abort", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "verifySingleWebView", returnType: CAPPluginReturnPromise)
     ]
     private struct Transfer { let url: URL; let handle: FileHandle }
     private let queue = DispatchQueue(label: "org.francestudent.migration-export")
     private var transfers: [String: Transfer] = [:]
+
+    // Exactly one scene and exactly one WKWebView in all its windows, and that web view is
+    // the Capacitor bridge's own. Keyboard/system windows are not counted: only web views are.
+    @objc func verifySingleWebView(_ call: CAPPluginCall) {
+        DispatchQueue.main.async {
+            let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+            var found: [WKWebView] = []
+            func walk(_ view: UIView) {
+                if let web = view as? WKWebView { found.append(web) }
+                view.subviews.forEach(walk)
+            }
+            scenes.flatMap { $0.windows }.forEach(walk)
+            let single = scenes.count == 1 && found.count == 1 && found.first === self.bridge?.webView
+            call.resolve(["single": single])
+        }
+    }
 
     @objc func begin(_ call: CAPPluginCall) {
         queue.async {

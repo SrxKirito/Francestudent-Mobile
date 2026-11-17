@@ -17,7 +17,14 @@ try {
   assert.match(project, /MigrationExportPlugin.swift in Sources/);
   assert.match(controller, /#if FS_MIGRATION_EXPORT\s+bridge\?\.registerPluginInstance\(MigrationExportPlugin\(\)\)\s+#endif/);
   assert.doesNotMatch(project, /FS_MIGRATION_EXPORT/);
-  assert.match(await readFile(join(staging, "ios/App/App/MigrationExportPlugin.swift"), "utf8"), /class MigrationExportPlugin/);
+  const plugin = await readFile(join(staging, "ios/App/App/MigrationExportPlugin.swift"), "utf8");
+  assert.match(plugin, /class MigrationExportPlugin/);
+  // Vérification textuelle seulement : le Swift n'est pas compilable hors macOS/Xcode.
+  assert.match(plugin, /CAPPluginMethod\(name: "verifySingleWebView"/);
+  assert.match(plugin, /@objc func verifySingleWebView\(_ call: CAPPluginCall\)/);
+  assert.match(plugin, /import WebKit/);
+  assert.match(plugin, /DispatchQueue\.main\.async[\s\S]*connectedScenes[\s\S]*WKWebView/);
+  assert.match(plugin, /call\.resolve\(\["single": single\]\)/);
   await assert.rejects(installIosBridge(staging), /déjà présent/);
   console.log("Pont iOS : installation isolée, inclusion Xcode et enregistrement désactivé vérifiés.");
 } finally { await rm(staging, { recursive: true, force: true }); }

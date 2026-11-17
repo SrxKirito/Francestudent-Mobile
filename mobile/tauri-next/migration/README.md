@@ -2,9 +2,10 @@
 
 Ces modules constituent le moteur de transfert. **Le côté import est branché**
 dans l'app Tauri (voir « Côté import » plus bas). **Le côté export n'est pas
-branché dans l'ancienne app Capacitor de production** : tant qu'il ne l'est pas,
-aucun fichier `.fsbackup` ne peut être produit depuis l'app publiée (voir « État
-de l'export » en fin de document). L'ancienne app
+branché dans l'ancienne app Capacitor de production** : il n'existe que dans une
+build de transition générée sur copie (voir « État de l'export » en fin de
+document), jamais publiée ni essayée sur iPhone ; tant qu'elle ne l'est pas,
+aucun fichier `.fsbackup` ne peut être produit depuis l'app publiée. L'ancienne app
 Capacitor et la nouvelle app Tauri ont des origines Web distinctes et peuvent
 avoir des conteneurs différents : leur `localStorage` et leur IndexedDB ne sont
 pas automatiquement partagés. Les données côté serveur continuent d'être
@@ -220,16 +221,47 @@ Existe et testé avec des simulations : `source.mjs`, `export-guard.mjs`,
 de `mobile/` et inclut `MigrationExportPlugin.swift` derrière le drapeau de
 compilation `FS_MIGRATION_EXPORT`, volontairement non défini par l'installateur).
 
-Reste à faire, et à valider avec Xcode et un iPhone, avant d'annoncer une
-migration disponible :
+### Build de transition (sur copie, production inchangée)
 
-1. installer `export-guard` de façon synchrone avant tous les scripts de
-   `mobile/www`, avec une WebView unique et les travaux d'arrière-plan arrêtés ;
-2. activer `FS_MIGRATION_EXPORT`, enregistrer `MigrationExportPlugin`, compiler
-   avec CocoaPods ;
-3. publier une version de transition de l'ancienne app contenant cet export ;
-4. essayer le tout sur iPhone avec des données de test : export, import, puis
-   redémarrage.
+Le raccordement est prêt **sans toucher à `mobile/www` ni à `mobile/ios`** :
 
-Aucun de ces essais n'a été possible sur Windows (ni Xcode, ni Swift, ni
-appareil).
+- `legacy-export-wiring.mjs` (testable, dépendances injectées) relie le garde-fou,
+  la suspension de l'interface (écran de blocage + `inert`, refus pendant une
+  réponse ou une synchronisation), l'attente de `conversationWrite` et le plugin ;
+- `entry-early.mjs` (garde-fou, placé en tête de `<head>`) et `entry-late.mjs`
+  (panneau d'export dans Compte, avant `app.js`) sont empaquetés par esbuild en
+  **scripts classiques** pour atteindre les `let`/`const` de l'app par leur nom ;
+- `prepare-transition.mjs --output <dossier>` copie `mobile/` (sans `tauri-next`,
+  `tauri-api`, `android-native`, `node_modules`, `dist`), injecte les deux
+  scripts dans `index.html`, installe le pont iOS et ajoute
+  `SWIFT_ACTIVE_COMPILATION_CONDITIONS='$(inherited) FS_MIGRATION_EXPORT'` à
+  `scripts/build-iphone.sh` **de la copie**. Il refuse un dossier de sortie dans
+  la source ou non vide ; le test vérifie que la source reste identique ;
+- `check-transition-version.mjs` exige une version strictement supérieure à toute
+  release `ios-*` (build = numéro de correctif, comme `build-iphone.yml`) ;
+- `.github/workflows/ios-transition-build.yml` (manuel, `contents: read`) compile
+  la copie avec l'identité de **production** `org.francestudent.chat`, contrôle
+  identifiant, version, présence du plugin dans le binaire et des scripts dans le
+  bundle, puis fournit **un artefact seul** : aucune Release, `source.json`
+  intact, aucun push.
+
+`MigrationExportPlugin.swift` vérifie aussi côté natif qu'il n'existe qu'une scène
+et qu'une `WKWebView` (celle du pont Capacitor) : `verifySingleWebView`.
+
+Vérifié ici : tests automatisés (dont le bundle exécuté comme script classique
+dans un contexte `vm`), génération d'une copie et `verify-iphone.cjs` sur cette
+copie (OK), YAML du workflow analysé. **Non vérifié** (Windows : ni Xcode, ni
+Swift, ni appareil) : compilation Swift, effet réel de
+`SWIFT_ACTIVE_COMPILATION_CONDITIONS` passé en ligne de commande (le workflow
+échoue si le plugin est absent du binaire), `navigator.locks` et `inert` dans la
+WKWebView, présence du plugin dans `Capacitor.PluginHeaders`, exécution du
+workflow, installation par-dessus l'app existante via SideStore, accès au
+`.fsbackup` (dossier Documents de l'ancienne app, visible dans Fichiers) depuis
+l'app Tauri, parcours complet export → import → redémarrage sur iPhone avec des
+données de test. `capture()` sérialise l'état en JSON : lourd sur de très
+grosses conversations.
+
+**Publier** cette version de transition (Release, `source.json`) reste une
+décision humaine, non prise ici. Attention : `build-iphone.yml` numérote en
+`1.1.<run_number>` ; une version de transition plus élevée peut dépasser les
+versions publiées ensuite, qu'iOS pourrait refuser comme rétrogradation.

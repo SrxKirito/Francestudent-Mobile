@@ -29,8 +29,11 @@ fermer et rouvrir l'application une dernière fois. « Revenir à l'application 
 n'est possible que si rien n'a été écrit. Détails techniques et limites :
 `migration/README.md`.
 
-Limites actuelles : l'**export** n'est pas encore branché dans l'ancienne app
-Capacitor publiée, donc aucun `.fsbackup` ne peut encore en être tiré ; et rien
+Limites actuelles : l'**export** n'est pas branché dans l'ancienne app Capacitor
+publiée, donc aucun `.fsbackup` ne peut encore en être tiré. Une build de
+transition générée sur copie existe (`migration/prepare-transition.mjs`, workflow
+manuel `ios-transition-build.yml`, artefact seul) mais n'a jamais été compilée ;
+sa publication est une décision humaine. Rien
 de ce flux n'a été essayé sur iPhone (verrou natif, sélecteur de fichier dans la
 WKWebView, installation via SideStore).
 

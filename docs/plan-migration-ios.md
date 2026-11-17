@@ -45,11 +45,13 @@ Les modules de `mobile/tauri-next/migration/` proposent un transfert chiffré.
 l'ancienne application », marqueur de démarrage, verrou natif, fenêtre
 `migration` isolée et page d'import (tests automatisés et `cargo test --lib`
 passent ; rien n'a été essayé sur iPhone). **Côté ancienne app Capacitor,
-l'export n'est pas branché** dans la build de production : le moteur, le
-garde-fou et le plugin Swift existent mais l'activation (garde-fou installé avant
-tous les scripts, `FS_MIGRATION_EXPORT`, version de transition) reste à faire et
-à valider avec Xcode. Tant qu'il manque cet export, aucun `.fsbackup` ne peut
-être créé depuis l'app publiée. Ne pas considérer ce mécanisme comme une
+l'export n'est pas branché** dans la build de production. Une **build de
+transition générée sur copie** existe (`migration/prepare-transition.mjs`,
+workflow manuel `.github/workflows/ios-transition-build.yml` : identité de
+production, artefact seul, ni Release ni `source.json`), mais elle n'a jamais été
+compilée ni essayée : Xcode, Swift et iPhone manquaient. Tant qu'elle n'est pas
+validée puis publiée (décision humaine), aucun `.fsbackup` ne peut être créé
+depuis l'app publiée. Ne pas considérer ce mécanisme comme une
 migration disponible tant que le parcours complet n'a pas été validé sur appareil.
 Comme iOS ne relance pas une app seule, l'utilisateur doit la fermer
 complètement puis la rouvrir après avoir demandé l'import, puis encore une fois

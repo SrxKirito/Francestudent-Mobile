@@ -1,5 +1,5 @@
 /** Attach only where the host supplies a real mutation lock and temporary writer. */
-export function mountMigrationUI({ document, container, host, allowExport = true }) {
+export function mountMigrationUI({ document, container, host, allowExport = true, allowImport = true }) {
   if (!document || !container || !host) throw new Error("Interface de transfert indisponible.");
   const section = document.createElement("section");
   const heading = document.createElement("h3"); heading.textContent = "Transférer les données locales";
@@ -13,7 +13,7 @@ export function mountMigrationUI({ document, container, host, allowExport = true
   const inspectButton = document.createElement("button"); inspectButton.type = "button"; inspectButton.textContent = "Vérifier la sauvegarde";
   const restoreButton = document.createElement("button"); restoreButton.type = "button"; restoreButton.textContent = "Importer sans écraser";
   const status = document.createElement("p"); status.setAttribute("role", "status"); status.setAttribute("aria-live", "polite");
-  section.append(heading, help, label, ...(allowExport ? [exportButton] : []), fileLabel, inspectButton, restoreButton, status);
+  section.append(heading, help, label, ...(allowExport ? [exportButton] : []), ...(allowImport ? [fileLabel, inspectButton, restoreButton] : []), status);
   container.append(section);
   let busy = false;
   let locked = false;
@@ -36,7 +36,11 @@ export function mountMigrationUI({ document, container, host, allowExport = true
     finally { password.value = ""; busy = false; exportButton.disabled = inspectButton.disabled = restoreButton.disabled = locked; }
   }
   function selected() { const item = file.files?.[0]; if (!item) throw new Error("Choisis une sauvegarde."); return item; }
-  exportButton.onclick = () => run(async secret => { await host.export(secret); status.textContent = "Sauvegarde créée. Les données d’origine sont conservées."; });
+  exportButton.onclick = () => run(async secret => {
+    const result = await host.export(secret);
+    const where = typeof result?.name === "string" && result.name ? ` Fichier : ${result.name}, visible dans l’app Fichiers, dossier de l’application.` : "";
+    status.textContent = "Sauvegarde créée. Les données d’origine sont conservées." + where;
+  });
   inspectButton.onclick = () => run(async secret => {
     const result = await host.inspect(selected(), secret);
     status.textContent = result.conflicts.length ? `${result.conflicts.length} conflit(s) détecté(s). Aucune donnée n’a été modifiée.` : `${result.records} élément(s) vérifié(s), sans conflit.`;

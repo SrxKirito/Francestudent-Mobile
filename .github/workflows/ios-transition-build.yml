@@ -1,0 +1,80 @@
+name: Compiler la version de transition (export seul, sans publication)
+
+# Construit l'ancienne app avec l'export de sauvegarde, sur une COPIE du dossier mobile.
+# Identité de production (org.francestudent.chat) : l'IPA remplace l'app installée et garde ses données.
+# Ce workflow ne crée aucune Release, ne touche pas source.json et ne pousse rien :
+# il fournit seulement un artefact à installer à la main. Publier est une décision humaine.
+on:
+  workflow_dispatch:
+    inputs:
+      app_version:
+        description: "Version MAJEUR.MINEUR.CORRECTIF, strictement supérieure à la dernière release ios-* (ex. 1.1.40)"
+        required: true
+        type: string
+
+concurrency:
+  group: ios-transition-build
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  build-transition:
+    runs-on: macos-15
+    timeout-minutes: 45
+    env:
+      APP_VERSION: ${{ inputs.app_version }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version: '22'
+      - name: Contrôler la version demandée
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAGS="$(gh release list --repo "$GITHUB_REPOSITORY" --limit 200 --json tagName --jq '.[].tagName')"
+          BUILD="$(node mobile/tauri-next/migration/check-transition-version.mjs "$APP_VERSION" "$TAGS")"
+          echo "APP_BUILD=$BUILD" >> "$GITHUB_ENV"
+      - name: Installer les dépendances du moteur de transfert
+        working-directory: mobile/tauri-next
+        run: npm ci
+      - name: Tester le moteur et la préparation
+        working-directory: mobile/tauri-next
+        run: |
+          node migration/test-legacy-export-wiring.mjs
+          node migration/test-install-ios-bridge.mjs
+          node migration/test-prepare-transition.mjs
+          node migration/test-transition-version.mjs
+      - name: Préparer la copie de transition
+        run: node mobile/tauri-next/migration/prepare-transition.mjs --output "$RUNNER_TEMP/transition/mobile"
+      - name: Installer les dépendances de l'ancienne app (copie)
+        working-directory: ${{ runner.temp }}/transition/mobile
+        run: npm ci
+      - name: Vérifier le projet iPhone (copie)
+        working-directory: ${{ runner.temp }}/transition/mobile
+        run: node scripts/verify-iphone.cjs
+      - name: Compiler et créer l'IPA sans certificat Apple
+        working-directory: ${{ runner.temp }}/transition/mobile
+        run: bash scripts/build-iphone.sh
+      - name: Contrôler l'application compilée
+        working-directory: ${{ runner.temp }}/transition/mobile
+        run: |
+          APP="ios/build-sidestore/DerivedData/Build/Products/Release-iphoneos/App.app"
+          EXE="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$APP/Info.plist")"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP/Info.plist")" = "org.francestudent.chat"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Info.plist")" = "$APP_VERSION"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP/Info.plist")" = "$APP_BUILD"
+          strings -a "$APP/$EXE" | grep -c "MigrationExportPlugin" > /dev/null || { echo "Le plugin d'export n'est pas dans le binaire : le drapeau FS_MIGRATION_EXPORT n'a pas été appliqué."; exit 1; }
+          test -n "$(find "$APP" -name fs-migration-early.js)"
+          test -n "$(find "$APP" -name fs-migration-late.js)"
+      - name: Fournir l'IPA de transition (artefact seul)
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: FranceStudent-iPhone-transition
+          path: ${{ runner.temp }}/transition/mobile/dist/FranceStudent-iPhone.ipa
+          if-no-files-found: error
+          retention-days: 14

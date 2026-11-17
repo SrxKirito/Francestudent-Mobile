@@ -29,5 +29,22 @@ assert.equal(restored, 1);
 assert.match(status.textContent, /Aucun écrasement/);
 assert.equal(password.value, "");
 ui.destroy(); assert.equal(ui.section.removed, true);
+
+// Export seul (ancienne app) : ni fichier, ni vérification, ni import ; le nom du fichier est affiché.
+const exportOnlyContainer = new Element();
+let exportedWith = null;
+const exportOnly = mountMigrationUI({
+  document, container: exportOnlyContainer, allowImport: false,
+  host: { async export(secret) { exportedWith = secret; return { name: "sauvegarde.fsbackup" }; } }
+});
+assert.equal(exportOnly.section.children.length, 5, "titre, aide, phrase, bouton d’export, état");
+const [, , exportOnlyLabel, exportOnlyButton, exportOnlyStatus] = exportOnly.section.children;
+assert.equal(exportOnlyButton.textContent, "Créer une sauvegarde");
+exportOnlyLabel.children[0].value = "une phrase longue";
+await exportOnlyButton.onclick();
+assert.equal(exportedWith, "une phrase longue");
+assert.match(exportOnlyStatus.textContent, /sauvegarde\.fsbackup/);
+assert.match(exportOnlyStatus.textContent, /Fichiers/);
+assert.equal(exportOnlyLabel.children[0].value, "");
 assert.throws(() => createMigrationHost({}), /Verrou exclusif/);
 console.log("Interface : validation, conflits et effacement du secret vérifiés.");
