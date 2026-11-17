@@ -3,7 +3,8 @@
  * Only one WebView may access these origin stores while exporting. Native code
  * must enforce that precondition; this guard cannot police other WebViews.
  */
-export function installExportGuard({ IDBDatabase, Storage }) {
+export function installExportGuard({ IDBDatabase, Storage, acquireGlobal, capture }) {
+  if (typeof acquireGlobal !== "function" || typeof capture !== "function") throw new Error("Coordination et capture de l'état requises.");
   const originalTransaction = IDBDatabase.prototype.transaction;
   const originalSet = Storage.prototype.setItem;
   const originalRemove = Storage.prototype.removeItem;
@@ -25,11 +26,33 @@ export function installExportGuard({ IDBDatabase, Storage }) {
   Storage.prototype.clear = function() { rejectWrite(); return originalClear.call(this); };
   return async function acquireExclusive() {
     if (locked) throw new Error("Une sauvegarde est déjà en cours.");
+    const releaseGlobal = await acquireGlobal();
+    if (typeof releaseGlobal !== "function") throw new Error("Verrou global indisponible.");
+    if (locked) { await releaseGlobal(); throw new Error("Une sauvegarde est déjà en cours."); }
     locked = true;
-    const start = violations;
-    if (active) await new Promise(resolve => waiters.add(resolve));
-    const release = async () => { locked = false; };
-    release.assertValid = async () => { if (violations !== start) throw new Error("Une modification a été tentée pendant la sauvegarde ; réessaie."); };
-    return release;
+    try {
+      const start = violations;
+      if (active) await new Promise(resolve => waiters.add(resolve));
+      const snapshot = capture();
+      if (typeof snapshot !== "string") throw new Error("Capture synchrone de l'état indisponible.");
+      let released = false;
+      const release = async () => { if (!released) { released = true; locked = false; await releaseGlobal(); } };
+      release.assertValid = async () => {
+        if (released || violations !== start || capture() !== snapshot) throw new Error("Une modification a été tentée pendant la sauvegarde ; réessaie.");
+      };
+      return release;
+    } catch (error) { locked = false; await releaseGlobal(); throw error; }
   };
+}
+
+/** Cooperative cross-window lock. Every participating writer must use it. */
+export async function acquireWebLock(locks) {
+  if (!locks || typeof locks.request !== "function") throw new Error("Coordination entre fenêtres indisponible.");
+  let release;
+  let ready;
+  const acquired = new Promise(resolve => { ready = resolve; });
+  const hold = new Promise(resolve => { release = resolve; });
+  const request = locks.request("francestudent-migration", { mode: "exclusive" }, async () => { ready(); await hold; });
+  await Promise.race([acquired, request.then(() => { throw new Error("Verrou global indisponible."); })]);
+  return async () => { release(); await request; };
 }

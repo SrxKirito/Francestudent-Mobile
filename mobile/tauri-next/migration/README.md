@@ -78,6 +78,16 @@ en arrière-plan, bloquer les interactions et attendre les files existantes ;
 tant que ces conditions ne sont pas vérifiées, ce garde-fou ne constitue pas
 un verrou complet et l'export ne doit pas être activé. Il ne convient pas au
 verrou d'import, qui doit autoriser les écritures de restauration uniquement.
+Le constructeur impose aussi `capture()`, fonction synchrone retournant une
+représentation stable de l'état mémoire **et** de `fs-chat-state` ; la capture
+est comparée avant finalisation, ce qui détecte les mutations persistantes et
+les écritures directes par propriété. Il impose un `acquireGlobal()` ;
+`acquireWebLock(navigator.locks)` est fourni comme verrou interfenêtres
+coopératif. Tous les écrivains doivent utiliser ce même verrou : il ne bloque
+pas les autres WebViews non participantes et ne remplace pas une garantie native
+de WebView unique. Les modifications transitoires revenues exactement à leur
+état initial ne sont pas détectées. En l'absence de Web Locks ou d'une autre
+coordination fiable, l'export doit rester désactivé.
 
 1. Dans l'ancienne app, arrêter temporairement toute écriture de conversations,
    attendre `conversationWrite` si présent, récupérer le texte brut de
