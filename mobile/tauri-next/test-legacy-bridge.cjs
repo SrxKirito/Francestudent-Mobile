@@ -24,5 +24,9 @@ async function main() {
   await assert.rejects(context.apiFetch("/filesv2", { method: "POST", body: new FormData() }), /ne peut pas encore/);
   const form = new FormData(); form.append("files", new File(["skill"], "SKILL.md", { type: "text/markdown" }));
   assert.equal((await (await context.apiFetch("/skills", { method: "POST", body: form })).json()).id, "skill-1");
+  transport.exchange = async () => { throw new Error("Le serveur a refusé la requête (HTTP 401)"); };
+  context.auth.accessToken = "";
+  context.authError = message => Object.assign(new Error(message), { auth: true });
+  await assert.rejects(context.getAccessToken(), error => error.auth === true && /expirée/.test(error.message));
 }
 main().then(() => console.log("Pont Tauri : contrats et renouvellement vérifiés.")).catch(error => { console.error(error); process.exitCode = 1; });

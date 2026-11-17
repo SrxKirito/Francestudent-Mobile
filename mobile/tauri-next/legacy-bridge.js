@@ -5,7 +5,13 @@ const tauriTransport = window.parent.__franceStudentTransport;
 getAccessToken = async function(force = false) {
   if (!force && auth.accessToken && auth.expiresAt - Date.now() > TOKEN_MARGIN_MS) return auth.accessToken;
   if (!store.session) throw authError("Aucune session : colle ton cookie de session.");
-  const data = await tauriTransport.exchange(store.session, store.deviceId);
+  let data;
+  try { data = await tauriTransport.exchange(store.session, store.deviceId); }
+  catch (error) {
+    const message = String(error?.message || error);
+    if (/HTTP (401|403)\b/.test(message)) throw authError("Session refusée ou expirée : reconnecte-toi.");
+    throw new Error("Connexion au serveur impossible : " + message);
+  }
   if (!data || typeof data.accessToken !== "string" || !data.accessToken) throw authError("Aucun jeton reçu : session expirée ?");
   auth.accessToken = data.accessToken;
   auth.expiresAt = data.expiresAt ? Number(data.expiresAt) * 1000 : Date.now() + (Number(data.expiresIn) || 300) * 1000;
