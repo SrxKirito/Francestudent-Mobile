@@ -25,6 +25,8 @@ pub enum ApiError {
         status: u16,
         retry_after: Option<String>,
     },
+    #[error("Limite de requêtes atteinte (HTTP 429). {message}")]
+    RateLimited { message: String },
     #[error("Fichier inaccessible : {0}")]
     File(#[from] std::io::Error),
     #[error("Cette route API n'est pas autorisée")]
@@ -123,6 +125,19 @@ impl ApiClient {
             .get(RETRY_AFTER)
             .and_then(|v| v.to_str().ok())
             .map(str::to_owned);
+        if response.status().as_u16() == 429 {
+            let seconds = retry_after.as_deref().and_then(|value| {
+                if value.len() <= 8 && !value.is_empty() && value.bytes().all(|b| b.is_ascii_digit()) {
+                    value.parse::<u32>().ok()
+                } else {
+                    None
+                }
+            });
+            return Err(ApiError::RateLimited {
+                message: seconds.map(|value| format!("Réessaie dans {value} secondes."))
+                    .unwrap_or_else(|| "Réessaie plus tard.".into()),
+            });
+        }
         Err(ApiError::Http {
             status: response.status().as_u16(),
             retry_after,
