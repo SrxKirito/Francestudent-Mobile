@@ -66,6 +66,16 @@ un fichier `.partial` dans le répertoire temporaire ; il ne doit pas être
 présenté comme une sauvegarde valide. Le code Swift n'a pas été compilé ni
 testé sur iPhone dans cet environnement Windows.
 
+`capacitor-host.mjs` relie concrètement ce pont au moteur d'export. Il exige
+un contrôle natif de WebView unique, un arrêt réversible des tâches et
+interactions, le drainage des opérations en cours, un garde installé tôt et les
+accesseurs d'état. Il refuse de démarrer si une fonction manque, vérifie la
+WebView de nouveau avant la finalisation et reprend les tâches après échec.
+Ces fonctions ne sont pas encore fournies par l'application Capacitor : un
+simple callback retournant `true` ne doit pas être utilisé. Les transactions et
+les mutations en mémoire ne doivent pas être supposées suspendues tant que le
+cycle de vie et les travaux asynchrones n'ont pas été réellement instrumentés.
+
 `export-guard.mjs` fournit un garde-fou côté WebView pour les transactions
 IndexedDB `readwrite` des deux bases et les appels Storage sur `fs-chat-state`.
 Il doit être installé **synchronement avant tout autre script** et son
@@ -128,4 +138,5 @@ node migration/test-adapters.mjs
 node migration/test-orchestrate.mjs
 node migration/test-ui.mjs
 node migration/test-ios-guard.mjs
+node migration/test-capacitor-host.mjs
 ```
