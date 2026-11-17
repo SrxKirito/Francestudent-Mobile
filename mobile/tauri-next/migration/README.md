@@ -76,6 +76,23 @@ simple callback retournant `true` ne doit pas être utilisé. Les transactions e
 les mutations en mémoire ne doivent pas être supposées suspendues tant que le
 cycle de vie et les travaux asynchrones n'ont pas été réellement instrumentés.
 
+`install-ios-bridge.mjs` prépare le plugin dans une **copie distincte** du
+répertoire `mobile` Capacitor : il l'ajoute aux sources Xcode et place son
+enregistrement derrière `FS_MIGRATION_EXPORT`, indicateur qu'il ne définit pas.
+Depuis `mobile/tauri-next`, utiliser par exemple :
+
+```js
+const { installIosBridge } = await import('./migration/install-ios-bridge.mjs');
+await installIosBridge('/chemin/vers/copie/mobile');
+```
+
+L'installation vérifie les points de branchement avant écriture et refuse la
+copie source et une installation déjà présente. En cas d'échec pendant les
+écritures, recréer la copie. L'indicateur ne doit pas être activé avant la
+mise en place et la validation du verrou global. Cette préparation ne remplace
+pas une compilation Xcode avec CocoaPods ni des essais sur iPhone ; aucun de
+ces essais n'a été possible sur Windows.
+
 `export-guard.mjs` fournit un garde-fou côté WebView pour les transactions
 IndexedDB `readwrite` des deux bases et les appels Storage sur `fs-chat-state`.
 Il doit être installé **synchronement avant tout autre script** et son
@@ -139,4 +156,5 @@ node migration/test-orchestrate.mjs
 node migration/test-ui.mjs
 node migration/test-ios-guard.mjs
 node migration/test-capacitor-host.mjs
+node migration/test-install-ios-bridge.mjs
 ```
