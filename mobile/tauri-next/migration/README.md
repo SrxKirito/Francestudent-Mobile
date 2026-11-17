@@ -117,6 +117,20 @@ processus partageant les données et un redémarrage effectif sous ce verrou.
 Ces garanties ne sont pas fournies par le coordinateur lui-même. Ce module
 reste non branché et non vérifié ; il ne rend pas l'import utilisable.
 
+`src-tauri/src/migration_startup_lock.rs` prépare un verrou de fichier natif
+exclusif et une machine d'états limitant la migration au démarrage. Après une
+écriture possible, le retour au mode normal est interdit dans le processus
+courant. Ce module n'est pas référencé par le binaire : il faudra acquérir et
+conserver le verrou dans l'état natif avant de créer la première WebView, pour
+toute instance et tout chemin de démarrage, choisir un fichier fixe dans le
+répertoire privé et empêcher sa suppression ou son remplacement. Le verrou est
+consultatif : il ne bloque aucun processus ou WebView qui ne le respecte pas.
+Le mode migration doit donc aussi empêcher la création d'autres WebViews et
+exclure tout autre accès aux mêmes données et au coffre. Le module utilise le
+verrou de fichier de la bibliothèque standard Rust (Rust 1.89 minimum) ; sa
+compilation et son comportement sur iOS n'ont pas été vérifiés. Il ne rend pas
+l'import utilisable à lui seul.
+
 `export-guard.mjs` fournit un garde-fou côté WebView pour les transactions
 IndexedDB `readwrite` des deux bases et les appels Storage sur `fs-chat-state`.
 Il doit être installé **synchronement avant tout autre script** et son
