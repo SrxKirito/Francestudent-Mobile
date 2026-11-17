@@ -40,11 +40,20 @@ restent régies par l'API ; un fichier classé localement dans un projet n'est p
 pour autant associé au projet côté serveur. Les données France IDE conservées
 localement ne doivent pas être effacées malgré le retrait de son interface.
 
-Les modules de `mobile/tauri-next/migration/` proposent un transfert chiffré,
-mais leur documentation précise que l'intégration aux deux interfaces, le
-verrouillage effectif des écritures et les sélecteurs natifs restent nécessaires.
-Ne pas considérer ce mécanisme comme une migration disponible tant que le
-parcours complet n'a pas été validé sur appareil. Préserver l'ancienne copie et
+Les modules de `mobile/tauri-next/migration/` proposent un transfert chiffré.
+**Côté Tauri, l'import est branché** : bouton dans Compte → « Données de
+l'ancienne application », marqueur de démarrage, verrou natif, fenêtre
+`migration` isolée et page d'import (tests automatisés et `cargo test --lib`
+passent ; rien n'a été essayé sur iPhone). **Côté ancienne app Capacitor,
+l'export n'est pas branché** dans la build de production : le moteur, le
+garde-fou et le plugin Swift existent mais l'activation (garde-fou installé avant
+tous les scripts, `FS_MIGRATION_EXPORT`, version de transition) reste à faire et
+à valider avec Xcode. Tant qu'il manque cet export, aucun `.fsbackup` ne peut
+être créé depuis l'app publiée. Ne pas considérer ce mécanisme comme une
+migration disponible tant que le parcours complet n'a pas été validé sur appareil.
+Comme iOS ne relance pas une app seule, l'utilisateur doit la fermer
+complètement puis la rouvrir après avoir demandé l'import, puis encore une fois
+après l'import. Préserver l'ancienne copie et
 la sauvegarde pendant les essais ; une restauration partielle doit être
 reprenable sans écrasement silencieux.
 
@@ -93,3 +102,24 @@ pas au `source.json` de production. L'identité reste celle de la préversion
 L'IPA et la source ne sont que des artefacts GitHub temporaires : l'hébergement
 et les URL finales restent à fournir à la main, et aucune donnée Capacitor n'est
 migrée. Ce workflow ne remplace pas la porte de qualité de `tauri-iphone-preview.yml`.
+
+## Publication de la préversion (dry-run par défaut)
+
+Le workflow `.github/workflows/tauri-iphone-publish.yml` (manuel uniquement)
+lance `npm test`, `npm run check` et `cargo test --lib`, construit l'IPA Tauri
+ARM64 non signé, le vérifie, puis génère `preview-source.json` avec des URL
+stables vers une pré-release GitHub.
+
+- **Par défaut (`publish = false`), rien n'est publié** : seul un artefact
+  temporaire est conservé.
+- La publication exige `publish = true` **et** la saisie de `PUBLIER`. Un second
+  job, seul à avoir `contents: write`, crée ou met à jour la pré-release au tag
+  `tauri-ios-preview` (jamais « latest » ; un tag commençant par `ios-` est
+  refusé).
+- Le `source.json` de production et l'identité `org.francestudent.chat` ne sont
+  jamais modifiés : les scripts les refusent.
+- Passer à l'identité de production (remplacer l'ancienne app, avec les risques
+  de conteneur, de trousseau et de signature décrits plus haut) est une décision
+  séparée, qui exige les essais de migration sur appareil.
+- Ce workflow n'a pas pu être exécuté depuis Windows : sa syntaxe YAML a été
+  vérifiée, pas son déroulement sur un runner macOS.

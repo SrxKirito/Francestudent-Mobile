@@ -1,7 +1,10 @@
 # Transfert des données locales
 
-Ces modules constituent le moteur de transfert ; **ils ne sont pas encore
-branchés à l'interface** ni aux sélecteurs de fichiers natifs. L'ancienne app
+Ces modules constituent le moteur de transfert. **Le côté import est branché**
+dans l'app Tauri (voir « Côté import » plus bas). **Le côté export n'est pas
+branché dans l'ancienne app Capacitor de production** : tant qu'il ne l'est pas,
+aucun fichier `.fsbackup` ne peut être produit depuis l'app publiée (voir « État
+de l'export » en fin de document). L'ancienne app
 Capacitor et la nouvelle app Tauri ont des origines Web distinctes et peuvent
 avoir des conteneurs différents : leur `localStorage` et leur IndexedDB ne sont
 pas automatiquement partagés. Les données côté serveur continuent d'être
@@ -93,43 +96,51 @@ mise en place et la validation du verrou global. Cette préparation ne remplace
 pas une compilation Xcode avec CocoaPods ni des essais sur iPhone ; aucun de
 ces essais n'a été possible sur Windows.
 
-`tauri-import-host.mjs` relie la lecture et la restauration à l'adaptateur de
-stockage Tauri. Il exige une barrière fournie par l'application, qui suspend et
-vide toutes les écritures ordinaires, reste exclusive entre fenêtres et fournit
-les accès réservés à la migration (`storage`, `conversationDb`, `previewDb`,
-`vault`). Sa méthode `finish({ writesMayHaveOccurred })` doit recharger l'état
-en mémoire avant toute reprise des écritures lorsqu'un import a pu commencer,
-y compris en cas d'échec partiel. La barrière doit rester fermée si ce
-rechargement échoue. Une inspection sans conflit est toujours refaite sous la
-même barrière avant la restauration ; les données existantes ne sont pas
-écrasées. Aucune implémentation de cette barrière n'est encore raccordée :
-l'import ne doit pas être exposé à l'utilisateur. Ce nouveau raccordement n'a
-pas été testé.
+### Côté import (application Tauri) : branché
 
-`startup-import-barrier.mjs` prépare le cycle de vie d'une migration au
-démarrage : une opération à la fois, contrôle répété du mode de démarrage et
-du verrou natif, puis fermeture des accès. Après toute écriture possible, le
-verrou est conservé jusqu'à l'arrêt du processus et un redémarrage est exigé ;
-le moteur ordinaire ne doit jamais reprendre avec un état mémoire périmé. Il
-faut encore une page de migration dédiée chargée avant tous les scripts de
-l'application, un verrou natif excluant réellement toutes les fenêtres et
-processus partageant les données et un redémarrage effectif sous ce verrou.
-Ces garanties ne sont pas fournies par le coordinateur lui-même. Ce module
-reste non branché et non vérifié ; il ne rend pas l'import utilisable.
+Le flux utilisateur est le suivant : **Compte → Données de l'ancienne
+application → « Importer… »** écrit un marqueur `migration-requested` dans le
+répertoire de données privé (`migration_host.rs`, commande `migration_schedule`,
+acceptée seulement depuis la fenêtre principale). L'utilisateur ferme alors
+complètement l'application puis la rouvre : iOS ne permet pas à l'application de
+se relancer seule. Au démarrage, `setup` voit le marqueur, acquiert le verrou
+natif et ouvre **uniquement** la fenêtre `migration` (`migration.html`), sans
+créer la fenêtre principale ni charger l'interface habituelle.
 
-`src-tauri/src/migration_startup_lock.rs` prépare un verrou de fichier natif
-exclusif et une machine d'états limitant la migration au démarrage. Après une
-écriture possible, le retour au mode normal est interdit dans le processus
-courant. Ce module n'est pas référencé par le binaire : il faudra acquérir et
-conserver le verrou dans l'état natif avant de créer la première WebView, pour
-toute instance et tout chemin de démarrage, choisir un fichier fixe dans le
-répertoire privé et empêcher sa suppression ou son remplacement. Le verrou est
-consultatif : il ne bloque aucun processus ou WebView qui ne le respecte pas.
-Le mode migration doit donc aussi empêcher la création d'autres WebViews et
-exclure tout autre accès aux mêmes données et au coffre. Le module utilise le
-verrou de fichier de la bibliothèque standard Rust (Rust 1.89 minimum) ; sa
-compilation et son comportement sur iOS n'ont pas été vérifiés. Il ne rend pas
-l'import utilisable à lui seul.
+La page d'import (`migration-page.mjs`, `migration-main.mjs`, `ui.mjs`) utilise
+les mêmes bases IndexedDB (`francestudent-conversations` v1,
+`francestudent-previews` v2) et le même coffre (`session_read` / `session_write`)
+que l'application. Elle lit un fichier `.fsbackup` choisi par l'utilisateur, le
+déchiffre avec la phrase saisie, inspecte les conflits puis restaure ; les
+données existantes ne sont pas écrasées. « Revenir à l'application »
+(`migration_cancel`) n'est accepté que si aucune écriture n'a eu lieu.
+
+`tauri-import-host.mjs` relie lecture et restauration à l'adaptateur de
+stockage. Il exige une barrière qui suspend les écritures ordinaires. Dès que le
+drapeau d'écriture est levé, il appelle `barrier.beginWrites()`, qui déclare
+auprès du verrou natif qu'une écriture est possible (`migration_mark_writes`) :
+à partir de là, **seul un redémarrage de l'application est permis**
+(`migration_finish`), y compris après un échec partiel, et l'erreur d'origine est
+conservée (`error.result`, `error.operationError`). Le moteur ordinaire ne
+reprend donc jamais avec un état mémoire périmé.
+
+`startup-import-barrier.mjs` coordonne ce cycle : une opération à la fois,
+contrôle répété du mode de démarrage (`migration_assert`) et fermeture des accès
+à la fin ; `beginWrites` marque le verrou et l'erreur porte
+`restartRequired = true`.
+
+`src-tauri/src/migration_startup_lock.rs` fournit le verrou de fichier exclusif
+et la machine d'états (écriture possible ⇒ retour au mode normal interdit dans
+le processus). Il est acquis dans `setup` avant la première WebView et conservé
+jusqu'à l'arrêt du processus. Le verrou reste consultatif : le mode migration
+n'ouvre qu'une seule fenêtre. Vérifié par `cargo test --lib` (marqueur, état
+inactif, annulation sans écriture, écritures puis redémarrage seul). Utilise le
+verrou de fichier de la bibliothèque standard (Rust 1.89 minimum).
+
+**Non vérifié sur appareil** : comportement du verrou et de la fenêtre
+`migration` sous iOS, sélecteur de fichier (`<input type="file">`) dans la
+WKWebView de Tauri, et droits des commandes d'application depuis la fenêtre
+`migration` (déduits du code source de Tauri 2.12, pas observés à l'exécution).
 
 `export-guard.mjs` fournit un garde-fou côté WebView pour les transactions
 IndexedDB `readwrite` des deux bases et les appels Storage sur `fs-chat-state`.
@@ -195,4 +206,30 @@ node migration/test-ui.mjs
 node migration/test-ios-guard.mjs
 node migration/test-capacitor-host.mjs
 node migration/test-install-ios-bridge.mjs
+node migration/test-startup-barrier.mjs
+node migration/test-migration-page.mjs
 ```
+
+Tous ces tests sont exécutés par `npm test`.
+
+## État de l'export (ancienne app Capacitor)
+
+Existe et testé avec des simulations : `source.mjs`, `export-guard.mjs`,
+`capacitor-host.mjs`, `ios-sink.mjs`, `orchestrate.mjs`, l'interface
+`mountMigrationUI` et `install-ios-bridge.mjs` (qui travaille sur une **copie**
+de `mobile/` et inclut `MigrationExportPlugin.swift` derrière le drapeau de
+compilation `FS_MIGRATION_EXPORT`, volontairement non défini par l'installateur).
+
+Reste à faire, et à valider avec Xcode et un iPhone, avant d'annoncer une
+migration disponible :
+
+1. installer `export-guard` de façon synchrone avant tous les scripts de
+   `mobile/www`, avec une WebView unique et les travaux d'arrière-plan arrêtés ;
+2. activer `FS_MIGRATION_EXPORT`, enregistrer `MigrationExportPlugin`, compiler
+   avec CocoaPods ;
+3. publier une version de transition de l'ancienne app contenant cet export ;
+4. essayer le tout sur iPhone avec des données de test : export, import, puis
+   redémarrage.
+
+Aucun de ces essais n'a été possible sur Windows (ni Xcode, ni Swift, ni
+appareil).

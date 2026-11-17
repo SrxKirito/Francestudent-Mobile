@@ -1,0 +1,190 @@
+name: Publier la préversion Tauri iPhone (SideStore, dry-run par défaut)
+
+# Workflow manuel uniquement.
+#
+# Par défaut (publish = false) il construit, teste et vérifie l'IPA Tauri, génère la
+# source SideStore de préversion puis conserve le tout en artefact : RIEN n'est publié.
+#
+# Avec publish = true ET confirmation = PUBLIER, un second job publie l'IPA et
+# preview-source.json dans une PRÉ-RELEASE GitHub au tag fixe (tauri-ios-preview par
+# défaut). Les URL de la source pointent alors vers ce tag, stables d'une mise à jour
+# à l'autre.
+#
+# Ce que ce workflow ne fait JAMAIS :
+#   - modifier le source.json de production ni pousser sur une branche ;
+#   - utiliser l'identité de production org.francestudent.chat (les scripts la refusent) ;
+#   - marquer la Release comme « latest » (elle ne remplace pas l'ancienne app).
+# Passer à l'identité de production est une décision à prendre à part (voir
+# docs/plan-migration-ios.md).
+on:
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: "Publier réellement la pré-release (false = dry-run, rien n'est publié)"
+        type: boolean
+        required: true
+        default: false
+      confirmation:
+        description: "Saisir PUBLIER pour autoriser la publication"
+        type: string
+        required: false
+        default: ""
+      tag:
+        description: "Tag de la pré-release (ne doit pas commencer par ios-)"
+        type: string
+        required: false
+        default: "tauri-ios-preview"
+
+concurrency:
+  group: tauri-iphone-publish
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: mobile/tauri-next
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_16.4.app/Contents/Developer
+      PUBLISH_DIR: ${{ runner.temp }}/tauri-ios-publish
+      RELEASE_TAG: ${{ inputs.tag }}
+      PUBLISH_FLAG: ${{ inputs.publish }}
+      CONFIRMATION: ${{ inputs.confirmation }}
+    steps:
+      - name: Valider les paramètres
+        run: |
+          set -euo pipefail
+          case "$RELEASE_TAG" in
+            ios-*|"") echo "Tag refusé : il ne doit être ni vide ni commencer par ios- (production)."; exit 1 ;;
+          esac
+          printf '%s' "$RELEASE_TAG" | grep -Eq '^[A-Za-z0-9._-]+$' || { echo "Tag invalide."; exit 1; }
+          if [ "$PUBLISH_FLAG" = "true" ] && [ "$CONFIRMATION" != "PUBLIER" ]; then
+            echo "Publication demandée sans la confirmation PUBLIER : arrêt."
+            exit 1
+          fi
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: mobile/tauri-next/package-lock.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios
+      - name: Vérifier les outils Apple
+        run: |
+          set -euo pipefail
+          test -d "$DEVELOPER_DIR"
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-version
+          command -v pod
+          if ! command -v xcodegen >/dev/null; then brew install xcodegen; fi
+          ruby -e 'require "xcodeproj"'
+      - name: Installer les dépendances du client
+        run: npm ci
+      - name: Tester le client (JavaScript)
+        run: npm test
+      - name: Vérifier les types
+        run: npm run check
+      - name: Tester le cœur natif (Rust)
+        working-directory: mobile/tauri-next/src-tauri
+        run: cargo test --lib
+      - name: Initialiser le projet iOS Tauri
+        run: npm run tauri -- ios init --ci --skip-targets-install
+      - name: Ajouter le manifeste de confidentialité
+        run: ruby scripts/install-ios-privacy.rb
+      - name: Construire l'IPA ARM64 non signé
+        run: npm run tauri -- ios build --ci --target aarch64 --no-sign
+      - name: Isoler l'IPA et vérifier sa structure
+        run: |
+          set -euo pipefail
+          found=()
+          while IFS= read -r -d '' file; do found+=("$file"); done < <(find src-tauri/gen/apple -type f -name '*.ipa' -print0)
+          test "${#found[@]}" -eq 1 || { echo "Nombre inattendu d'IPA : ${#found[@]}"; exit 1; }
+          mkdir -p "$PUBLISH_DIR"
+          cp "${found[0]}" "$PUBLISH_DIR/FranceStudent-Tauri-iPhone.ipa"
+          python3 scripts/verify-ios-ipa.py "$PUBLISH_DIR/FranceStudent-Tauri-iPhone.ipa" --config src-tauri/tauri.conf.json --executable-output "$PUBLISH_DIR/executable"
+          xcrun lipo "$PUBLISH_DIR/executable" -verify_arch arm64
+          rm "$PUBLISH_DIR/executable"
+      - name: Générer la source SideStore de préversion
+        run: |
+          set -euo pipefail
+          base="https://github.com/${GITHUB_REPOSITORY}/releases/download/${RELEASE_TAG}"
+          python3 scripts/make-sidestore-preview-source.py "$PUBLISH_DIR/FranceStudent-Tauri-iPhone.ipa" \
+            --config src-tauri/tauri.conf.json \
+            --repo "$GITHUB_REPOSITORY" \
+            --commit "$GITHUB_SHA" \
+            --download-url "$base/FranceStudent-Tauri-iPhone.ipa" \
+            --source-url "$base/preview-source.json" \
+            --output "$PUBLISH_DIR/preview-source.json"
+      - name: Contrôler que la source de production est intacte
+        run: |
+          set -euo pipefail
+          git diff --exit-code HEAD -- ':/source.json'
+          test ! -e "$PUBLISH_DIR/source.json"
+      - name: Conserver l'IPA et la source
+        uses: actions/upload-artifact@v4
+        with:
+          name: FranceStudent-Tauri-iPhone-publish
+          path: |
+            ${{ runner.temp }}/tauri-ios-publish/FranceStudent-Tauri-iPhone.ipa
+            ${{ runner.temp }}/tauri-ios-publish/preview-source.json
+          if-no-files-found: error
+          retention-days: 14
+      - name: Résumer
+        run: |
+          {
+            echo "### Préversion Tauri iPhone"
+            echo ""
+            echo "- Commit : \`$GITHUB_SHA\`"
+            echo "- Identité : \`org.francestudent.mobile.next\` (production : \`org.francestudent.chat\`, non modifiée)"
+            if [ "$PUBLISH_FLAG" = "true" ]; then
+              echo "- Mode : **publication** vers la pré-release \`$RELEASE_TAG\` (job suivant)."
+            else
+              echo "- Mode : **dry-run**, rien n'est publié (artefact conservé 14 jours)."
+            fi
+            echo "- IPA non signé : SideStore le signe à l'installation ; installation non testée sur appareil."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  publish:
+    needs: build
+    if: ${{ inputs.publish && inputs.confirmation == 'PUBLIER' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_TAG: ${{ inputs.tag }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: FranceStudent-Tauri-iPhone-publish
+          path: publish
+      - name: Publier la pré-release (jamais « latest »)
+        run: |
+          set -euo pipefail
+          test -f publish/FranceStudent-Tauri-iPhone.ipa
+          test -f publish/preview-source.json
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" publish/FranceStudent-Tauri-iPhone.ipa publish/preview-source.json --clobber --repo "$GITHUB_REPOSITORY"
+            gh release edit "$RELEASE_TAG" --prerelease --latest=false --repo "$GITHUB_REPOSITORY"
+          else
+            gh release create "$RELEASE_TAG" publish/FranceStudent-Tauri-iPhone.ipa publish/preview-source.json \
+              --target "$GITHUB_SHA" \
+              --title "FranceStudent Tauri iPhone (préversion)" \
+              --notes "Préversion de test de la version Tauri, installable à côté de FranceStudent Chat via SideStore. Ajouter la source preview-source.json de cette Release." \
+              --prerelease --latest=false --repo "$GITHUB_REPOSITORY"
+          fi
