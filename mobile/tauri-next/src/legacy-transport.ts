@@ -4,7 +4,7 @@ import { open } from "@tauri-apps/plugin-fs";
 import { saveWithDialog, saveResponseWithDialog } from "./save-file.js";
 
 type TransportEvent =
-  | { kind: "started"; status: number; content_type: string | null }
+  | { kind: "started"; status: number; content_type: string | null; retry_after: string | null }
   | { kind: "chunk"; bytes: number[] }
   | { kind: "finished" };
 type Request = { token: string; method: string; path: string; accept: string; body?: string };
@@ -66,7 +66,9 @@ export function installLegacyTransport() {
         if (ended) return;
         if (event.kind === "started") {
           started = true;
-          const headers = event.content_type ? { "content-type": event.content_type } : undefined;
+          const headers = new Headers();
+          if (event.content_type) headers.set("content-type", event.content_type);
+          if (event.retry_after) headers.set("retry-after", event.retry_after);
           const noBody = [204, 205, 304].includes(event.status);
           resolve(new Response(noBody ? null : stream, { status: event.status, headers }));
           if (noBody) ended = true;

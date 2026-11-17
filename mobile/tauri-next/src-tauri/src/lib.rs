@@ -188,6 +188,7 @@ enum TransportEvent {
     Started {
         status: u16,
         content_type: Option<String>,
+        retry_after: Option<String>,
     },
     Chunk {
         bytes: Vec<u8>,
@@ -292,10 +293,16 @@ async fn legacy_request(
         .get(reqwest::header::CONTENT_TYPE)
         .and_then(|value| value.to_str().ok())
         .map(str::to_owned);
+    let retry_after = response
+        .headers()
+        .get(reqwest::header::RETRY_AFTER)
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned);
     on_event
         .send(TransportEvent::Started {
             status,
             content_type,
+            retry_after,
         })
         .map_err(|e| e.to_string())?;
     let mut stream = response.bytes_stream();

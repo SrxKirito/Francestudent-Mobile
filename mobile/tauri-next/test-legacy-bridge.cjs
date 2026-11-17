@@ -24,6 +24,10 @@ async function main() {
   await assert.rejects(context.apiFetch("/filesv2", { method: "POST", body: new FormData() }), /ne peut pas encore/);
   const form = new FormData(); form.append("files", new File(["skill"], "SKILL.md", { type: "text/markdown" }));
   assert.equal((await (await context.apiFetch("/skills", { method: "POST", body: form })).json()).id, "skill-1");
+  let rateLimitRequests = 0;
+  transport.request = async () => { rateLimitRequests++; return new Response("limite", { status: 429, headers: { "retry-after": "12" } }); };
+  await assert.rejects(context.apiFetch("/chats?limit=20"), error => error.status === 429 && /12 secondes/.test(error.message));
+  assert.equal(rateLimitRequests, 1, "une requête limitée ne doit pas être répétée automatiquement");
   transport.exchange = async () => { throw new Error("Le serveur a refusé la requête (HTTP 401)"); };
   context.auth.accessToken = "";
   context.authError = message => Object.assign(new Error(message), { auth: true });

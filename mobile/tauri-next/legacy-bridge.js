@@ -43,5 +43,14 @@ apiFetch = async function(path, { method = "GET", body, accept = "application/js
     if (response.body) await response.body.cancel().catch(() => {});
     return apiFetch(path, { method, body, accept, stream }, true);
   }
+  if (response.status === 429) {
+    const retryAfter = response.headers.get("retry-after");
+    const seconds = retryAfter && /^\d{1,8}$/.test(retryAfter) ? Number(retryAfter) : null;
+    if (response.body) await response.body.cancel().catch(() => {});
+    const error = new Error("Limite de requêtes atteinte." + (seconds !== null ? " Réessaie dans " + seconds + " secondes." : " Réessaie plus tard."));
+    error.status = 429;
+    error.retryAfter = retryAfter;
+    throw error;
+  }
   return response;
 };
