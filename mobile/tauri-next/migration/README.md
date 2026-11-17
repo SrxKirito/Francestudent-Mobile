@@ -106,6 +106,17 @@ même barrière avant la restauration ; les données existantes ne sont pas
 l'import ne doit pas être exposé à l'utilisateur. Ce nouveau raccordement n'a
 pas été testé.
 
+`startup-import-barrier.mjs` prépare le cycle de vie d'une migration au
+démarrage : une opération à la fois, contrôle répété du mode de démarrage et
+du verrou natif, puis fermeture des accès. Après toute écriture possible, le
+verrou est conservé jusqu'à l'arrêt du processus et un redémarrage est exigé ;
+le moteur ordinaire ne doit jamais reprendre avec un état mémoire périmé. Il
+faut encore une page de migration dédiée chargée avant tous les scripts de
+l'application, un verrou natif excluant réellement toutes les fenêtres et
+processus partageant les données et un redémarrage effectif sous ce verrou.
+Ces garanties ne sont pas fournies par le coordinateur lui-même. Ce module
+reste non branché et non vérifié ; il ne rend pas l'import utilisable.
+
 `export-guard.mjs` fournit un garde-fou côté WebView pour les transactions
 IndexedDB `readwrite` des deux bases et les appels Storage sur `fs-chat-state`.
 Il doit être installé **synchronement avant tout autre script** et son
