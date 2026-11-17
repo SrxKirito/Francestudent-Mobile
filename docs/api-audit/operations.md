@@ -7,9 +7,9 @@ Le statut « À adapter » indique un travail ou une validation restant à faire
 | Domaine | Méthode et chemin | Fonction documentée | Statut | Validation |
 | --- | --- | --- | --- | --- |
 | ads-controller | `POST /ads/challenges/{challengeId}/complete` |  | À adapter | Non testée |
-| API Key | `DELETE /user/@me/api-key` | Revoquer ma cle API | À adapter | Non testée |
-| API Key | `GET /user/@me/api-key` | Consulter ma cle API | À adapter | Non testée |
-| API Key | `POST /user/@me/api-key` | Generer ma cle API | À adapter | Non testée |
+| API Key | `DELETE /user/@me/api-key` | Revoquer ma cle API | Implémentée | Non testée ; parcours serveur à vérifier |
+| API Key | `GET /user/@me/api-key` | Consulter ma cle API | Implémentée | Non testée ; parcours serveur à vérifier |
+| API Key | `POST /user/@me/api-key` | Generer ma cle API | Implémentée | Non testée ; parcours serveur à vérifier |
 | api-landing-controller | `GET /` |  | À adapter | Non testée |
 | api-landing-controller | `DELETE /error` |  | À adapter | Non testée |
 | api-landing-controller | `GET /error` |  | À adapter | Non testée |
