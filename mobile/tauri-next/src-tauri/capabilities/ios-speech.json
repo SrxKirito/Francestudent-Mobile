@@ -1,0 +1,8 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "ios-speech",
+  "description": "Dictée vocale iOS déclenchée par l'utilisateur",
+  "windows": ["main"],
+  "platforms": ["iOS"],
+  "permissions": ["stt:allow-is-available", "stt:allow-check-permission", "stt:allow-request-permission", "stt:allow-start-listening", "stt:allow-stop-listening", "stt:allow-register-listener", "stt:allow-remove-listener"]
+}

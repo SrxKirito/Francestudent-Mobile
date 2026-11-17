@@ -17,6 +17,7 @@ await adapter.addListener("partialResults", result => { transcript = result.matc
 await adapter.addListener("listeningState", result => { status = result.status; });
 await adapter.start({ language: "fr-FR" });
 assert.equal(calls.at(-1).args.config.language, "fr-FR");
+assert.equal(calls.at(-1).args.config.continuous, false);
 listeners.get("result")({ transcript: "Bonjour", isFinal: false });
 listeners.get("stateChange")({ state: "idle" });
 assert.equal(transcript, "Bonjour"); assert.equal(status, "stopped");
@@ -25,3 +26,4 @@ assert.deepEqual(unregistered.sort(), ["result", "stateChange"]);
 await adapter.stop();
 assert.equal(calls.at(-1).command, "plugin:stt|stop_listening");
 console.log("Dictée : adaptation des permissions, résultats et arrêt vérifiée.");
+

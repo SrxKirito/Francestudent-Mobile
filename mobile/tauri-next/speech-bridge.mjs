@@ -21,8 +21,9 @@ export function createSpeechAdapter(invoke, addPluginListener) {
       await Promise.allSettled(old.map(listener => listener.unregister()));
     },
     async start(options = {}) {
-      await invoke("plugin:stt|start_listening", { config: { language: options.language || "fr-FR", interimResults: true, continuous: true } });
+      await invoke("plugin:stt|start_listening", { config: { language: options.language || "fr-FR", interimResults: true, continuous: false } });
     },
     async stop() { await invoke("plugin:stt|stop_listening"); }
   };
 }
+

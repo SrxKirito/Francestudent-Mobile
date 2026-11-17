@@ -449,13 +449,21 @@ async fn cancel_generation(state: State<'_, AppState>, id: Uuid) -> Result<(), S
         .map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+fn speech_supported() -> bool {
+    cfg!(target_os = "ios")
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let builder = tauri::Builder::default()
         .plugin(tauri_plugin_secure_keystore::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_dialog::init())
-        .manage(AppState::default())
+        .manage(AppState::default());
+    #[cfg(target_os = "ios")]
+    let builder = builder.plugin(tauri_plugin_stt::init());
+    builder
         .invoke_handler(tauri::generate_handler![
             connect,
             list_chats,
@@ -473,7 +481,8 @@ pub fn run() {
             upload_begin,
             upload_chunk,
             upload_finish,
-            upload_cancel
+            upload_cancel,
+            speech_supported
         ])
         .run(tauri::generate_context!())
         .expect("erreur au lancement de France Student");
