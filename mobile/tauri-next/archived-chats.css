@@ -1,0 +1,7 @@
+.archived-chat-toggle { margin-top: 4px; }
+.archived-chats-panel { max-height: 240px; overflow-y: auto; margin: 4px 8px 10px; padding: 8px; border: 1px solid var(--border, #444); border-radius: 10px; }
+.archived-chats-panel[hidden] { display: none; }
+.archived-chats-panel p { color: var(--muted, #aaa); font-size: 12px; }
+.archived-chat-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 8px 0; }
+.archived-chat-row span { width: 100%; overflow-wrap: anywhere; }
+.archived-chat-row button, .archived-chats-panel > button { border: 1px solid var(--border, #444); border-radius: 7px; padding: 5px 8px; background: transparent; color: inherit; font-size: 12px; }
