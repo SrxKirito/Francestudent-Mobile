@@ -16,6 +16,15 @@ for (const [route, item] of Object.entries(spec.paths)) {
 operations.sort((a, b) => a.tag.localeCompare(b.tag, "fr") || a.route.localeCompare(b.route, "fr") || a.method.localeCompare(b.method));
 const progress = {
   "GET /chats/search": ["Implémentée", "Tests simulés ; appareil et serveur à vérifier"],
+  "GET /locked-chats": ["Implémentée", "Module locked-chats et test unitaire écrits"],
+  "DELETE /locked-chats/access": ["Implémentée", "Fermeture d'accès locale et serveur"],
+  "POST /locked-chats/access": ["Implémentée", "Ouverture d'accès avec code PIN"],
+  "DELETE /locked-chats/chats/{chatId}": ["Implémentée", "Déverrouillage de chat"],
+  "PUT /locked-chats/chats/{chatId}": ["Implémentée", "Verrouillage de chat"],
+  "DELETE /locked-chats/pin": ["Implémentée", "Suppression du code PIN avec réinitialisation"],
+  "POST /locked-chats/pin": ["Implémentée", "Création de code PIN"],
+  "PUT /locked-chats/pin": ["Implémentée", "Changement de code PIN"],
+  "GET /locked-chats/status": ["Implémentée", "Vérification statut PIN et accès"],
   "GET /chats/archived": ["Implémentée", "Liste simulée ; appareil et serveur à vérifier"],
   "PUT /chats/{chatId}/archive": ["Implémentée", "Archivage simulé ; appareil et serveur à vérifier"],
   "PUT /chats/{chatId}/restore": ["Implémentée", "Restauration simulée ; appareil et serveur à vérifier"],
@@ -34,7 +43,16 @@ const progress = {
   "DELETE /filesv2/{file_id}": ["Implémentée", "Suppression simulée ; serveur à vérifier"],
   "GET /filesv2/usage": ["Implémentée", "Affichage simulé ; serveur à vérifier"],
   "GET /filesv2/supported-mime-types": ["Implémentée", "Filtrage simulé ; serveur à vérifier"],
-  "POST /skills": ["Implémentée", "Multipart simulé ; appareil et serveur à vérifier"]
+  "POST /skills": ["Implémentée", "Multipart simulé ; appareil et serveur à vérifier"],
+  "GET /user/@me/saved-messages": ["Implémentée", "Test unitaire et intégration bibliothèque validés"],
+  "PUT /user/@me/saved-messages/{chatId}/{messageId}": ["Implémentée", "Action Enregistrer validée"],
+  "DELETE /user/@me/saved-messages/{chatId}/{messageId}": ["Implémentée", "Suppression depuis bibliothèque validée"],
+  "GET /chats": ["Implémentée", "Synchronisation des conversations par date"],
+  "GET /chats/{chatId}": ["Implémentée", "Détail de conversation et chargement différé"],
+  "PATCH /chats/{chatId}": ["Implémentée", "Renommage synchronisé"],
+  "DELETE /chats/{chatId}": ["Implémentée", "Suppression synchronisée"],
+  "PUT /chats/{chatId}/pins": ["Implémentée", "Épinglage synchronisé"],
+  "DELETE /chats/{chatId}/pins": ["Implémentée", "Désépinglage synchronisé"]
 };
 for (const key of Object.keys(progress)) {
   if (!operations.some(operation => `${operation.method} ${operation.route}` === key)) throw new Error(`Opération absente de l'OpenAPI : ${key}`);

@@ -24,7 +24,7 @@ if (!index.includes(conversationsScript)) throw new Error("Historique des conver
 index = index.replace(conversationsScript, conversationsScript + '\n  <script src="js/tauri-chat-search.js"></script>');
 const composer = '<script src="js/composer.js"></script>';
 if (!index.includes(composer)) throw new Error("Éditeur historique introuvable");
-index = index.replace(composer, composer + '\n  <script src="js/tauri-files.js"></script>\n  <script src="js/tauri-storage.js"></script>\n  <script src="js/tauri-archived-chats.js"></script>\n  <script src="js/tauri-speech.js"></script>');
+index = index.replace(composer, composer + '\n  <script src="js/tauri-files.js"></script>\n  <script src="js/tauri-storage.js"></script>\n  <script src="js/tauri-archived-chats.js"></script>\n  <script src="js/tauri-locked-chats.js"></script>\n  <script src="js/tauri-speech.js"></script>');
 const render = '<script src="js/render.js"></script>';
 if (!index.includes(render)) throw new Error("Génération de fichiers introuvable");
 index = index.replace(render, render + '\n  <script src="js/tauri-save.js"></script>');
@@ -51,6 +51,7 @@ fs.copyFileSync(path.join(__dirname, "project-shares.css"), path.join(destinatio
 fs.copyFileSync(path.join(__dirname, "remote-chat-search.js"), path.join(destination, "js/tauri-chat-search.js"));
 fs.copyFileSync(path.join(__dirname, "remote-chat-search.css"), path.join(destination, "tauri-chat-search.css"));
 fs.copyFileSync(path.join(__dirname, "archived-chats.js"), path.join(destination, "js/tauri-archived-chats.js"));
+fs.copyFileSync(path.join(__dirname, "locked-chats.js"), path.join(destination, "js/tauri-locked-chats.js"));
 fs.copyFileSync(path.join(__dirname, "archived-chats.css"), path.join(destination, "tauri-archived-chats.css"));
 const corePath = path.join(destination, "js/core.js");
 let coreSource = fs.readFileSync(corePath, "utf8");

@@ -24,18 +24,18 @@ Le statut « À adapter » indique un travail ou une validation restant à faire
 | Chat Shares | `PATCH /chats/{chatId}/shares` | Modifier un partage par cible dans le body | Implémentée | Permissions et serveur à vérifier |
 | Chat Shares | `POST /chats/{chatId}/shares` | Ajouter un partage de chat | Implémentée | Permissions et serveur à vérifier |
 | Chats | `DELETE /chats` | Supprimer tous les chats | À adapter | Non testée |
-| Chats | `GET /chats` | Lister les chats de l'utilisateur | À adapter | Non testée |
-| Chats | `DELETE /chats/{chatId}` | Supprimer un chat | À adapter | Non testée |
-| Chats | `GET /chats/{chatId}` | Recuperer un chat | À adapter | Non testée |
-| Chats | `PATCH /chats/{chatId}` | Mettre a jour un chat | À adapter | Non testée |
+| Chats | `GET /chats` | Lister les chats de l'utilisateur | Implémentée | Synchronisation des conversations par date |
+| Chats | `DELETE /chats/{chatId}` | Supprimer un chat | Implémentée | Suppression synchronisée |
+| Chats | `GET /chats/{chatId}` | Recuperer un chat | Implémentée | Détail de conversation et chargement différé |
+| Chats | `PATCH /chats/{chatId}` | Mettre a jour un chat | Implémentée | Renommage synchronisé |
 | Chats | `POST /chats/{chatId}` | Envoyer un message en streaming | À adapter | Non testée |
 | Chats | `PUT /chats/{chatId}/archive` | Archiver un chat | Implémentée | Archivage simulé ; appareil et serveur à vérifier |
 | Chats | `GET /chats/{chatId}/archive/download` | Telecharger les messages d'un chat archive | À adapter | Non testée |
 | Chats | `GET /chats/{chatId}/context` | Recuperer l'occupation du contexte d'un chat | À adapter | Non testée |
 | Chats | `POST /chats/{chatId}/context` | Compacter le contexte d'un chat | À adapter | Non testée |
 | Chats | `PATCH /chats/{chatId}/messages/{messageId}` | Editer un message en forkan le chat | À adapter | Non testée |
-| Chats | `DELETE /chats/{chatId}/pins` | Desepingler un chat | À adapter | Non testée |
-| Chats | `PUT /chats/{chatId}/pins` | Epingler un chat | À adapter | Non testée |
+| Chats | `DELETE /chats/{chatId}/pins` | Desepingler un chat | Implémentée | Désépinglage synchronisé |
+| Chats | `PUT /chats/{chatId}/pins` | Epingler un chat | Implémentée | Épinglage synchronisé |
 | Chats | `PUT /chats/{chatId}/restore` | Restaurer un chat archive | Implémentée | Restauration simulée ; appareil et serveur à vérifier |
 | Chats | `GET /chats/{chatId}/stream` | Se rattacher au stream d'un chat | Implémentée | Reprise SSE simulée ; appareil à vérifier |
 | Chats | `POST /chats/{chatId}/stream/cancel` | Arreter la generation d'un chat | À adapter | Non testée |
@@ -66,15 +66,15 @@ Le statut « À adapter » indique un travail ou une validation restant à faire
 | Files v2 | `POST /filesv2/legacy-migration` | Migrate legacy files | À adapter | Non testée |
 | Files v2 | `GET /filesv2/supported-mime-types` | List supported file MIME types | Implémentée | Filtrage simulé ; serveur à vérifier |
 | Files v2 | `GET /filesv2/usage` | Retrieve file storage usage | Implémentée | Affichage simulé ; serveur à vérifier |
-| Locked Chats | `GET /locked-chats` | Lister les chats verrouilles | À adapter | Non testée |
-| Locked Chats | `DELETE /locked-chats/access` | Verrouiller maintenant | À adapter | Non testée |
-| Locked Chats | `POST /locked-chats/access` | Ouvrir les chats verrouilles | À adapter | Non testée |
-| Locked Chats | `DELETE /locked-chats/chats/{chatId}` | Deverrouiller definitivement un chat | À adapter | Non testée |
-| Locked Chats | `PUT /locked-chats/chats/{chatId}` | Verrouiller un chat | À adapter | Non testée |
-| Locked Chats | `DELETE /locked-chats/pin` | Reinitialiser le code PIN | À adapter | Non testée |
-| Locked Chats | `POST /locked-chats/pin` | Creer le code PIN | À adapter | Non testée |
-| Locked Chats | `PUT /locked-chats/pin` | Changer le code PIN | À adapter | Non testée |
-| Locked Chats | `GET /locked-chats/status` | Etat des chats verrouilles | À adapter | Non testée |
+| Locked Chats | `GET /locked-chats` | Lister les chats verrouilles | Implémentée | Module locked-chats et test unitaire écrits |
+| Locked Chats | `DELETE /locked-chats/access` | Verrouiller maintenant | Implémentée | Fermeture d'accès locale et serveur |
+| Locked Chats | `POST /locked-chats/access` | Ouvrir les chats verrouilles | Implémentée | Ouverture d'accès avec code PIN |
+| Locked Chats | `DELETE /locked-chats/chats/{chatId}` | Deverrouiller definitivement un chat | Implémentée | Déverrouillage de chat |
+| Locked Chats | `PUT /locked-chats/chats/{chatId}` | Verrouiller un chat | Implémentée | Verrouillage de chat |
+| Locked Chats | `DELETE /locked-chats/pin` | Reinitialiser le code PIN | Implémentée | Suppression du code PIN avec réinitialisation |
+| Locked Chats | `POST /locked-chats/pin` | Creer le code PIN | Implémentée | Création de code PIN |
+| Locked Chats | `PUT /locked-chats/pin` | Changer le code PIN | Implémentée | Changement de code PIN |
+| Locked Chats | `GET /locked-chats/status` | Etat des chats verrouilles | Implémentée | Vérification statut PIN et accès |
 | MCP Servers | `GET /mcp/servers` | Lister les serveurs MCP de l'utilisateur authentifie | À adapter | Non testée |
 | MCP Servers | `POST /mcp/servers` | Ajouter un serveur MCP a l'utilisateur authentifie | À adapter | Non testée |
 | MCP Servers | `DELETE /mcp/servers/{serverId}` | Supprimer un serveur MCP de l'utilisateur authentifie | À adapter | Non testée |
@@ -115,9 +115,9 @@ Le statut « À adapter » indique un travail ou une validation restant à faire
 | Public | `GET /public/health` | Verifier l'etat de sante de l'application | À adapter | Non testée |
 | Safety Hub | `GET /safety-hub/@me` | Get the current user's Safety Hub | À adapter | Non testée |
 | Safety Hub | `PUT /safety-hub/request-review/{classificationId}` | Appeal a safety classification | À adapter | Non testée |
-| Saved Messages | `GET /user/@me/saved-messages` | Lister mes messages sauvegardes | À adapter | Non testée |
-| Saved Messages | `DELETE /user/@me/saved-messages/{chatId}/{messageId}` | Retirer un message sauvegarde | À adapter | Non testée |
-| Saved Messages | `PUT /user/@me/saved-messages/{chatId}/{messageId}` | Sauvegarder un message | À adapter | Non testée |
+| Saved Messages | `GET /user/@me/saved-messages` | Lister mes messages sauvegardes | Implémentée | Test unitaire et intégration bibliothèque validés |
+| Saved Messages | `DELETE /user/@me/saved-messages/{chatId}/{messageId}` | Retirer un message sauvegarde | Implémentée | Suppression depuis bibliothèque validée |
+| Saved Messages | `PUT /user/@me/saved-messages/{chatId}/{messageId}` | Sauvegarder un message | Implémentée | Action Enregistrer validée |
 | Skills | `GET /skills` | Lister les skills locaux | À adapter | Non testée |
 | Skills | `POST /skills` | Creer un skill local | Implémentée | Multipart simulé ; appareil et serveur à vérifier |
 | Skills | `DELETE /skills/{skillId}` | Supprimer un skill local | À adapter | Non testée |
