@@ -42,6 +42,15 @@ si l'export échoue. L'hôte doit réellement empêcher les écritures de toutes
 fenêtres ; ces fonctions ne créent pas elles-mêmes ce verrou et ne rendent pas
 les sélecteurs natifs disponibles.
 
+`host.mjs` relie les adaptateurs et refuse l'initialisation si aucun fournisseur
+de verrou n'est fourni. `ui.mjs` fournit un panneau autonome pour exporter,
+vérifier puis importer ; il efface la phrase saisie après chaque opération et
+signale les conflits sans écraser. Ces deux modules ne branchent pas encore
+l'interface dans l'application : le verrou doit couvrir les écritures en cours
+et les événements en arrière-plan, et le fichier temporaire doit être finalisé
+par un pont natif sur chaque plateforme. Ne pas connecter ces modules à un
+verrou factice ou publier cette migration comme terminée avant les essais.
+
 1. Dans l'ancienne app, arrêter temporairement toute écriture de conversations,
    attendre `conversationWrite` si présent, récupérer le texte brut de
    `localStorage.getItem("fs-chat-state")`, le tableau `store.conversations`
@@ -78,4 +87,6 @@ Depuis `mobile/tauri-next` :
 ```sh
 node migration/test-backup.mjs
 node migration/test-adapters.mjs
+node migration/test-orchestrate.mjs
+node migration/test-ui.mjs
 ```
