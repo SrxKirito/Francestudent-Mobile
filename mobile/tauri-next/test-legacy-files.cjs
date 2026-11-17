@@ -80,3 +80,25 @@ async function testMultipleSelectionQueue() {
   assert.equal(notices.length, 0);
 }
 testMultipleSelectionQueue().then(() => console.log("Sélection multiple : concurrence limitée et annulations vérifiées.")).catch(error => { console.error(error); process.exitCode = 1; });
+
+async function testBoundedPreviewAndDownload() {
+  let cancelled = false;
+  const context = vm.createContext({
+    pendingFiles: [], busy: false, document: { querySelectorAll: () => [] }, $: () => ({ disabled: false }),
+    renderAttachments() {}, removeAttachment() {}, previewAttachment() {}, previewBlob() {}, updateSendButton() {}, sendMessage() {},
+    URL, AbortController, Array, Date, Math, String, Blob, Response, TransformStream, TextDecoder, Uint8Array, atob
+  });
+  vm.runInContext(fs.readFileSync(require("node:path").join(__dirname, "legacy-files.js"), "utf8"), context);
+  const stream = new ReadableStream({ pull(controller) { controller.enqueue(new Uint8Array(5)); }, cancel() { cancelled = true; } });
+  await assert.rejects(context.tauriBoundedBlob(new Response(stream), 4), /volumineux/);
+  assert(cancelled);
+  const encoder = new TextEncoder();
+  const body = new ReadableStream({ start(controller) { for (const value of ['"SG', 'Vsb', 'G8=', '"']) controller.enqueue(encoder.encode(value)); controller.close(); } });
+  const decoded = context.tauriDecodedFileResponse(new Response(body, { headers: { "content-type": "application/json" } }));
+  assert.equal(await decoded.text(), "Hello");
+  const invalid = context.tauriDecodedFileResponse(new Response('"SGVsbG8', { headers: { "content-type": "application/json" } }));
+  await assert.rejects(invalid.text(), /incomplet/);
+  const binary = new Response("contenu", { headers: { "content-type": "application/octet-stream" } });
+  assert.equal(context.tauriDecodedFileResponse(binary), binary);
+}
+testBoundedPreviewAndDownload().then(() => console.log("Aperçu borné et téléchargement décodé par blocs vérifiés.")).catch(error => { console.error(error); process.exitCode = 1; });

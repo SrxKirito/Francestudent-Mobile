@@ -44,7 +44,9 @@ openLibrary = async function(initialKind) {
         const row = document.createElement("div"); row.className = "storage-row";
         const label = document.createElement("span"); label.textContent = typeof file.filename === "string" ? file.filename : "Fichier";
         const preview = document.createElement("button"); preview.type = "button"; preview.textContent = "Aperçu";
-        preview.onclick = () => previewAttachment({ name: label.textContent, kind: "file", remoteKind: "file", remoteId: file.id });
+        preview.onclick = () => previewAttachment({ name: label.textContent, kind: "file", remoteKind: "file", remoteId: file.id, size: file.bytes });
+        const download = document.createElement("button"); download.type = "button"; download.textContent = "Télécharger";
+        download.onclick = () => { if (!sessionActive()) { status.textContent = "La session a changé. Rouvre la bibliothèque."; return; } void downloadTauriRemoteFile({ name: label.textContent, remoteId: file.id }); };
         const remove = document.createElement("button"); remove.type = "button"; remove.textContent = "Supprimer";
         remove.onclick = async () => {
           if (!sessionActive()) { status.textContent = "La session a changé. Rouvre la bibliothèque."; return; }
@@ -58,7 +60,7 @@ openLibrary = async function(initialKind) {
           } catch (error) { status.textContent = "Suppression impossible : " + (error?.message || error); }
           finally { remove.disabled = false; }
         };
-        row.append(label, preview, remove); list.append(row);
+        row.append(label, preview, remove, download); list.append(row);
       }
       cursor = next; more.hidden = page.has_more !== true;
       status.textContent = list.childElementCount ? "" : "Aucun fichier enregistré.";

@@ -113,31 +113,101 @@ removeAttachment = function(id) {
   return originalRemoveAttachment(id);
 };
 
+// Limite de l’aperçu, distincte des limites d’envoi et de téléchargement.
+const tauriPreviewMaxBytes = 6 * 1024 * 1024;
+const tauriPreviewTooLarge = "Fichier trop volumineux pour l’aperçu. Utilise Télécharger dans les fichiers enregistrés.";
+
+async function tauriBoundedBlob(response, limit) {
+  const reader = response.body?.getReader();
+  if (!reader) throw new Error("Contenu du fichier indisponible.");
+  const parts = [];
+  let size = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      size += value.byteLength;
+      if (size > limit) throw new Error(tauriPreviewTooLarge);
+      parts.push(value);
+    }
+    return new Blob(parts, { type: response.headers.get("content-type") || "application/octet-stream" });
+  } catch (error) {
+    await reader.cancel().catch(() => {});
+    throw error;
+  }
+}
+
+// Files v2 peut renvoyer un JSON contenant une chaîne base64 (format byte).
+// Décodage par blocs pour ne pas matérialiser le fichier entier en mémoire.
+function tauriDecodedFileResponse(response) {
+  if (!(response.headers.get("content-type") || "").toLowerCase().includes("application/json")) return response;
+  const decoder = new TextDecoder();
+  let phase = "before", group = "", escape = false, padded = false;
+  const transform = new TransformStream({
+    transform(chunk, controller) {
+      const text = decoder.decode(chunk, { stream: true });
+      const output = [];
+      for (const char of text) {
+        if (phase === "before") { if (/\s/.test(char)) continue; if (char !== '"') throw new Error("Contenu du fichier non reconnu."); phase = "data"; continue; }
+        if (phase === "after") { if (!/\s/.test(char)) throw new Error("Contenu du fichier non reconnu."); continue; }
+        if (escape) { if (char !== "/") throw new Error("Contenu du fichier non reconnu."); escape = false; }
+        else if (char === "\\") { escape = true; continue; }
+        else if (char === '"') { if (group) throw new Error("Fichier encodé incomplet."); phase = "after"; continue; }
+        if (padded || !/[A-Za-z0-9+/=]/.test(char)) throw new Error("Contenu du fichier non reconnu.");
+        group += char;
+        if (group.length === 4) {
+          if (!/^(?:[A-Za-z0-9+/]{4}|[A-Za-z0-9+/]{3}=|[A-Za-z0-9+/]{2}==)$/.test(group)) throw new Error("Fichier encodé invalide.");
+          const decoded = atob(group); for (let i = 0; i < decoded.length; i++) output.push(decoded.charCodeAt(i));
+          padded = group.includes("="); group = "";
+        }
+      }
+      if (output.length) controller.enqueue(Uint8Array.from(output));
+    },
+    flush() { if (decoder.decode() || phase !== "after" || escape || group) throw new Error("Fichier encodé incomplet."); }
+  });
+  return new Response(response.body.pipeThrough(transform), { headers: { "content-type": "application/octet-stream" } });
+}
+
+async function downloadTauriRemoteFile(file) {
+  try {
+    const response = await apiFetch("/filesv2/" + encodeURIComponent(file.remoteId) + "/content", { accept: "*/*" });
+    if (!response.ok) throw new Error("HTTP " + response.status);
+    await tauriTransport.saveResponse(file.name, tauriDecodedFileResponse(response));
+    showToast("Fichier enregistré.");
+  } catch (error) { showToast("Téléchargement impossible : " + (error?.message || error), true); }
+}
+
 previewAttachment = async function(file) {
   const original = tauriSelectedFiles.get(file.id);
-  if (original) return previewBlob(file.name, original);
+  if (original) { if (original.size > tauriPreviewMaxBytes) { showToast(tauriPreviewTooLarge, true); return; } return previewBlob(file.name, original); }
   if (!file.remoteId || !["file", "legacy"].includes(file.remoteKind)) return originalPreviewAttachment(file);
   try {
     if (file.remoteKind === "legacy") {
-      const metadata = await settingsApi("/files/" + encodeURIComponent(file.remoteId));
+      const response = await apiFetch("/files/" + encodeURIComponent(file.remoteId), { accept: "application/json" });
+      if (!response.ok) throw new Error("HTTP " + response.status);
+      const metadata = JSON.parse(await (await tauriBoundedBlob(response, Math.ceil(tauriPreviewMaxBytes * 4 / 3) + 4096)).text());
       if (typeof metadata?.base64Data !== "string") throw new Error("Contenu du fichier historique non reconnu.");
       const decoded = atob(metadata.base64Data);
       const blob = new Blob([Uint8Array.from(decoded, c => c.charCodeAt(0))], { type: metadata.contentType || "application/octet-stream" });
+      if (blob.size > tauriPreviewMaxBytes) throw new Error(tauriPreviewTooLarge);
       return await previewBlob(metadata.pathname || file.name, blob);
     }
+    if (Number.isFinite(file.size) && file.size > tauriPreviewMaxBytes) throw new Error(tauriPreviewTooLarge);
     if (file.name === "Fichier enregistré") {
       const metadata = await settingsApi("/filesv2/" + encodeURIComponent(file.remoteId));
       if (typeof metadata?.filename === "string") file.name = metadata.filename;
+      if (Number.isFinite(metadata?.bytes) && metadata.bytes > tauriPreviewMaxBytes) throw new Error(tauriPreviewTooLarge);
     }
     const response = await apiFetch("/filesv2/" + encodeURIComponent(file.remoteId) + "/content", { accept: "*/*" });
     if (!response.ok) throw new Error("HTTP " + response.status);
-    let blob = await response.blob();
+    let blob = await tauriBoundedBlob(response, Math.ceil(tauriPreviewMaxBytes * 4 / 3) + 1024);
     if ((response.headers.get("content-type") || "").toLowerCase().includes("application/json")) {
       const encoded = JSON.parse(await blob.text());
       if (typeof encoded !== "string") throw new Error("Contenu de fichier non reconnu.");
       const decoded = atob(encoded);
       blob = new Blob([Uint8Array.from(decoded, c => c.charCodeAt(0))], { type: file.mime || "application/octet-stream" });
     }
+    if (blob.size > tauriPreviewMaxBytes) throw new Error(tauriPreviewTooLarge);
     return await previewBlob(file.name, blob);
   } catch (error) { showToast("Aperçu impossible : " + (error?.message || error), true); }
 };
