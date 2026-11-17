@@ -26,7 +26,7 @@ function tauriChatRequest(path, method, body) {
   return { path, body: JSON.stringify({ ...common, initialContent: old.initialContent, projectId: old.projectId }) };
 }
 
-apiFetch = async function(path, { method = "GET", body, accept = "application/json", stream = false } = {}, retried = false) {
+apiFetch = async function(path, { method = "GET", body, accept = "application/json", stream = false, lockedAccess = "" } = {}, retried = false) {
   if (typeof FormData !== "undefined" && body instanceof FormData) {
     const kind = path === "/skills" && method === "POST" ? "skill" : path === "/filesv2" && method === "POST" ? "file" : "";
     const field = kind === "skill" ? "files" : "file";
@@ -38,10 +38,10 @@ apiFetch = async function(path, { method = "GET", body, accept = "application/js
   }
   const token = await getAccessToken(retried);
   const request = tauriChatRequest(path, method, body);
-  const response = await tauriTransport.request({ ...request, method, token, accept });
+  const response = await tauriTransport.request({ ...request, method, token, accept, ...(lockedAccess ? { lockedAccess } : {}) });
   if (response.status === 401 && !retried) {
     if (response.body) await response.body.cancel().catch(() => {});
-    return apiFetch(path, { method, body, accept, stream }, true);
+    return apiFetch(path, { method, body, accept, stream, lockedAccess }, true);
   }
   if (response.status === 429) {
     const retryAfter = response.headers.get("retry-after");

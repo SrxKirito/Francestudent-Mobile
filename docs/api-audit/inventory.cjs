@@ -21,7 +21,7 @@ const progress = {
   "POST /locked-chats/access": ["Implémentée", "Ouverture d'accès avec code PIN"],
   "DELETE /locked-chats/chats/{chatId}": ["Implémentée", "Déverrouillage de chat"],
   "PUT /locked-chats/chats/{chatId}": ["Implémentée", "Verrouillage de chat"],
-  "DELETE /locked-chats/pin": ["Implémentée", "Suppression du code PIN avec réinitialisation"],
+  "DELETE /locked-chats/pin": ["À adapter", "Désactivée : supprime définitivement les chats verrouillés"],
   "POST /locked-chats/pin": ["Implémentée", "Création de code PIN"],
   "PUT /locked-chats/pin": ["Implémentée", "Changement de code PIN"],
   "GET /locked-chats/status": ["Implémentée", "Vérification statut PIN et accès"],

@@ -33,6 +33,34 @@ pub enum ApiError {
     UnsupportedRoute,
     #[error("Réponse trop volumineuse")]
     ResponseTooLarge,
+    #[error("Accès aux conversations verrouillées requis : saisis ton code PIN")]
+    LockedAccessRequired,
+    #[error("Jeton d'accès aux conversations verrouillées invalide")]
+    InvalidLockedAccess,
+}
+
+/// Header carrying the in-memory Locked Chats access token (never persisted).
+const LOCKED_CHATS_ACCESS_HEADER: &str = "X-Locked-Chats-Access";
+
+/// Path without query string, fragment or trailing slash.
+fn route_only(path: &str) -> &str {
+    path.split(|c| c == '?' || c == '#')
+        .next()
+        .unwrap_or("")
+        .trim_end_matches('/')
+}
+
+/// Routes that must never be reached without an access token.
+fn locked_access_required(route: &str) -> bool {
+    route == "/locked-chats" || route.starts_with("/locked-chats/chats/")
+}
+
+/// The token is only ever sent to Locked Chats routes and to chat routes.
+fn locked_access_allowed(route: &str) -> bool {
+    route == "/locked-chats"
+        || route.starts_with("/locked-chats/")
+        || route == "/chats"
+        || route.starts_with("/chats/")
 }
 
 pub struct ApiClient {
@@ -102,12 +130,32 @@ impl ApiClient {
         method: &str,
         path: &str,
         accept: &str,
+        locked_access: Option<&str>,
         body: Option<String>,
     ) -> Result<Response, ApiError> {
         let method =
             Method::from_bytes(method.as_bytes()).map_err(|_| ApiError::UnsupportedRoute)?;
+        let route = route_only(path);
+        // DELETE /locked-chats/pin permanently deletes the locked conversations:
+        // it is refused here whatever the caller asks.
+        if method == Method::DELETE && route == "/locked-chats/pin" {
+            return Err(ApiError::UnsupportedRoute);
+        }
+        let locked_access = locked_access.filter(|token| !token.is_empty());
+        if locked_access_required(route) && locked_access.is_none() {
+     return Err(ApiError::LockedAccessRequired);
+        }
         let url = checked_route(&self.base, &method, path)?;
         let mut request = self.request(method, url).header("Accept", accept);
+        if let Some(token) = locked_access {
+            if !locked_access_allowed(route) || token.len() > 4096 {
+         return Err(ApiError::InvalidLockedAccess);
+     }
+     let mut value =
+  HeaderValue::from_str(token).map_err(|_| ApiError::InvalidLockedAccess)?;
+     value.set_sensitive(true);
+     request = request.header(LOCKED_CHATS_ACCESS_HEADER, value);
+        }
         if let Some(body) = body {
             request = request
                 .header("Content-Type", "application/json")

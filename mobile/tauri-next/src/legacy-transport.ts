@@ -7,7 +7,7 @@ type TransportEvent =
   | { kind: "started"; status: number; content_type: string | null; retry_after: string | null }
   | { kind: "chunk"; bytes: number[] }
   | { kind: "finished" };
-type Request = { token: string; method: string; path: string; accept: string; body?: string };
+type Request = { token: string; method: string; path: string; accept: string; lockedAccess?: string; body?: string };
 
 async function uploadFile(file: File, token: string, signal: AbortSignal, progress: (sent: number, total: number) => void, kind: "file" | "skill" = "file"): Promise<unknown> {
   const id = crypto.randomUUID();

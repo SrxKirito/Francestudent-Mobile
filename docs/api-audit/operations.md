@@ -71,7 +71,7 @@ Le statut « À adapter » indique un travail ou une validation restant à faire
 | Locked Chats | `POST /locked-chats/access` | Ouvrir les chats verrouilles | Implémentée | Ouverture d'accès avec code PIN |
 | Locked Chats | `DELETE /locked-chats/chats/{chatId}` | Deverrouiller definitivement un chat | Implémentée | Déverrouillage de chat |
 | Locked Chats | `PUT /locked-chats/chats/{chatId}` | Verrouiller un chat | Implémentée | Verrouillage de chat |
-| Locked Chats | `DELETE /locked-chats/pin` | Reinitialiser le code PIN | Implémentée | Suppression du code PIN avec réinitialisation |
+| Locked Chats | `DELETE /locked-chats/pin` | Reinitialiser le code PIN | À adapter | Désactivée : supprime définitivement les chats verrouillés |
 | Locked Chats | `POST /locked-chats/pin` | Creer le code PIN | Implémentée | Création de code PIN |
 | Locked Chats | `PUT /locked-chats/pin` | Changer le code PIN | Implémentée | Changement de code PIN |
 | Locked Chats | `GET /locked-chats/status` | Etat des chats verrouilles | Implémentée | Vérification statut PIN et accès |

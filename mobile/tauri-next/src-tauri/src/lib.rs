@@ -269,6 +269,7 @@ async fn legacy_request(
     path: String,
     accept: String,
     body: Option<String>,
+    locked_access: Option<String>,
     on_event: Channel<TransportEvent>,
 ) -> Result<(), String> {
     Uuid::parse_str(&id).map_err(|_| "Identifiant de requête invalide")?;
@@ -286,7 +287,7 @@ async fn legacy_request(
     let _guard = TransferGuard { state: &state, id };
     let api = ApiClient::new(&format!("Bearer {token}")).map_err(|e| e.to_string())?;
     let response = tokio::select! {
-        result = api.compatibility_request(&method, &path, &accept, body) => result.map_err(|e| e.to_string())?,
+        result = api.compatibility_request(&method, &path, &accept, locked_access.as_deref(), body) => result.map_err(|e| e.to_string())?,
         _ = cancelled.changed() => return Ok(()),
     };
     let status = response.status().as_u16();
