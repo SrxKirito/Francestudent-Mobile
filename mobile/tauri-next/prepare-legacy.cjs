@@ -24,7 +24,7 @@ if (!index.includes(conversationsScript)) throw new Error("Historique des conver
 index = index.replace(conversationsScript, conversationsScript + '\n  <script src="js/tauri-chat-search.js"></script>');
 const composer = '<script src="js/composer.js"></script>';
 if (!index.includes(composer)) throw new Error("Éditeur historique introuvable");
-index = index.replace(composer, composer + '\n  <script src="js/tauri-files.js"></script>\n  <script src="js/tauri-storage.js"></script>\n  <script src="js/tauri-archived-chats.js"></script>\n  <script src="js/tauri-locked-chats.js"></script>\n  <script src="js/tauri-locked-chats-ui.js"></script>\n  <script src="js/tauri-chat-context.js"></script>\n  <script src="js/tauri-speech.js"></script>');
+index = index.replace(composer, composer + '\n  <script src="js/tauri-files.js"></script>\n  <script src="js/tauri-storage.js"></script>\n  <script src="js/tauri-archived-chats.js"></script>\n  <script src="js/tauri-locked-chats.js"></script>\n  <script src="js/tauri-locked-chats-ui.js"></script>\n  <script src="js/tauri-chat-context.js"></script>\n  <script src="js/tauri-conversation-import.js"></script>\n  <script src="js/tauri-speech.js"></script>');
 const render = '<script src="js/render.js"></script>';
 if (!index.includes(render)) throw new Error("Génération de fichiers introuvable");
 index = index.replace(render, render + '\n  <script src="js/tauri-save.js"></script>');
@@ -34,7 +34,7 @@ index = index.replace(login, login + '\n  <script src="js/tauri-login.js"></scri
 const projects = '<script src="js/projects.js"></script>';
 if (!index.includes(projects)) throw new Error("Gestion des projets introuvable");
 index = index.replace(projects, projects + '\n  <script src="js/tauri-project-shares.js"></script>');
-index = index.replace('</head>', '  <link rel="stylesheet" href="tauri-files.css">\n  <link rel="stylesheet" href="tauri-chat-search.css">\n  <link rel="stylesheet" href="tauri-archived-chats.css">\n  <link rel="stylesheet" href="tauri-locked-chats-ui.css">\n  <link rel="stylesheet" href="tauri-chat-context.css">\n  <link rel="stylesheet" href="tauri-project-shares.css">\n</head>');
+index = index.replace('</head>', '  <link rel="stylesheet" href="tauri-files.css">\n  <link rel="stylesheet" href="tauri-chat-search.css">\n  <link rel="stylesheet" href="tauri-archived-chats.css">\n  <link rel="stylesheet" href="tauri-locked-chats-ui.css">\n  <link rel="stylesheet" href="tauri-chat-context.css">\n  <link rel="stylesheet" href="tauri-conversation-import.css">\n  <link rel="stylesheet" href="tauri-project-shares.css">\n</head>');
 const appScript = '<script src="app.js"></script>';
 if (!index.includes(appScript)) throw new Error("Démarrage de l'interface historique introuvable");
 index = index.replace(appScript, appScript + '\n  <script src="js/tauri-session.js"></script>');
@@ -61,6 +61,8 @@ fs.copyFileSync(path.join(__dirname, "locked-chats-ui.css"), path.join(destinati
 fs.copyFileSync(path.join(__dirname, "archived-chats.css"), path.join(destination, "tauri-archived-chats.css"));
 fs.copyFileSync(path.join(__dirname, "chat-context.js"), path.join(destination, "js/tauri-chat-context.js"));
 fs.copyFileSync(path.join(__dirname, "chat-context.css"), path.join(destination, "tauri-chat-context.css"));
+fs.copyFileSync(path.join(__dirname, "conversation-import.js"), path.join(destination, "js/tauri-conversation-import.js"));
+fs.copyFileSync(path.join(__dirname, "conversation-import.css"), path.join(destination, "tauri-conversation-import.css"));
 const corePath = path.join(destination, "js/core.js");
 let coreSource = fs.readFileSync(corePath, "utf8");
 const initialSnapshot = 'JSON.stringify({ ...store, conversations: [] })';
