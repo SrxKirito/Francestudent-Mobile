@@ -33,8 +33,11 @@ jobs:
         working-directory: mobile/tauri-next
     env:
       DEVELOPER_DIR: /Applications/Xcode_16.4.app/Contents/Developer
-      PRERELEASE_DIR: ${{ runner.temp }}/tauri-ios-prerelease
     steps:
+      - name: Définir le dossier de sortie
+        # runner.temp est interdit dans le env d'un job : dossier défini ici.
+        working-directory: ${{ github.workspace }}
+        run: echo "PRERELEASE_DIR=$RUNNER_TEMP/tauri-ios-prerelease" >> "$GITHUB_ENV"
       - uses: actions/checkout@v4
         with:
           persist-credentials: false

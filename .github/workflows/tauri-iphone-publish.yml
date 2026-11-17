@@ -53,14 +53,17 @@ jobs:
         working-directory: mobile/tauri-next
     env:
       DEVELOPER_DIR: /Applications/Xcode_16.4.app/Contents/Developer
-      PUBLISH_DIR: ${{ runner.temp }}/tauri-ios-publish
       RELEASE_TAG: ${{ inputs.tag }}
       PUBLISH_FLAG: ${{ inputs.publish }}
       CONFIRMATION: ${{ inputs.confirmation }}
     steps:
       - name: Valider les paramètres
+        # Avant le checkout, mobile/tauri-next n'existe pas : on reste à la racine.
+        working-directory: ${{ github.workspace }}
         run: |
           set -euo pipefail
+          # runner.temp est interdit dans le env d'un job : dossier défini ici.
+          echo "PUBLISH_DIR=$RUNNER_TEMP/tauri-ios-publish" >> "$GITHUB_ENV"
           case "$RELEASE_TAG" in
             ios-*|"") echo "Tag refusé : il ne doit être ni vide ni commencer par ios- (production)."; exit 1 ;;
           esac
