@@ -104,7 +104,19 @@ async function previewBlob(name, blob) {
   const save = document.createElement('button'); save.type='button'; save.textContent='Enregistrer';
   save.onclick = async () => { try { await saveFile(name, new Uint8Array(await blob.arrayBuffer())); showToast('Fichier enregistré.'); } catch(e) { showToast(e.message,true); } };
   const share = document.createElement('button'); share.type='button'; share.textContent='Partager';
-  share.onclick = async () => { try { const file = new File([blob],name,{type:blob.type}); if (navigator.canShare?.({files:[file]})) await navigator.share({files:[file]}); else showToast('Partage indisponible : utilise Enregistrer.'); } catch(e) { if(e.name!=='AbortError') showToast(e.message,true); } };
+  share.onclick = async () => {
+    try {
+      const file = new File([blob], name, { type: blob.type });
+      const payload = { files: [file] };
+      if (typeof navigator.share !== 'function' || (typeof navigator.canShare === 'function' && !navigator.canShare(payload))) {
+        showToast('Partage indisponible sur cet appareil. Enregistre le fichier, puis ouvre-le dans Fichiers.');
+        return;
+      }
+      await navigator.share(payload);
+    } catch (error) {
+      if (error.name !== 'AbortError') showToast('Partage impossible : ' + (error.message || error), true);
+    }
+  };
   footer.append(share,save); overlay.append(footer);
   const previous = document.activeElement;
   const dismiss = () => { overlay.remove(); if(url) URL.revokeObjectURL(url); document.removeEventListener('keydown',keys); previous?.focus(); };
