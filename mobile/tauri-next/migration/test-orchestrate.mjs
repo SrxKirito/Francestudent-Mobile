@@ -1,0 +1,25 @@
+import assert from "node:assert/strict";
+import { exportLegacy, importLegacy } from "./orchestrate.mjs";
+
+const password = "une phrase longue de test";
+const previewDb = { objectStoreNames: { contains: () => false }, transaction() {} };
+const snapshot = async () => ({ rawState: "{}", conversations: [], previewDb });
+let held = false, aborted = false, committed = false;
+const acquireExclusive = async () => { assert.equal(held, false); held = true; return async () => { held = false; }; };
+const chunks = [];
+await exportLegacy({ password, acquireExclusive, snapshot, openTemporary: async () => ({ sink: { async write(bytes) { assert.equal(held, true); chunks.push(bytes.slice()); } }, async commit() { committed = true; }, async abort() { aborted = true; } }) });
+assert.equal(committed, true);
+assert.equal(aborted, false);
+assert.equal(held, false);
+const file = new Blob(chunks);
+const inserted = [];
+const destination = { async inspect() { assert.equal(held, true); return "missing"; }, async insertIfMissing(record) { inserted.push(record.kind); return "inserted"; } };
+assert.equal((await importLegacy({ file, password, destination, acquireExclusive })).restored, true);
+assert.deepEqual(inserted, ["state"]);
+assert.equal(held, false);
+await assert.rejects(exportLegacy({ password, acquireExclusive, snapshot, openTemporary: async () => ({ sink: { async write() { throw Error("disque plein"); } }, async commit() { throw Error("unexpected"); }, async abort() { aborted = true; } }) }), /disque plein/);
+assert.equal(aborted, true);
+assert.equal(held, false);
+await assert.rejects(importLegacy({ file, password: "mauvaise phrase de test", destination, acquireExclusive }));
+assert.equal(held, false);
+console.log("Orchestration : verrou, finalisation et échec vérifiés.");
