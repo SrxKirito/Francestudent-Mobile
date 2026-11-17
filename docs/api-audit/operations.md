@@ -31,8 +31,8 @@ Le statut « À adapter » indique un travail ou une validation restant à faire
 | Chats | `POST /chats/{chatId}` | Envoyer un message en streaming | À adapter | Non testée |
 | Chats | `PUT /chats/{chatId}/archive` | Archiver un chat | Implémentée | Archivage simulé ; appareil et serveur à vérifier |
 | Chats | `GET /chats/{chatId}/archive/download` | Telecharger les messages d'un chat archive | À adapter | Non testée |
-| Chats | `GET /chats/{chatId}/context` | Recuperer l'occupation du contexte d'un chat | À adapter | Non testée |
-| Chats | `POST /chats/{chatId}/context` | Compacter le contexte d'un chat | À adapter | Non testée |
+| Chats | `GET /chats/{chatId}/context` | Recuperer l'occupation du contexte d'un chat | Implémentée | Non testée ; serveur à vérifier |
+| Chats | `POST /chats/{chatId}/context` | Compacter le contexte d'un chat | Implémentée | Non testée ; permissions et serveur à vérifier |
 | Chats | `PATCH /chats/{chatId}/messages/{messageId}` | Editer un message en forkan le chat | À adapter | Non testée |
 | Chats | `DELETE /chats/{chatId}/pins` | Desepingler un chat | Implémentée | Désépinglage synchronisé |
 | Chats | `PUT /chats/{chatId}/pins` | Epingler un chat | Implémentée | Épinglage synchronisé |

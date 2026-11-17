@@ -15,6 +15,8 @@ for (const [route, item] of Object.entries(spec.paths)) {
 }
 operations.sort((a, b) => a.tag.localeCompare(b.tag, "fr") || a.route.localeCompare(b.route, "fr") || a.method.localeCompare(b.method));
 const progress = {
+  "GET /chats/{chatId}/context": ["Implémentée", "Non testée ; serveur à vérifier"],
+  "POST /chats/{chatId}/context": ["Implémentée", "Non testée ; permissions et serveur à vérifier"],
   "GET /user/@me/api-key": ["Implémentée", "Non testée ; parcours serveur à vérifier"],
   "POST /user/@me/api-key": ["Implémentée", "Non testée ; parcours serveur à vérifier"],
   "DELETE /user/@me/api-key": ["Implémentée", "Non testée ; parcours serveur à vérifier"],
