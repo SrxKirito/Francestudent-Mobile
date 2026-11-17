@@ -1,0 +1,5 @@
+# Automatically generated permission for the open command.
+[[permission]]
+identifier = "allow-open"
+description = "Allows opening a selected local document in iOS Quick Look."
+commands.allow = ["open"]

@@ -27,3 +27,4 @@ uuid = { version = "1", features = ["serde"] }
 
 [target.'cfg(target_os = "ios")'.dependencies]
 tauri-plugin-stt = { path = "../vendor/tauri-plugin-stt" }
+tauri-plugin-file-preview = { path = "../vendor/tauri-plugin-file-preview" }

@@ -1379,6 +1379,7 @@ dependencies = [
  "tauri",
  "tauri-build",
  "tauri-plugin-dialog",
+ "tauri-plugin-file-preview",
  "tauri-plugin-fs",
  "tauri-plugin-secure-keystore",
  "tauri-plugin-stt",
@@ -4712,6 +4713,16 @@ dependencies = [
  "tauri-plugin-fs",
  "thiserror 2.0.21",
  "url",
+]
+
+[[package]]
+name = "tauri-plugin-file-preview"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-plugin",
 ]
 
 [[package]]
