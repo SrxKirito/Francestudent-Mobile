@@ -19,10 +19,10 @@ Le statut « À adapter » indique un travail ou une validation restant à faire
 | api-landing-controller | `POST /error` |  | À adapter | Non testée |
 | api-landing-controller | `PUT /error` |  | À adapter | Non testée |
 | Chat Message Images | `GET /chats/{chatId}/messages/{messageId}/images/{imageId}` | Recuperer une image generee dans un message | À adapter | Non testée |
-| Chat Shares | `DELETE /chats/{chatId}/shares` | Supprimer un partage par cible dans le body | À adapter | Non testée |
-| Chat Shares | `GET /chats/{chatId}/shares` | Lister les partages d'un chat | À adapter | Non testée |
-| Chat Shares | `PATCH /chats/{chatId}/shares` | Modifier un partage par cible dans le body | À adapter | Non testée |
-| Chat Shares | `POST /chats/{chatId}/shares` | Ajouter un partage de chat | À adapter | Non testée |
+| Chat Shares | `DELETE /chats/{chatId}/shares` | Supprimer un partage par cible dans le body | Implémentée | Permissions et serveur à vérifier |
+| Chat Shares | `GET /chats/{chatId}/shares` | Lister les partages d'un chat | Implémentée | Permissions et serveur à vérifier |
+| Chat Shares | `PATCH /chats/{chatId}/shares` | Modifier un partage par cible dans le body | Implémentée | Permissions et serveur à vérifier |
+| Chat Shares | `POST /chats/{chatId}/shares` | Ajouter un partage de chat | Implémentée | Permissions et serveur à vérifier |
 | Chats | `DELETE /chats` | Supprimer tous les chats | À adapter | Non testée |
 | Chats | `GET /chats` | Lister les chats de l'utilisateur | À adapter | Non testée |
 | Chats | `DELETE /chats/{chatId}` | Supprimer un chat | À adapter | Non testée |
@@ -110,7 +110,7 @@ Le statut « À adapter » indique un travail ou une validation restant à faire
 | Projects | `GET /projects/{projectId}/chats` | Lister les chats d'un projet | À adapter | Non testée |
 | Projects | `DELETE /projects/{projectId}/chats/{chatId}` | Retirer un chat d'un projet | À adapter | Non testée |
 | Projects | `PUT /projects/{projectId}/chats/{chatId}` | Rattacher un chat a un projet | À adapter | Non testée |
-| Projects | `GET /projects/shared` |  | À adapter | Non testée |
+| Projects | `GET /projects/shared` |  | Implémentée | Permissions et serveur à vérifier |
 | Public | `GET /public/alerts` | Recuperer les alertes publiques | À adapter | Non testée |
 | Public | `GET /public/health` | Verifier l'etat de sante de l'application | À adapter | Non testée |
 | Safety Hub | `GET /safety-hub/@me` | Get the current user's Safety Hub | À adapter | Non testée |
