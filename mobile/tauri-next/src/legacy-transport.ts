@@ -49,6 +49,7 @@ export function installLegacyTransport() {
     readSession: () => invoke<string | null>("session_read"),
     writeSession: (value: string) => invoke("session_write", { value }),
     deleteSession: () => invoke("session_delete"),
+    scheduleMigration: () => invoke("migration_schedule"),
     saveFile: (name: string, bytes: Uint8Array) => saveWithDialog(save, open, name, bytes),
     saveResponse: (name: string, response: Response) => saveResponseWithDialog(save, open, name, response),
     canOpenSavedFile: () => invoke<boolean>("speech_supported").catch(() => false),

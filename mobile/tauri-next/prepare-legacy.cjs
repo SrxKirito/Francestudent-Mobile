@@ -40,6 +40,7 @@ if (!index.includes(appScript)) throw new Error("Démarrage de l'interface histo
 index = index.replace(appScript, appScript + '\n  <script src="js/tauri-session.js"></script>');
 index = index.replace(appScript, appScript + '\n  <script src="js/tauri-resume-on-foreground.js"></script>');
 index = index.replace(appScript, appScript + '\n  <script src="js/tauri-api-key-settings.js"></script>');
+index = index.replace(appScript, appScript + '\n  <script src="js/tauri-data-import.js"></script>');
 fs.writeFileSync(indexPath, index);
 fs.copyFileSync(path.join(__dirname, "legacy-bridge.js"), path.join(destination, "js/tauri-bridge.js"));
 fs.copyFileSync(path.join(__dirname, "legacy-files.js"), path.join(destination, "js/tauri-files.js"));
@@ -49,6 +50,7 @@ fs.copyFileSync(path.join(__dirname, "legacy-session.js"), path.join(destination
 fs.copyFileSync(path.join(__dirname, "resume-on-foreground.js"), path.join(destination, "js/tauri-resume-on-foreground.js"));
 fs.copyFileSync(path.join(__dirname, "api-key-settings.js"), path.join(destination, "js/tauri-api-key-settings.js"));
 fs.copyFileSync(path.join(__dirname, "legacy-speech.js"), path.join(destination, "js/tauri-speech.js"));
+fs.copyFileSync(path.join(__dirname, "legacy-data-import.js"), path.join(destination, "js/tauri-data-import.js"));
 fs.copyFileSync(path.join(__dirname, "legacy-save.js"), path.join(destination, "js/tauri-save.js"));
 fs.copyFileSync(path.join(__dirname, "project-shares.js"), path.join(destination, "js/tauri-project-shares.js"));
 fs.copyFileSync(path.join(__dirname, "project-shares.css"), path.join(destination, "tauri-project-shares.css"));

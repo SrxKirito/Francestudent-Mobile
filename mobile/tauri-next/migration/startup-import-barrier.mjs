@@ -3,7 +3,8 @@
  * must start it before loading the normal application scripts. `nativeLease`
  * must actually exclude every other process and WebView which can write the
  * same stores, and retain that exclusion until the old process exits.
- * No such native implementation is currently wired into the application.
+ * The Tauri implementation lives in src-tauri/src/migration_host.rs and is
+ * wired by migration-page.mjs. `lease` also exposes markWritesPossible().
  */
 export function createStartupImportBarrier({ assertMigrationStartup, nativeLease, openDestination, restart }) {
   for (const fn of [assertMigrationStartup, nativeLease, openDestination, restart]) {
@@ -35,6 +36,13 @@ export function createStartupImportBarrier({ assertMigrationStartup, nativeLease
           await assertMigrationStartup();
           await lease.assertValid();
         },
+        // Called once, before the first write. The native side must record that
+        // writes are possible; this transition is irreversible.
+        async beginWrites() {
+          if (finished) throw new Error("Verrou de migration fermé.");
+          if (typeof lease.markWritesPossible !== "function") throw new Error("Verrou natif sans notification d'écriture.");
+          await lease.markWritesPossible();
+        },
         async finish({ writesMayHaveOccurred }) {
           if (finished) throw new Error("Verrou de migration déjà fermé.");
           finished = true;
@@ -44,7 +52,9 @@ export function createStartupImportBarrier({ assertMigrationStartup, nativeLease
             restartRequired = true;
             await destination.close();
             await restart();
-            throw new Error("Redémarrage nécessaire avant de reprendre l'application.");
+            const error = new Error("Redémarrage nécessaire avant de reprendre l'application.");
+            error.restartRequired = true;
+            throw error;
           }
           try { await destination.close(); }
           catch (error) { restartRequired = true; throw error; }

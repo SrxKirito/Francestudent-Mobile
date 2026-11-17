@@ -1,3 +1,4 @@
+mod migration_host;
 mod migration_startup_lock;
 
 use francestudent_api::{
@@ -464,6 +465,17 @@ fn speech_supported() -> bool {
     cfg!(target_os = "ios")
 }
 
+fn build_main_window(app: &tauri::AppHandle) -> tauri::Result<()> {
+    let window = app
+        .config()
+        .app
+        .windows
+        .first()
+        .ok_or_else(|| std::io::Error::other("Configuration de fenêtre absente"))?;
+    tauri::WebviewWindowBuilder::from_config(app, window)?.build()?;
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let builder = tauri::Builder::default()
@@ -476,12 +488,20 @@ pub fn run() {
             let lease = migration_startup_lock::StartupProcessLock::acquire(
                 &directory.join("startup-process.lock"),
             )?;
-            lease.begin_normal_runtime().map_err(std::io::Error::other)?;
-            app.manage(lease);
-            let window = app.config().app.windows.first().ok_or_else(|| {
-                std::io::Error::other("Configuration de fenêtre absente")
-            })?;
-            tauri::WebviewWindowBuilder::from_config(app.handle(), window)?.build()?;
+            if migration_host::is_requested(&directory) {
+                // An import was requested: no normal WebView in this process.
+                let migration = lease.begin_migration().map_err(std::io::Error::other)?;
+                app.manage(migration_host::MigrationState::active(migration));
+                app.manage(lease);
+                migration_host::build_window(app.handle())?;
+            } else {
+                lease
+                    .begin_normal_runtime()
+                    .map_err(std::io::Error::other)?;
+                app.manage(migration_host::MigrationState::default());
+                app.manage(lease);
+                build_main_window(app.handle())?;
+            }
             Ok(())
         })
         .plugin(tauri_plugin_secure_keystore::init())
@@ -511,7 +531,12 @@ pub fn run() {
             upload_chunk,
             upload_finish,
             upload_cancel,
-            speech_supported
+            speech_supported,
+            migration_host::migration_schedule,
+            migration_host::migration_assert,
+            migration_host::migration_mark_writes,
+            migration_host::migration_finish,
+            migration_host::migration_cancel
         ])
         .run(tauri::generate_context!())
         .expect("erreur au lancement de France Student");

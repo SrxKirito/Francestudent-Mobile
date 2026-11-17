@@ -1,5 +1,5 @@
 /** Attach only where the host supplies a real mutation lock and temporary writer. */
-export function mountMigrationUI({ document, container, host }) {
+export function mountMigrationUI({ document, container, host, allowExport = true }) {
   if (!document || !container || !host) throw new Error("Interface de transfert indisponible.");
   const section = document.createElement("section");
   const heading = document.createElement("h3"); heading.textContent = "Transférer les données locales";
@@ -13,18 +13,27 @@ export function mountMigrationUI({ document, container, host }) {
   const inspectButton = document.createElement("button"); inspectButton.type = "button"; inspectButton.textContent = "Vérifier la sauvegarde";
   const restoreButton = document.createElement("button"); restoreButton.type = "button"; restoreButton.textContent = "Importer sans écraser";
   const status = document.createElement("p"); status.setAttribute("role", "status"); status.setAttribute("aria-live", "polite");
-  section.append(heading, help, label, exportButton, fileLabel, inspectButton, restoreButton, status);
+  section.append(heading, help, label, ...(allowExport ? [exportButton] : []), fileLabel, inspectButton, restoreButton, status);
   container.append(section);
   let busy = false;
+  let locked = false;
   async function run(action) {
-    if (busy) return;
+    if (busy || locked) return;
     if (password.value.length < 12) { status.textContent = "Saisis une phrase d’au moins 12 caractères."; return; }
     const secret = password.value;
     busy = true; exportButton.disabled = inspectButton.disabled = restoreButton.disabled = true;
     status.textContent = "Opération en cours…";
     try { await action(secret); }
-    catch (error) { status.textContent = "Opération impossible : " + (error?.message || error); }
-    finally { password.value = ""; busy = false; exportButton.disabled = inspectButton.disabled = restoreButton.disabled = false; }
+    catch (error) {
+      if (error?.restartRequired) {
+        locked = true;
+ const reopen = "Ferme complètement l’application puis rouvre-la.";
+ status.textContent = error.operationError
+          ? `Import interrompu : ${error.operationError?.message || error.operationError}. Aucune donnée existante n’a été écrasée. ${reopen} Relance ensuite l’import : les éléments déjà importés seront ignorés.`
+   : `Import terminé (${error.result?.records ?? "?"} élément(s)). La sauvegarde et les données d’origine sont conservées. ${reopen}`;
+      } else status.textContent = "Opération impossible : " + (error?.message || error);
+    }
+    finally { password.value = ""; busy = false; exportButton.disabled = inspectButton.disabled = restoreButton.disabled = locked; }
   }
   function selected() { const item = file.files?.[0]; if (!item) throw new Error("Choisis une sauvegarde."); return item; }
   exportButton.onclick = () => run(async secret => { await host.export(secret); status.textContent = "Sauvegarde créée. Les données d’origine sont conservées."; });
