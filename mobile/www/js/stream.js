@@ -860,6 +860,7 @@ async function streamChatRequest(conversation, text, attachments, onDelta, onEve
         break;
       case "completed":
         completed = true;
+        if (data.message && typeof data.message.id === "string" && typeof onEvent === "function") onEvent("message_saved", data.message);
         if (!output && data.message) {
           const msg = data.message;
           if (typeof msg.content === "string") append(msg.content);

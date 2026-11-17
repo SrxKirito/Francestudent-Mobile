@@ -267,8 +267,10 @@ async function runAssistant(conversation, text, images = [], resume = false) {
     scrollToBottom();
   });
 
+  let savedMessage = null;
   try {
     const answer = await streamChat(conversation, text, images, partial => typer.push(partial), (event, data) => {
+      if (event === "message_saved") savedMessage = data;
       if (event === "web_search" && bubble.classList.contains("pending") && !bubble.classList.contains("searching") && !sources.length) {
         bubble.classList.add("searching");
  bubble.innerHTML = WEB_SEARCH_HTML;
@@ -321,6 +323,8 @@ async function runAssistant(conversation, text, images = [], resume = false) {
     bubble.innerHTML = renderMarkdown(content);
     bubble.classList.toggle("image-only", !content && generatedImages.length > 0);
     const message = { role: "assistant", content };
+    if (savedMessage?.id) message.serverMessageId = savedMessage.id;
+    if (typeof savedMessage?.isUpvoted === "boolean") message.feedback = savedMessage.isUpvoted ? "up" : "down";
     if (sources.length) message.sources = sources;
     if (generatedImages.length) {
       // On garde les identifiants ; le base64 seulement s'il est raisonnable (limite du stockage local).

@@ -60,6 +60,8 @@ function copyText(text, button) {
   }
 }
 
+const pendingMessageVotes = new WeakSet();
+
 function updateFeedbackButtons(row, message) {
   for (const button of row.querySelectorAll("[data-action=like], [data-action=dislike]")) {
     const active = message.feedback === (button.dataset.action === "like" ? "up" : "down");
@@ -253,10 +255,34 @@ function handleMessageClick(event) {
   } else if (action === "edit-sent") {
     if (!busy) editSentMessage(conversation, index);
   } else if (action === "like" || action === "dislike") {
-    const value = action === "like" ? "up" : "down";
-    message.feedback = message.feedback === value ? null : value;
+    void voteForMessage(conversation, message, row, action === "like");
+  }
+}
+
+
+async function voteForMessage(conversation, message, row, isUpvoted) {
+  if (pendingMessageVotes.has(message)) return;
+  if (!message.serverMessageId) {
+    showToast("Vote indisponible : recharge cette conversation pour récupérer le message.");
+    return;
+  }
+  if (message.feedback === (isUpvoted ? "up" : "down")) return;
+  const session = store.session;
+  pendingMessageVotes.add(message);
+  const buttons = row.querySelectorAll("[data-action=like], [data-action=dislike]");
+  for (const button of buttons) button.disabled = true;
+  try {
+    const result = await settingsApi("/messages/" + encodeURIComponent(message.serverMessageId), { method: "PATCH", body: JSON.stringify({ isUpvoted }) });
+    if (store.session !== session || !conversation.messages.includes(message)) return;
+    if (!result || typeof result.isUpvoted !== "boolean") throw new Error("Le serveur n’a pas confirmé le vote.");
+    message.feedback = result.isUpvoted ? "up" : "down";
     saveStore();
     updateFeedbackButtons(row, message);
+  } catch (error) {
+    if (store.session === session) showToast("Vote impossible : " + (error.message || "erreur réseau"));
+  } finally {
+    pendingMessageVotes.delete(message);
+    for (const button of buttons) button.disabled = false;
   }
 }
 
@@ -577,6 +603,8 @@ async function loadConversationFromServer(conversation) {
       const role = String(item && item.role || "").toLowerCase();
       if (role !== "user" && role !== "assistant") continue;
       const entry = { role, content: typeof item.content === "string" ? item.content : "" };
+      entry.serverMessageId = typeof item.id === "string" ? item.id : null;
+      if (typeof item.isUpvoted === "boolean") entry.feedback = item.isUpvoted ? "up" : "down";
       if (role === "assistant") {
         const found = [];
         collectSourceUrls({ parts: item.parts, webSearchDomains: item.webSearchDomains }, found, new Set());
