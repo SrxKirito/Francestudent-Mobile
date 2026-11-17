@@ -2,7 +2,7 @@
 
 Inventaire généré : 160 opérations, 111 chemins, 198 schémas.
 
-Le statut initial « À adapter » indique un travail ou une validation restant à faire, sans présumer que la fonction est absente. Une fonction ne passe à « Testée » qu'après validation adaptée. Les permissions fines sont à vérifier dans la description de chaque opération et avec un compte de test autorisé.
+Le statut « À adapter » indique un travail ou une validation restant à faire, sans présumer que la fonction est absente. « Implémentée » indique un portage partiel ; les tests simulés ne prouvent pas la compatibilité sur appareil ou serveur. Aucune fonction n'est déclarée entièrement testée tant que ces validations manquent. Les permissions fines sont à vérifier avec un compte de test autorisé.
 
 | Domaine | Méthode et chemin | Fonction documentée | Statut | Validation |
 | --- | --- | --- | --- | --- |
@@ -37,12 +37,12 @@ Le statut initial « À adapter » indique un travail ou une validation restant 
 | Chats | `DELETE /chats/{chatId}/pins` | Desepingler un chat | À adapter | Non testée |
 | Chats | `PUT /chats/{chatId}/pins` | Epingler un chat | À adapter | Non testée |
 | Chats | `PUT /chats/{chatId}/restore` | Restaurer un chat archive | À adapter | Non testée |
-| Chats | `GET /chats/{chatId}/stream` | Se rattacher au stream d'un chat | À adapter | Non testée |
+| Chats | `GET /chats/{chatId}/stream` | Se rattacher au stream d'un chat | Implémentée | Reprise SSE simulée ; appareil à vérifier |
 | Chats | `POST /chats/{chatId}/stream/cancel` | Arreter la generation d'un chat | À adapter | Non testée |
 | Chats | `GET /chats/{chatId}/usage` | Recuperer l'usage d'un chat | À adapter | Non testée |
 | Chats | `GET /chats/agents` | Lister les agents disponibles | À adapter | Non testée |
 | Chats | `GET /chats/archived` | Lister les chats archives | À adapter | Non testée |
-| Chats | `GET /chats/search` | Rechercher dans les chats de l'utilisateur | À adapter | Non testée |
+| Chats | `GET /chats/search` | Rechercher dans les chats de l'utilisateur | Implémentée | Tests simulés ; appareil et serveur à vérifier |
 | Chats | `POST /chats/stream` | Creer un chat et streamer la reponse | À adapter | Non testée |
 | Conversation imports | `POST /conversation-imports/openai` | Importer une conversation OpenAI partage | À adapter | Non testée |
 | Data export | `GET /public/data-export/download` | Download a data export (ZIP) with a one-time link token | À adapter | Non testée |
@@ -57,15 +57,15 @@ Le statut initial « À adapter » indique un travail ou une validation restant 
 | Files | `DELETE /files/{fileId}` | Supprimer un fichier | À adapter | Non testée |
 | Files | `GET /files/{fileId}` | Recuperer un fichier | À adapter | Non testée |
 | Files | `POST /files/upload` | Uploader un fichier | À adapter | Non testée |
-| Files v2 | `GET /filesv2` | List files | À adapter | Non testée |
-| Files v2 | `POST /filesv2` | Upload file | À adapter | Non testée |
-| Files v2 | `DELETE /filesv2/{file_id}` | Delete file | À adapter | Non testée |
+| Files v2 | `GET /filesv2` | List files | Implémentée | Pagination simulée ; serveur à vérifier |
+| Files v2 | `POST /filesv2` | Upload file | Implémentée | Multipart simulé ; appareil et serveur à vérifier |
+| Files v2 | `DELETE /filesv2/{file_id}` | Delete file | Implémentée | Suppression simulée ; serveur à vérifier |
 | Files v2 | `GET /filesv2/{file_id}` | Retrieve file | À adapter | Non testée |
 | Files v2 | `GET /filesv2/{file_id}/content` | Retrieve file content | À adapter | Non testée |
 | Files v2 | `GET /filesv2/legacy-migration` | Legacy files migration status | À adapter | Non testée |
 | Files v2 | `POST /filesv2/legacy-migration` | Migrate legacy files | À adapter | Non testée |
-| Files v2 | `GET /filesv2/supported-mime-types` | List supported file MIME types | À adapter | Non testée |
-| Files v2 | `GET /filesv2/usage` | Retrieve file storage usage | À adapter | Non testée |
+| Files v2 | `GET /filesv2/supported-mime-types` | List supported file MIME types | Implémentée | Filtrage simulé ; serveur à vérifier |
+| Files v2 | `GET /filesv2/usage` | Retrieve file storage usage | Implémentée | Affichage simulé ; serveur à vérifier |
 | Locked Chats | `GET /locked-chats` | Lister les chats verrouilles | À adapter | Non testée |
 | Locked Chats | `DELETE /locked-chats/access` | Verrouiller maintenant | À adapter | Non testée |
 | Locked Chats | `POST /locked-chats/access` | Ouvrir les chats verrouilles | À adapter | Non testée |
@@ -119,7 +119,7 @@ Le statut initial « À adapter » indique un travail ou une validation restant 
 | Saved Messages | `DELETE /user/@me/saved-messages/{chatId}/{messageId}` | Retirer un message sauvegarde | À adapter | Non testée |
 | Saved Messages | `PUT /user/@me/saved-messages/{chatId}/{messageId}` | Sauvegarder un message | À adapter | Non testée |
 | Skills | `GET /skills` | Lister les skills locaux | À adapter | Non testée |
-| Skills | `POST /skills` | Creer un skill local | À adapter | Non testée |
+| Skills | `POST /skills` | Creer un skill local | Implémentée | Multipart simulé ; appareil et serveur à vérifier |
 | Skills | `DELETE /skills/{skillId}` | Supprimer un skill local | À adapter | Non testée |
 | Skills | `GET /skills/{skillId}` | Recuperer un skill local (possede ou partage avec l'utilisateur) | À adapter | Non testée |
 | Skills | `POST /skills/{skillId}` | Modifier la version par defaut, les flags ou l'activation d'un skill local | À adapter | Non testée |
