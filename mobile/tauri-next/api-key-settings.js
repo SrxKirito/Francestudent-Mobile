@@ -17,6 +17,7 @@
   function clearKey() { key.textContent = ""; key.hidden = true; }
   function clear() { generation++; clearKey(); status.textContent = "Consulte ta clé et ton budget API."; }
   new MutationObserver(() => { if (modal.classList.contains("hidden") || modal.classList.contains("is-closing")) clear(); }).observe(modal, { attributes: true, attributeFilter: ["class"] });
+  document.addEventListener("visibilitychange", () => { if (document.hidden) clear(); });
   document.getElementById("logout")?.addEventListener("click", clear);
   async function request(method) {
     const session = store.session;
