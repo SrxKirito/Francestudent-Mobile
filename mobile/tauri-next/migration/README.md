@@ -93,6 +93,19 @@ mise en place et la validation du verrou global. Cette préparation ne remplace
 pas une compilation Xcode avec CocoaPods ni des essais sur iPhone ; aucun de
 ces essais n'a été possible sur Windows.
 
+`tauri-import-host.mjs` relie la lecture et la restauration à l'adaptateur de
+stockage Tauri. Il exige une barrière fournie par l'application, qui suspend et
+vide toutes les écritures ordinaires, reste exclusive entre fenêtres et fournit
+les accès réservés à la migration (`storage`, `conversationDb`, `previewDb`,
+`vault`). Sa méthode `finish({ writesMayHaveOccurred })` doit recharger l'état
+en mémoire avant toute reprise des écritures lorsqu'un import a pu commencer,
+y compris en cas d'échec partiel. La barrière doit rester fermée si ce
+rechargement échoue. Une inspection sans conflit est toujours refaite sous la
+même barrière avant la restauration ; les données existantes ne sont pas
+écrasées. Aucune implémentation de cette barrière n'est encore raccordée :
+l'import ne doit pas être exposé à l'utilisateur. Ce nouveau raccordement n'a
+pas été testé.
+
 `export-guard.mjs` fournit un garde-fou côté WebView pour les transactions
 IndexedDB `readwrite` des deux bases et les appels Storage sur `fs-chat-state`.
 Il doit être installé **synchronement avant tout autre script** et son
