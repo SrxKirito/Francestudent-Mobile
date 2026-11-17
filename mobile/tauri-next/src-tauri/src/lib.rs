@@ -1,3 +1,5 @@
+mod migration_startup_lock;
+
 use francestudent_api::{
     models::{ChatCreate, ChatDetail, ChatHistory, ChatMessageRequest, Project},
     sse::Parser,
@@ -12,7 +14,7 @@ use std::sync::{
     Arc, Mutex,
 };
 use tauri::ipc::Channel;
-use tauri::{Emitter, State};
+use tauri::{Emitter, Manager, State};
 use tauri_plugin_secure_keystore::{ItemKey, SecureKeystoreExt, SetItemRequest};
 use uuid::Uuid;
 
@@ -464,12 +466,31 @@ fn speech_supported() -> bool {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let builder = tauri::Builder::default()
+        .setup(|app| {
+            // Tauri normally constructs configured windows before setup. The
+            // configuration disables that so no WebView can load the stores
+            // when this process cannot obtain the startup lease.
+            let directory = app.path().app_data_dir()?;
+            std::fs::create_dir_all(&directory)?;
+            let lease = migration_startup_lock::StartupProcessLock::acquire(
+                &directory.join("startup-process.lock"),
+            )?;
+            lease.begin_normal_runtime().map_err(std::io::Error::other)?;
+            app.manage(lease);
+            let window = app.config().app.windows.first().ok_or_else(|| {
+                std::io::Error::other("Configuration de fenêtre absente")
+            })?;
+            tauri::WebviewWindowBuilder::from_config(app.handle(), window)?.build()?;
+            Ok(())
+        })
         .plugin(tauri_plugin_secure_keystore::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_dialog::init())
         .manage(AppState::default());
     #[cfg(target_os = "ios")]
-    let builder = builder.plugin(tauri_plugin_stt::init());
+    let builder = builder
+        .plugin(tauri_plugin_stt::init())
+        .plugin(tauri_plugin_file_preview::init());
     builder
         .invoke_handler(tauri::generate_handler![
             connect,
