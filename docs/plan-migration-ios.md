@@ -81,3 +81,15 @@ La publication n'est prête qu'une fois ces étapes et la parité demandée vali
 Prévoir un retour à la version précédente avec une sauvegarde vérifiée ; ne pas
 supposer qu'une rétrogradation iOS préservera automatiquement les données ni
 qu'un numéro de version inférieur sera accepté par SideStore.
+
+## Prépublication manuelle (sans publication)
+
+Le workflow `.github/workflows/tauri-iphone-prerelease.yml` (déclenchement manuel
+uniquement, `contents: read`) construit l'IPA Tauri ARM64 non signé, le vérifie
+avec `scripts/verify-ios-ipa.py` puis génère `preview-source.json` avec
+`scripts/make-sidestore-preview-source.py`. Il ne crée aucune Release et ne touche
+pas au `source.json` de production. L'identité reste celle de la préversion
+(`org.francestudent.mobile.next`, source `org.francestudent.source.preview`).
+L'IPA et la source ne sont que des artefacts GitHub temporaires : l'hébergement
+et les URL finales restent à fournir à la main, et aucune donnée Capacitor n'est
+migrée. Ce workflow ne remplace pas la porte de qualité de `tauri-iphone-preview.yml`.

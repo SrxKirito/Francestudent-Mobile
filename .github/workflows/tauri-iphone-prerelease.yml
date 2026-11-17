@@ -1,0 +1,115 @@
+name: Préparer la prépublication Tauri iPhone (SideStore, sans publication)
+
+# Workflow manuel uniquement. Il construit l'IPA Tauri ARM64 non signé, le vérifie
+# et génère une source SideStore de préversion SÉPARÉE. Il ne crée aucune Release,
+# ne pousse rien et ne touche jamais au source.json de production (permissions en
+# lecture seule). Identité de préversion : org.francestudent.mobile.next, jamais
+# org.francestudent.chat.
+on:
+  workflow_dispatch:
+    inputs:
+      ipa_download_url:
+        description: "URL HTTPS future de l'IPA, hébergé à la main (vide = source non installable)"
+        required: false
+        default: ""
+      source_url:
+        description: "URL HTTPS future de la source de préversion (jamais un source.json de production)"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tauri-iphone-prerelease
+  cancel-in-progress: false
+
+jobs:
+  ios-prerelease:
+    runs-on: macos-15
+    timeout-minutes: 90
+    defaults:
+      run:
+        working-directory: mobile/tauri-next
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_16.4.app/Contents/Developer
+      PRERELEASE_DIR: ${{ runner.temp }}/tauri-ios-prerelease
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: mobile/tauri-next/package-lock.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios
+      - name: Vérifier les outils Apple
+        run: |
+          set -euo pipefail
+          test -d "$DEVELOPER_DIR"
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-version
+          command -v pod
+          if ! command -v xcodegen >/dev/null; then brew install xcodegen; fi
+          ruby -e 'require "xcodeproj"'
+      - name: Installer les dépendances du client
+        run: npm ci
+      - name: Initialiser le projet iOS Tauri
+        run: npm run tauri -- ios init --ci --skip-targets-install
+      - name: Ajouter le manifeste de confidentialité
+        run: ruby scripts/install-ios-privacy.rb
+      - name: Construire l'IPA ARM64 non signé
+        run: npm run tauri -- ios build --ci --target aarch64 --no-sign
+      - name: Isoler l'IPA et vérifier sa structure
+        run: |
+          set -euo pipefail
+          found=()
+          while IFS= read -r -d '' file; do found+=("$file"); done < <(find src-tauri/gen/apple -type f -name '*.ipa' -print0)
+          test "${#found[@]}" -eq 1 || { echo "Nombre inattendu d'IPA : ${#found[@]}"; exit 1; }
+          mkdir -p "$PRERELEASE_DIR"
+          cp "${found[0]}" "$PRERELEASE_DIR/FranceStudent-Tauri-iPhone.ipa"
+          python3 scripts/verify-ios-ipa.py "$PRERELEASE_DIR/FranceStudent-Tauri-iPhone.ipa" --config src-tauri/tauri.conf.json --executable-output "$PRERELEASE_DIR/executable"
+          xcrun lipo "$PRERELEASE_DIR/executable" -verify_arch arm64
+          rm "$PRERELEASE_DIR/executable"
+      - name: Générer la source SideStore de préversion
+        env:
+          IPA_DOWNLOAD_URL: ${{ inputs.ipa_download_url }}
+          PREVIEW_SOURCE_URL: ${{ inputs.source_url }}
+        run: |
+          set -euo pipefail
+          args=("$PRERELEASE_DIR/FranceStudent-Tauri-iPhone.ipa" --config src-tauri/tauri.conf.json --repo "$GITHUB_REPOSITORY" --commit "$GITHUB_SHA" --output "$PRERELEASE_DIR/preview-source.json")
+          if [ -n "$IPA_DOWNLOAD_URL" ]; then args+=(--download-url "$IPA_DOWNLOAD_URL"); fi
+          if [ -n "$PREVIEW_SOURCE_URL" ]; then args+=(--source-url "$PREVIEW_SOURCE_URL"); fi
+          python3 scripts/make-sidestore-preview-source.py "${args[@]}"
+      - name: Contrôler que la source de production est intacte
+        run: |
+          set -euo pipefail
+          git diff --exit-code HEAD -- ':/source.json'
+          test ! -e "$PRERELEASE_DIR/source.json"
+      - name: Résumer les limites
+        run: |
+          {
+            echo "### Prépublication Tauri iPhone (aucune publication)"
+            echo ""
+            echo "- Commit : \`$GITHUB_SHA\`"
+            echo "- Identité de préversion : \`org.francestudent.mobile.next\` (production : \`org.francestudent.chat\`)"
+            echo "- IPA non signé : SideStore le signe à l'installation ; installation non testée."
+            echo "- Aucune Release créée ; le source.json de production n'est pas modifié."
+            echo "- Les données locales de la version Capacitor ne sont pas migrées."
+            echo "- IPA et preview-source.json sont à héberger à la main ; sans URL fournies, la source utilise un domaine .invalid et n'est pas installable."
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Conserver l'IPA et la source de préversion
+        uses: actions/upload-artifact@v4
+        with:
+          name: FranceStudent-Tauri-iPhone-prerelease
+          path: |
+            ${{ runner.temp }}/tauri-ios-prerelease/FranceStudent-Tauri-iPhone.ipa
+            ${{ runner.temp }}/tauri-ios-prerelease/preview-source.json
+          if-no-files-found: error
+          retention-days: 14
