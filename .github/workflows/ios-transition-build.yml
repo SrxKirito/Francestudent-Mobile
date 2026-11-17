@@ -4,6 +4,7 @@ name: Compiler la version de transition (export seul, sans publication)
 # Identité de production (org.francestudent.chat) : l'IPA remplace l'app installée et garde ses données.
 # Ce workflow ne crée aucune Release, ne touche pas source.json et ne pousse rien :
 # il fournit seulement un artefact à installer à la main. Publier est une décision humaine.
+# Pour relancer sans bouton : modifier ce fichier sur migration/tauri-mobile et pousser.
 on:
   # Lancement par push : seulement quand ce fichier change sur la branche de migration
   # (le bouton « Run workflow » exige ce fichier sur main). Version par défaut : voir APP_VERSION.

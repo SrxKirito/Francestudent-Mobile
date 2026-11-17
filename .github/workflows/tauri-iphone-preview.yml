@@ -1,5 +1,6 @@
 name: Vérifier la préversion Tauri iPhone
 
+# Relancé automatiquement par tout push sur migration/tauri-mobile qui modifie un chemin listé ci-dessous.
 on:
   workflow_dispatch:
   push:
