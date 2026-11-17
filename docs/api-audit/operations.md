@@ -29,19 +29,19 @@ Le statut « À adapter » indique un travail ou une validation restant à faire
 | Chats | `GET /chats/{chatId}` | Recuperer un chat | À adapter | Non testée |
 | Chats | `PATCH /chats/{chatId}` | Mettre a jour un chat | À adapter | Non testée |
 | Chats | `POST /chats/{chatId}` | Envoyer un message en streaming | À adapter | Non testée |
-| Chats | `PUT /chats/{chatId}/archive` | Archiver un chat | À adapter | Non testée |
+| Chats | `PUT /chats/{chatId}/archive` | Archiver un chat | Implémentée | Archivage simulé ; appareil et serveur à vérifier |
 | Chats | `GET /chats/{chatId}/archive/download` | Telecharger les messages d'un chat archive | À adapter | Non testée |
 | Chats | `GET /chats/{chatId}/context` | Recuperer l'occupation du contexte d'un chat | À adapter | Non testée |
 | Chats | `POST /chats/{chatId}/context` | Compacter le contexte d'un chat | À adapter | Non testée |
 | Chats | `PATCH /chats/{chatId}/messages/{messageId}` | Editer un message en forkan le chat | À adapter | Non testée |
 | Chats | `DELETE /chats/{chatId}/pins` | Desepingler un chat | À adapter | Non testée |
 | Chats | `PUT /chats/{chatId}/pins` | Epingler un chat | À adapter | Non testée |
-| Chats | `PUT /chats/{chatId}/restore` | Restaurer un chat archive | À adapter | Non testée |
+| Chats | `PUT /chats/{chatId}/restore` | Restaurer un chat archive | Implémentée | Restauration simulée ; appareil et serveur à vérifier |
 | Chats | `GET /chats/{chatId}/stream` | Se rattacher au stream d'un chat | Implémentée | Reprise SSE simulée ; appareil à vérifier |
 | Chats | `POST /chats/{chatId}/stream/cancel` | Arreter la generation d'un chat | À adapter | Non testée |
 | Chats | `GET /chats/{chatId}/usage` | Recuperer l'usage d'un chat | À adapter | Non testée |
 | Chats | `GET /chats/agents` | Lister les agents disponibles | À adapter | Non testée |
-| Chats | `GET /chats/archived` | Lister les chats archives | À adapter | Non testée |
+| Chats | `GET /chats/archived` | Lister les chats archives | Implémentée | Liste simulée ; appareil et serveur à vérifier |
 | Chats | `GET /chats/search` | Rechercher dans les chats de l'utilisateur | Implémentée | Tests simulés ; appareil et serveur à vérifier |
 | Chats | `POST /chats/stream` | Creer un chat et streamer la reponse | À adapter | Non testée |
 | Conversation imports | `POST /conversation-imports/openai` | Importer une conversation OpenAI partage | À adapter | Non testée |
@@ -99,9 +99,9 @@ Le statut « À adapter » indique un travail ou une validation restant à faire
 | Passkeys | `POST /user/passkeys/verification/options` | Commencer une verification passkey | À adapter | Non testée |
 | Patch Notes | `GET /patch-notes` | Lister les patch notes | À adapter | Non testée |
 | Patch Notes | `GET /patch-notes/{year}/{month}/{name}` | Recuperer une patch note | À adapter | Non testée |
-| project-share-controller | `GET /projects/{projectId}/shares` |  | À adapter | Non testée |
-| project-share-controller | `POST /projects/{projectId}/shares` |  | À adapter | Non testée |
-| project-share-controller | `DELETE /projects/{projectId}/shares/{targetUserId}` |  | À adapter | Non testée |
+| project-share-controller | `GET /projects/{projectId}/shares` |  | Implémentée | Partages simulés ; permissions et serveur à vérifier |
+| project-share-controller | `POST /projects/{projectId}/shares` |  | Implémentée | Partage simulé ; permissions et serveur à vérifier |
+| project-share-controller | `DELETE /projects/{projectId}/shares/{targetUserId}` |  | Implémentée | Retrait simulé ; permissions et serveur à vérifier |
 | Projects | `GET /projects` | Lister mes projets | À adapter | Non testée |
 | Projects | `POST /projects` | Creer un projet | À adapter | Non testée |
 | Projects | `DELETE /projects/{projectId}` | Supprimer un projet | À adapter | Non testée |

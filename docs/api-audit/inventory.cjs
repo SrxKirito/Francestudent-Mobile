@@ -16,6 +16,12 @@ for (const [route, item] of Object.entries(spec.paths)) {
 operations.sort((a, b) => a.tag.localeCompare(b.tag, "fr") || a.route.localeCompare(b.route, "fr") || a.method.localeCompare(b.method));
 const progress = {
   "GET /chats/search": ["Implémentée", "Tests simulés ; appareil et serveur à vérifier"],
+  "GET /chats/archived": ["Implémentée", "Liste simulée ; appareil et serveur à vérifier"],
+  "PUT /chats/{chatId}/archive": ["Implémentée", "Archivage simulé ; appareil et serveur à vérifier"],
+  "PUT /chats/{chatId}/restore": ["Implémentée", "Restauration simulée ; appareil et serveur à vérifier"],
+  "GET /projects/{projectId}/shares": ["Implémentée", "Partages simulés ; permissions et serveur à vérifier"],
+  "POST /projects/{projectId}/shares": ["Implémentée", "Partage simulé ; permissions et serveur à vérifier"],
+  "DELETE /projects/{projectId}/shares/{targetUserId}": ["Implémentée", "Retrait simulé ; permissions et serveur à vérifier"],
   "GET /chats/{chatId}/stream": ["Implémentée", "Reprise SSE simulée ; appareil à vérifier"],
   "POST /filesv2": ["Implémentée", "Multipart simulé ; appareil et serveur à vérifier"],
   "GET /filesv2": ["Implémentée", "Pagination simulée ; serveur à vérifier"],
