@@ -66,6 +66,7 @@ function renderProjects() {
     const date = settingsEl("small", "settings-hint", projectRelativeDate(project.updatedAt || project.createdAt));
     date.title = settingsDate(project.updatedAt || project.createdAt);
     info.append(open, date);
+    if (project.sharedWithMe) info.append(settingsEl("small", "settings-hint", "Partagé avec vous"));
     card.append(mark, info);
     list.append(card);
   }
@@ -79,10 +80,16 @@ async function loadProjects() {
   $("projects-retry").hidden = true;
   $("projects-list").replaceChildren();
   try {
-    const data = await settingsApi("/projects");
+    const [owned, shared] = await Promise.allSettled([settingsApi("/projects"), settingsApi("/projects/shared")]);
     if (store.session !== session) return;
-    accountProjects = settingsItems(data, "projects").filter(project => project && project.id);
-    $("projects-status").textContent = "";
+    if (owned.status === "rejected" && shared.status === "rejected") throw new Error("Les deux listes sont indisponibles.");
+    const ownedProjects = owned.status === "fulfilled" ? settingsItems(owned.value, "projects").filter(project => project && project.id).map(project => ({ ...project, sharedWithMe: false })) : [];
+    const ownedIds = new Set(ownedProjects.map(project => project.id));
+    const sharedProjects = shared.status === "fulfilled" ? settingsItems(shared.value, "projects").filter(project => project && project.id && !ownedIds.has(project.id)).map(project => ({ ...project, sharedWithMe: true })) : [];
+    accountProjects = ownedProjects.concat(sharedProjects);
+    const missing = owned.status === "rejected" ? "vos projets" : shared.status === "rejected" ? "les projets partagés" : "";
+    $("projects-status").textContent = missing ? "Impossible de charger " + missing + "." : "";
+    $("projects-retry").hidden = !missing;
     renderProjects();
   } catch (err) {
     $("projects-status").textContent = "Impossible de charger les projets : " + err.message;
@@ -127,7 +134,7 @@ async function openProject(id) {
   } while (cursor);
   if (session !== store.session) return;
   mergeProjectChats(id, chats);
-  currentProject = project;
+  currentProject = { ...project, sharedWithMe: accountProjects.find(item => item.id === id)?.sharedWithMe !== false };
   saveStore();
   $("projects-window").close();
   $("project-editor").close();
@@ -141,12 +148,14 @@ function renderProjectContext() {
   context.hidden = !currentProject;
   $("app").classList.toggle("project-active", Boolean(currentProject));
   $("project-context-name").textContent = currentProject?.name || "";
+  $("project-settings-open").hidden = !!currentProject?.sharedWithMe;
   const empty = $("empty-state");
   empty.querySelector("h2").textContent = currentProject?.name || "Comment puis-je t'aider ?";
   empty.querySelector(".empty-help").textContent = currentProject?.customInstructions || (currentProject ? "Commence une nouvelle discussion dans ce projet." : "Pose une question, demande une explication ou fais relire un texte.");
 }
 
 function openProjectEditor(project) {
+  if (project?.sharedWithMe) return;
   editingProjectId = project?.id || null;
   $("project-editor").classList.toggle("is-editing", Boolean(project));
   $("project-settings-nav").hidden = !project;
@@ -302,7 +311,7 @@ function setupProjects() {
     if (!$("project-sort-menu").classList.contains("hidden")) { event.preventDefault(); closeProjectSort(); $("project-sort").focus(); }
   });
   $("project-new").addEventListener("click", () => openProjectEditor(null));
-  $("project-settings-open").addEventListener("click", () => { if (!busy && currentProject) openProjectEditor(currentProject); });
+  $("project-settings-open").addEventListener("click", () => { if (!busy && currentProject && !currentProject.sharedWithMe) openProjectEditor(currentProject); });
   $("project-leave").addEventListener("click", leaveProject);
   $("project-name").addEventListener("input", () => { $("project-submit").disabled = !$("project-name").value.trim(); });
   $("project-form").addEventListener("submit", saveProject);
