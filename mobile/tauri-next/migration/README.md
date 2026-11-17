@@ -51,6 +51,34 @@ et les événements en arrière-plan, et le fichier temporaire doit être finali
 par un pont natif sur chaque plateforme. Ne pas connecter ces modules à un
 verrou factice ou publier cette migration comme terminée avant les essais.
 
+### Pont iPhone expérimental
+
+`MigrationExportPlugin.swift` expose un fichier temporaire privé, des écritures
+limitées à 64 Kio, une finalisation par déplacement vers Documents sous un nom
+UUID et un abandon. `ios-sink.mjs` découpe chaque bloc à 48 Kio pour ce pont.
+Pour l'intégrer à une **version de transition Capacitor**, ajouter le fichier
+Swift aux sources du projet Xcode, enregistrer `MigrationExportPlugin()` dans
+`FranceStudentViewController.capacitorDidLoad`, puis fournir
+`createIosTemporaryFactory(Capacitor.Plugins.MigrationExport)` à l'hôte.
+Le fichier final se trouve dans Fichiers / Sur mon iPhone / FranceStudent Chat.
+Le pont ne supprime jamais les données d'origine. Une interruption peut laisser
+un fichier `.partial` dans le répertoire temporaire ; il ne doit pas être
+présenté comme une sauvegarde valide. Le code Swift n'a pas été compilé ni
+testé sur iPhone dans cet environnement Windows.
+
+`export-guard.mjs` fournit un garde-fou côté WebView pour les transactions
+IndexedDB `readwrite` des deux bases et les appels Storage sur `fs-chat-state`.
+Il doit être installé **synchronement avant tout autre script** et son
+`acquireExclusive` passé à l'hôte d'export. Il attend les transactions déjà
+ouvertes et invalide l'export si une nouvelle écriture est tentée avant la
+finalisation. Il ne contrôle ni les autres WebViews/processus, ni les accès
+directs par propriété à Storage, ni les mutations mémoire non suivies d'une
+écriture. L'intégration doit garantir une WebView unique, arrêter les travaux
+en arrière-plan, bloquer les interactions et attendre les files existantes ;
+tant que ces conditions ne sont pas vérifiées, ce garde-fou ne constitue pas
+un verrou complet et l'export ne doit pas être activé. Il ne convient pas au
+verrou d'import, qui doit autoriser les écritures de restauration uniquement.
+
 1. Dans l'ancienne app, arrêter temporairement toute écriture de conversations,
    attendre `conversationWrite` si présent, récupérer le texte brut de
    `localStorage.getItem("fs-chat-state")`, le tableau `store.conversations`
@@ -89,4 +117,5 @@ node migration/test-backup.mjs
 node migration/test-adapters.mjs
 node migration/test-orchestrate.mjs
 node migration/test-ui.mjs
+node migration/test-ios-guard.mjs
 ```

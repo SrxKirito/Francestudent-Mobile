@@ -12,6 +12,7 @@ export async function exportLegacy({ password, acquireExclusive, snapshot, openT
     temporary = await openTemporary();
     if (!temporary?.sink?.write || !temporary.commit || !temporary.abort) throw new Error("Destination temporaire indisponible.");
     await exportBackup({ password, records: capacitorRecords(state), sink: temporary.sink });
+    if (typeof release.assertValid === "function") await release.assertValid();
     const result = await temporary.commit();
     committed = true;
     return result;
