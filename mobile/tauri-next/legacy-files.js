@@ -2,6 +2,29 @@
 // File objects remain browser-managed; only bounded chunks cross the bridge.
 const tauriSelectedFiles = new Map();
 const tauriUploads = new Map();
+// Le sélecteur iOS autorise plusieurs fichiers : limiter les transferts
+// simultanés évite de multiplier les buffers et les requêtes réseau.
+const tauriUploadQueue = [];
+const tauriQueuedIds = new Set();
+const tauriMaxConcurrentUploads = 2;
+
+function scheduleTauriUploads() {
+  while (tauriUploads.size < tauriMaxConcurrentUploads && tauriUploadQueue.length) {
+    const entry = tauriUploadQueue.shift();
+    tauriQueuedIds.delete(entry.id);
+    if (!tauriSelectedFiles.has(entry.id)) continue;
+    void runTauriUpload(entry);
+  }
+}
+
+function beginTauriUpload(entry) {
+  if (!tauriSelectedFiles.has(entry.id) || tauriUploads.has(entry.id) || tauriQueuedIds.has(entry.id)) return;
+  entry.uploadState = "queued";
+  tauriQueuedIds.add(entry.id);
+  tauriUploadQueue.push(entry);
+  renderAttachments(); updateSendButton();
+  scheduleTauriUploads();
+}
 const originalRenderAttachments = renderAttachments;
 const originalRemoveAttachment = removeAttachment;
 const originalPreviewAttachment = previewAttachment;
@@ -45,6 +68,7 @@ function paintTauriUpload(file) {
   let status = chip.querySelector(".tauri-upload-status");
   if (!status) { status = document.createElement("span"); status.className = "tauri-upload-status"; status.setAttribute("role", "status"); chip.insertBefore(status, remove); }
   status.replaceChildren();
+  if (file.uploadState === "queued") status.textContent = "En attente d’envoi";
   if (file.uploadState === "uploading") status.textContent = "Envoi « " + Math.round((file.uploadProgress || 0) * 100) + " % »";
   if (file.uploadState === "error") {
     status.textContent = "Échec · ";
@@ -80,7 +104,9 @@ sendMessage = async function() {
 
 removeAttachment = function(id) {
   tauriUploads.get(id)?.abort();
-  tauriUploads.delete(id);
+  tauriQueuedIds.delete(id);
+  const queued = tauriUploadQueue.findIndex(entry => entry.id === id);
+  if (queued !== -1) tauriUploadQueue.splice(queued, 1);
   const file = pendingFiles.find(entry => entry.id === id);
   if (file?.data?.startsWith("blob:")) URL.revokeObjectURL(file.data);
   tauriSelectedFiles.delete(id);
@@ -116,7 +142,7 @@ previewAttachment = async function(file) {
   } catch (error) { showToast("Aperçu impossible : " + (error?.message || error), true); }
 };
 
-async function beginTauriUpload(entry) {
+async function runTauriUpload(entry) {
   const file = tauriSelectedFiles.get(entry.id);
   if (!file || tauriUploads.has(entry.id)) return;
   const controller = new AbortController();
@@ -141,7 +167,9 @@ async function beginTauriUpload(entry) {
   } catch (error) {
     if (!controller.signal.aborted) { entry.uploadState = "error"; showToast("Envoi de " + entry.name + " : " + (error?.message || error), true); }
   } finally {
-    tauriUploads.delete(entry.id); renderAttachments(); updateSendButton();
+    // Une annulation peut encore se terminer après une nouvelle tentative.
+    if (tauriUploads.get(entry.id) === controller) tauriUploads.delete(entry.id);
+    renderAttachments(); updateSendButton(); scheduleTauriUploads();
   }
 }
 
@@ -150,7 +178,7 @@ addFiles = async function(fileList) {
     const entry = { id: makeId(), name: file.name || "fichier", kind: file.type.startsWith("image/") ? "image" : "file", mime: file.type, size: file.size, data: file.type.startsWith("image/") ? URL.createObjectURL(file) : "", uploadState: "uploading", uploadProgress: 0 };
     tauriSelectedFiles.set(entry.id, file);
     pendingFiles.push(entry);
-    void beginTauriUpload(entry);
+    beginTauriUpload(entry);
   }
   renderAttachments(); updateSendButton();
 };
