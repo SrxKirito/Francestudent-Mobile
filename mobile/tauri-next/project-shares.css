@@ -1,0 +1,7 @@
+.project-share-toggle { margin: 10px 0; }
+.project-share-panel { border-top: 1px solid var(--border, #444); padding: 12px 0; }
+.project-share-panel[hidden] { display: none; }
+.project-share-panel p { color: var(--muted, #aaa); font-size: 13px; }
+.project-share-row { display: flex; align-items: center; gap: 8px; padding: 7px 0; }
+.project-share-row span { flex: 1; overflow-wrap: anywhere; }
+.project-share-row button { border: 1px solid var(--border, #444); border-radius: 7px; padding: 5px 8px; background: transparent; color: inherit; }
