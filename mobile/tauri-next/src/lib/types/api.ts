@@ -30,7 +30,14 @@ export interface LoginInput {
   headers: Record<string, string>;
 }
 
-/** Forme exacte de `francestudent_api::login::LoginResponse` : à typer après lecture du struct Rust. */
-export type LoginOutput = Record<string, unknown>;
+/**
+ * Forme de `francestudent_api::login::LoginResponse` (tauri-api/src/login.rs).
+ * Rust ne renvoie que `location`, `content-type`, `cf-mitigated` et `set-cookie` (tableau) ; corps limité à 4 Mio.
+ */
+export interface LoginOutput {
+  status: number;
+  headers: Record<string, string | string[]>;
+  data: string;
+}
 
 export type UploadKind = "file" | "skill";
