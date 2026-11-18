@@ -168,6 +168,40 @@ function tauriDecodedFileResponse(response) {
   return new Response(response.body.pipeThrough(transform), { headers: { "content-type": "application/octet-stream" } });
 }
 
+// Lecture bornée pour les vignettes : ne garde jamais plus de `limit` octets en mémoire.
+// `truncate` garde le début du fichier (texte) ; sinon un dépassement est une erreur « too-large ».
+// Le transport Tauri n'accepte pas de signal d'annulation : l'annulation arrête la lecture et ferme le flux.
+async function tauriThumbnailBlob(file, { signal, limit, truncate = false } = {}) {
+  const aborted = () => Object.assign(new Error("Annulé"), { name: "AbortError" });
+  if (signal?.aborted) throw aborted();
+  const response = await apiFetch("/filesv2/" + encodeURIComponent(file.id) + "/content", { accept: "*/*" });
+  if (!response.ok) { await response.body?.cancel().catch(() => {}); throw new Error("HTTP " + response.status); }
+  const decoded = tauriDecodedFileResponse(response);
+  const reader = decoded.body?.getReader();
+  if (!reader) throw new Error("Contenu du fichier indisponible.");
+  const parts = [];
+  let size = 0;
+  try {
+    while (true) {
+      if (signal?.aborted) throw aborted();
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (size + value.byteLength > limit) {
+        if (!truncate) throw Object.assign(new Error("Fichier trop volumineux pour une miniature."), { code: "too-large" });
+        parts.push(value.subarray(0, limit - size));
+        size = limit;
+        break;
+      }
+      parts.push(value);
+      size += value.byteLength;
+    }
+  } finally {
+    await reader.cancel().catch(() => {});
+  }
+  if (signal?.aborted) throw aborted();
+  return new Blob(parts, { type: decoded.headers.get("content-type") || "application/octet-stream" });
+}
+
 async function downloadTauriRemoteFile(file) {
   try {
     const response = await apiFetch("/filesv2/" + encodeURIComponent(file.remoteId) + "/content", { accept: "*/*" });

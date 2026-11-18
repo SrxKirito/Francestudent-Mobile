@@ -125,3 +125,55 @@ async function testDownloadTauriRemoteFile() {
 }
 testDownloadTauriRemoteFile().then(() => console.log("Téléchargement et ouverture de fichier vérifiés.")).catch(error => { console.error(error); process.exitCode = 1; });
 
+async function testThumbnailBlob() {
+  const requests = [];
+  let respond;
+  const context = vm.createContext({
+    renderAttachments() {}, removeAttachment() {}, previewAttachment() {}, sendMessage() {}, updateSendButton() {},
+    apiFetch: async (path, options) => { requests.push({ path, options }); return respond(); },
+    URL, AbortController, Array, Date, Math, String, Object, Error, Blob, Response, TransformStream, TextDecoder, Uint8Array, atob
+  });
+  vm.runInContext(fs.readFileSync(require("node:path").join(__dirname, "legacy-files.js"), "utf8"), context);
+  const endless = state => new Response(new ReadableStream({ pull(controller) { controller.enqueue(new Uint8Array(6).fill(65)); }, cancel() { state.cancelled = true; } }), { headers: { "content-type": "image/png" } });
+
+  // Image : dépassement de limite = erreur « too-large », flux interrompu, pas de lecture infinie.
+  let state = { cancelled: false };
+  respond = () => endless(state);
+  await assert.rejects(context.tauriThumbnailBlob({ id: "a/b" }, { limit: 10 }), error => error.code === "too-large");
+  assert.equal(state.cancelled, true, "le flux est fermé dès que la limite est dépassée");
+  assert.equal(requests[0].path, "/filesv2/a%2Fb/content", "identifiant encodé dans le chemin");
+
+  // Texte : le début est conservé, tronqué exactement à la limite.
+  state = { cancelled: false };
+  const head = await context.tauriThumbnailBlob({ id: "t" }, { limit: 10, truncate: true });
+  assert.equal(head.size, 10);
+  assert.equal(await head.text(), "AAAAAAAAAA");
+  assert.equal(state.cancelled, true);
+
+  // Petit fichier brut : contenu complet, type du serveur conservé.
+  respond = () => new Response("bonjour", { headers: { "content-type": "image/png" } });
+  const small = await context.tauriThumbnailBlob({ id: "s" }, { limit: 100 });
+  assert.equal(await small.text(), "bonjour");
+  assert.equal(small.type, "image/png");
+
+  // Réponse JSON base64 (Files V2) : décodée avant de compter les octets.
+  respond = () => new Response('"SGVsbG8="', { headers: { "content-type": "application/json" } });
+  assert.equal(await (await context.tauriThumbnailBlob({ id: "j" }, { limit: 100 })).text(), "Hello");
+  await assert.rejects(context.tauriThumbnailBlob({ id: "j" }, { limit: 3 }), error => error.code === "too-large", "limite appliquée aux octets décodés");
+
+  // Erreur HTTP et annulation.
+  respond = () => new Response("non", { status: 404 });
+  await assert.rejects(context.tauriThumbnailBlob({ id: "x" }, { limit: 10 }), /HTTP 404/);
+  const controller = new AbortController();
+  controller.abort();
+  const before = requests.length;
+  await assert.rejects(context.tauriThumbnailBlob({ id: "y" }, { limit: 10, signal: controller.signal }), error => error.name === "AbortError");
+  assert.equal(requests.length, before, "signal déjà annulé : aucune requête");
+  const later = new AbortController();
+  state = { cancelled: false };
+  respond = () => { later.abort(); return endless(state); };
+  await assert.rejects(context.tauriThumbnailBlob({ id: "z" }, { limit: 1000, signal: later.signal }), error => error.name === "AbortError");
+  assert.equal(state.cancelled, true, "annulation pendant la lecture : flux fermé");
+}
+testThumbnailBlob().then(() => console.log("Vignettes : lecture bornée, troncature du texte, base64 JSON, erreurs et annulation vérifiés.")).catch(error => { console.error(error); process.exitCode = 1; });
+
