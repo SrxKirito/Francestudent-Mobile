@@ -224,6 +224,50 @@
     };
   }
 
+  // Catégories alignées sur la bibliothèque locale (www/js/library.js) pour que les filtres soient identiques.
+  const CODE_EXT = /\.(py|pyw|js|mjs|cjs|jsx|ts|tsx|html?|css|scss|json|ipynb|java|kt|swift|c|cc|cpp|h|hpp|cs|go|rs|rb|php|sql|sh|ps1|ya?ml|toml|xml|vue|svelte|lua|r|dart)$/i;
+  function fileKind(name) {
+    const value = typeof name === "string" ? name : "";
+    if (/\.(png|jpe?g|webp|gif|heic|svg)$/i.test(value)) return "image";
+    if (/\.pptx$/i.test(value)) return "presentation";
+    if (/\.(pdf|docx?|odt|rtf)$/i.test(value)) return "document";
+    return CODE_EXT.test(value) ? "code" : "other";
+  }
+
+  const clean = value => String(value || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+  const num = value => (typeof value === "number" && Number.isFinite(value) ? value : null);
+  const SORTS = {
+    "date-desc": (a, b) => cmpNum(a.created_at, b.created_at, -1),
+    "date-asc": (a, b) => cmpNum(a.created_at, b.created_at, 1),
+    "size-desc": (a, b) => cmpNum(a.bytes, b.bytes, -1),
+    "size-asc": (a, b) => cmpNum(a.bytes, b.bytes, 1),
+    "name-asc": (a, b) => cmpName(a, b),
+    "name-desc": (a, b) => cmpName(b, a)
+  };
+  // Une valeur absente est toujours placée en dernier, quel que soit le sens, jamais estimée.
+  function cmpNum(x, y, direction) {
+    const a = num(x), b = num(y);
+    if (a === null && b === null) return 0;
+    if (a === null) return 1;
+    if (b === null) return -1;
+    return (a - b) * direction;
+  }
+  function cmpName(a, b) {
+    return String(a.filename || "").localeCompare(String(b.filename || ""), "fr", { sensitivity: "base", numeric: true });
+  }
+
+  // Filtre et tri purs (aucune mutation) appliqués aux fichiers déjà chargés. Le tri est stable.
+  function arrange(files, options) {
+    const { query = "", kind = "*", sort = "date-desc" } = options || {};
+    const compare = SORTS[sort] || SORTS["date-desc"];
+    const needle = clean(query).trim();
+    return [...files]
+      .map((file, index) => ({ file, index }))
+      .filter(({ file }) => (!needle || clean(file.filename).includes(needle)) && (kind === "*" || fileKind(file.filename) === kind))
+      .sort((a, b) => compare(a.file, b.file) || a.index - b.index)
+      .map(({ file }) => file);
+  }
+
   // Une seule instance partagée par la bibliothèque et l'onglet Stockage.
   let shared = null;
   function getShared(deps) {
@@ -234,5 +278,5 @@
     return shared;
   }
 
-  globalThis.tauriFilesStore = { create, getShared, peekShared: () => shared, validateUsage };
+  globalThis.tauriFilesStore = { create, getShared, peekShared: () => shared, validateUsage, fileKind, arrange };
 })();

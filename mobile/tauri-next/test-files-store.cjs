@@ -301,7 +301,47 @@ async function testSessionResetAndShared() {
   assert.equal(load().peekShared(), null);
 }
 
+function testArrange() {
+  const api = load();
+  const kinds = { "a.PNG": "image", "b.heic": "image", "c.svg": "image", "d.pdf": "document", "e.DOCX": "document", "f.pptx": "presentation", "g.py": "code", "h.json": "code", "i.zip": "other", "sans-extension": "other" };
+  for (const [name, kind] of Object.entries(kinds)) assert.equal(api.fileKind(name), kind, name);
+  assert.equal(api.fileKind(undefined), "other");
+  assert.equal(api.fileKind(42), "other");
+
+  const files = [
+    { id: "1", filename: "Résumé cours.pdf", bytes: 500, created_at: 1700000100 },
+    { id: "2", filename: "photo.png", bytes: 90, created_at: 1700000300 },
+    { id: "3", filename: "script.py", bytes: 90, created_at: 1700000200 },
+    { id: "4", filename: "inconnu.bin" },
+    { id: "5", filename: "Cours 10.docx", bytes: 7000, created_at: 1700000000 },
+    { id: "6", filename: "cours 2.docx", bytes: 12, created_at: 1700000400 }
+  ];
+  const snapshot = JSON.stringify(files);
+  const order = options => api.arrange(files, options).map(file => file.id);
+
+  eq(order(), ["6", "2", "3", "1", "5", "4"], "tri par défaut : plus récents d'abord, date absente en dernier");
+  eq(order({ sort: "date-asc" }), ["5", "1", "3", "2", "6", "4"], "date croissante, valeur absente toujours en dernier");
+  eq(order({ sort: "size-desc" }), ["5", "1", "2", "3", "6", "4"], "taille décroissante, ex æquo dans l'ordre d'origine");
+  eq(order({ sort: "size-asc" }), ["6", "2", "3", "1", "5", "4"], "taille croissante, ex æquo stables");
+  const byName = api.arrange(files, { sort: "name-asc" }).map(file => file.filename);
+  assert.ok(byName.indexOf("cours 2.docx") < byName.indexOf("Cours 10.docx"), "tri naturel : 2 avant 10, sans tenir compte de la casse");
+  eq(api.arrange(files, { sort: "name-desc" }).map(file => file.id), [...byName].reverse().map(name => files.find(file => file.filename === name).id));
+  eq(order({ sort: "inconnu" }), plain(order()), "tri inconnu : repli sur la date");
+
+  eq(order({ query: "RESUME" }), ["1"], "recherche sans accents ni casse");
+  eq(order({ query: "  cours " }), ["6", "1", "5"], "espaces ignorés autour de la requête");
+  eq(order({ query: "zzz" }), []);
+  eq(order({ kind: "document" }), ["6", "1", "5"]);
+  eq(order({ kind: "image" }), ["2"]);
+  eq(order({ kind: "other" }), ["4"]);
+  eq(order({ kind: "document", query: "10", sort: "size-asc" }), ["5"], "filtres combinés");
+  eq(order({ kind: "*" }), plain(order()));
+  assert.equal(JSON.stringify(files), snapshot, "arrange ne modifie jamais la liste d'origine");
+  assert.notEqual(api.arrange(files), files, "une nouvelle liste est renvoyée");
+}
+
 (async () => {
+  testArrange();
   await testPaginationAndIdentity();
   await testErrors();
   await testInflightAndStaleResponses();
