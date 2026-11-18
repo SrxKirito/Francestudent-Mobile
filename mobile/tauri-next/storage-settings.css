@@ -1,0 +1,36 @@
+/* Onglet « Stockage » des paramètres. Préfixe ss- pour ne pas heurter les classes .storage-* du panneau bibliothèque. */
+#panel-storage .ss-usage-text { margin: 4px 0 8px; font-size: 1rem; font-weight: 600; color: var(--text); }
+#panel-storage .ss-remaining { margin: 8px 0 0; font-size: 0.85rem; color: var(--muted); }
+#panel-storage .ss-meter { height: 10px; border-radius: 999px; background: var(--hover); overflow: hidden; }
+#panel-storage .ss-meter-fill { height: 100%; width: 0; border-radius: inherit; background: var(--brand); }
+#panel-storage .ss-meter.is-high .ss-meter-fill { background: var(--error); }
+@media (prefers-reduced-motion: no-preference) {
+  #panel-storage .ss-meter-fill { transition: width 0.25s ease; }
+}
+#panel-storage .ss-categories { display: flex; flex-direction: column; gap: 8px; margin: 18px 0 14px; }
+#panel-storage .ss-category {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 2px;
+  width: 100%; box-sizing: border-box; min-height: 44px; padding: 10px 14px; text-align: left;
+  border: 1px solid var(--border); border-radius: 12px; background: var(--surface); color: var(--text); font: inherit;
+}
+#panel-storage button.ss-category { cursor: pointer; }
+#panel-storage button.ss-category:hover { background: var(--hover); }
+#panel-storage button.ss-category:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+#panel-storage .ss-category-name { font-weight: 600; }
+#panel-storage .ss-category-detail { font-size: 0.85rem; color: var(--muted); overflow-wrap: anywhere; }
+#panel-storage .ss-category.is-error .ss-category-detail { color: var(--error); }
+#panel-storage .ss-status { min-height: 1.2em; margin: 8px 0; font-size: 0.85rem; color: var(--muted); }
+#panel-storage .ss-refresh, #panel-storage .ss-back, #panel-storage .ss-more { min-height: 44px; }
+#panel-storage .ss-detail-title { margin: 14px 0 4px; font-size: 1rem; }
+#panel-storage .ss-list { display: flex; flex-direction: column; gap: 8px; }
+#panel-storage .ss-row {
+  display: flex; flex-direction: column; gap: 8px; padding: 10px 12px;
+  border: 1px solid var(--border); border-radius: 12px; background: var(--surface);
+}
+#panel-storage .ss-row-info { display: flex; flex-direction: column; min-width: 0; }
+#panel-storage .ss-row-name { font-weight: 600; overflow-wrap: anywhere; }
+#panel-storage .ss-row-meta { font-size: 0.8rem; color: var(--muted); }
+#panel-storage .ss-row-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+#panel-storage .ss-row-actions .settings-btn { min-height: 44px; min-width: 44px; }
+#panel-storage .ss-more { margin-top: 10px; }
+#panel-storage { padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px)); }
