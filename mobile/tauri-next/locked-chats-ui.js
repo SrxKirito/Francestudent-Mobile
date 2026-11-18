@@ -467,65 +467,8 @@
   // Mounting
   // ---------------------------------------------------------------------------
 
-  function mountSidebar() {
-    const history = document.getElementById("history");
-    if (!history || ui.toggle) return;
-    const toggle = document.createElement("button");
-    toggle.type = "button";
-    toggle.className = "side-nav-item locked-chats-toggle";
-    toggle.setAttribute("aria-expanded", "false");
-    toggle.innerHTML = lockIcon();
-    const label = document.createElement("span");
-    label.textContent = "Conversations verrouillées";
-    const badge = document.createElement("span");
-    badge.className = "locked-chats-badge";
-    badge.hidden = true;
-    toggle.append(label, badge);
-
-    const panel = document.createElement("section");
-    panel.className = "archived-chats-panel locked-chats-panel";
-    panel.hidden = true;
-    panel.setAttribute("aria-label", "Conversations verrouillées");
-    const status = document.createElement("p");
-    status.setAttribute("role", "status");
-    const list = document.createElement("div");
-    const closeButton = document.createElement("button");
-    closeButton.type = "button";
-    closeButton.textContent = "Verrouiller maintenant";
-    closeButton.addEventListener("click", closeAccessNow);
-    panel.append(status, list, closeButton);
-
-    history.parentElement.insertBefore(toggle, history);
-    history.parentElement.insertBefore(panel, history);
-    Object.assign(ui, { toggle, badge, panel, status, list, closeButton });
-    toggle.addEventListener("click", onToggleClick);
-  }
-
-  function mountMenu() {
-    const menu = document.getElementById("conv-menu");
-    if (!menu || ui.menuItem) return;
-    const item = document.createElement("button");
-    item.type = "button";
-    item.className = "menu-item";
-    item.setAttribute("role", "menuitem");
-    item.textContent = "Verrouiller";
-    item.addEventListener("click", event => {
-      event.stopPropagation();
-      const id = menuConversationId;
-      closeMenus();
-      if (id) void toggleConversationLock(id);
-    });
-    menu.insertBefore(item, document.getElementById("conv-delete"));
-    ui.menuItem = item;
-
-    const previousOpenMenu = openConversationMenu;
-    openConversationMenu = function(id, anchor) {
-      const conversation = store.conversations.find(entry => entry.id === id);
-      item.textContent = conversation?.chatId && api.isChatLocked(conversation.chatId) ? "Déverrouiller définitivement" : "Verrouiller";
-      return previousOpenMenu(id, anchor);
-    };
-  }
-
+  // La catégorie « Conversations verrouillées » de la barre latérale et l'entrée
+  // « Verrouiller » du menu ⋯ d'une conversation ne sont plus montées.
   function mountSettings() {
     const panel = document.getElementById("panel-account");
     if (!panel || ui.settings) return;
@@ -647,8 +590,6 @@
   }
 
   function mount() {
-    mountSidebar();
-    mountMenu();
     mountSettings();
     wrapOpenConversation();
     document.getElementById("logout")?.addEventListener("click", onLogout);

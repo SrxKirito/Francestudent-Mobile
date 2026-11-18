@@ -281,8 +281,15 @@ async function runTauriUpload(entry) {
   }
 }
 
+// Même limite que MAX_FILE_BYTES dans mobile/www/js/composer.js.
+const tauriMaxFileBytes = typeof MAX_FILE_BYTES === "number" ? MAX_FILE_BYTES : 50 * 1024 * 1024;
+
 addFiles = async function(fileList) {
   for (const file of Array.from(fileList || [])) {
+    if (file.size > tauriMaxFileBytes) {
+      showToast((file.name || "Fichier") + " dépasse 50 Mo.", true);
+      continue; // refusé avant tout envoi
+    }
     const entry = { id: makeId(), name: file.name || "fichier", kind: file.type.startsWith("image/") ? "image" : "file", mime: file.type, size: file.size, data: file.type.startsWith("image/") ? URL.createObjectURL(file) : "", uploadState: "uploading", uploadProgress: 0 };
     tauriSelectedFiles.set(entry.id, file);
     pendingFiles.push(entry);

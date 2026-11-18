@@ -177,3 +177,49 @@ async function testThumbnailBlob() {
 }
 testThumbnailBlob().then(() => console.log("Vignettes : lecture bornée, troncature du texte, base64 JSON, erreurs et annulation vérifiés.")).catch(error => { console.error(error); process.exitCode = 1; });
 
+async function testFileSizeLimit() {
+  const LIMIT = 50 * 1024 * 1024;
+  let nextId = 0, sent = 0;
+  const uploads = [], toasts = [];
+  const context = vm.createContext({
+    pendingFiles: [], busy: false, document: { querySelectorAll: () => [] }, $: () => ({ disabled: false }),
+    renderAttachments() {}, removeAttachment() {}, previewAttachment() {}, previewBlob() {}, updateSendButton() {},
+    async sendMessage() { sent++; },
+    makeId: () => `limit-${++nextId}`, getAccessToken: async () => "test-token",
+    showToast: (value, isError) => toasts.push({ value, isError }),
+    tauriTransport: { upload: async file => { uploads.push(file.name); return { id: "remote-" + file.name }; } },
+    URL, AbortController, Array, Date, Math, String
+  });
+  vm.runInContext(fs.readFileSync(require("node:path").join(__dirname, "legacy-files.js"), "utf8"), context);
+  // Seule la taille annoncée compte : on évite d'allouer 50 Mo en mémoire.
+  const sized = (name, size) => Object.defineProperty(new File(["x"], name, { type: "application/octet-stream" }), "size", { value: size });
+
+  // 50 Mo + 1 octet : refusé, aucun envoi, toast d'erreur.
+  await context.addFiles([sized("trop-gros.bin", LIMIT + 1)]);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(context.pendingFiles.length, 0, "le fichier refusé n'est pas ajouté");
+  assert.deepEqual(uploads, [], "aucun envoi ne part");
+  assert.equal(sent, 0);
+  assert.equal(toasts.length, 1);
+  assert.equal(toasts[0].isError, true, "le toast est un toast d'erreur");
+  assert.ok(toasts[0].value.includes("trop-gros.bin") && toasts[0].value.includes("50 Mo"));
+
+  // Exactement 50 Mo : accepté et envoyé, sans nouveau toast.
+  await context.addFiles([sized("limite.bin", LIMIT)]);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(context.pendingFiles.length, 1);
+  assert.equal(context.pendingFiles[0].name, "limite.bin");
+  assert.equal(context.pendingFiles[0].uploadState, "done");
+  assert.deepEqual(uploads, ["limite.bin"]);
+  assert.equal(toasts.length, 1, "aucun toast supplémentaire pour un fichier à la limite");
+
+  // Sélection mixte : seul le fichier trop gros est écarté.
+  await context.addFiles([sized("ok.bin", 10), sized("gros.bin", LIMIT + 1)]);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(context.pendingFiles.map(file => file.name), ["limite.bin", "ok.bin"]);
+  assert.deepEqual(uploads, ["limite.bin", "ok.bin"]);
+  assert.equal(toasts.length, 2);
+  assert.equal(toasts[1].isError, true);
+}
+testFileSizeLimit().then(() => console.log("Limite de 50 Mo : refus à 50 Mo + 1 octet, acceptation à 50 Mo vérifiés.")).catch(error => { console.error(error); process.exitCode = 1; });
+
