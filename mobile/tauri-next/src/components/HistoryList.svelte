@@ -14,9 +14,11 @@
     markFor: (conversation: Conversation) => { html: string; label: string };
     onopen: (id: string) => void;
     onmenu: (id: string, button: HTMLButtonElement) => void;
+    /** Défilement de la liste (l'ancienne interface ferme alors le menu ouvert). */
+    onscroll?: () => void;
   }
 
-  let { groups, searching, currentId, menuId, markFor, onopen, onmenu }: Props = $props();
+  let { groups, searching, currentId, menuId, markFor, onopen, onmenu, onscroll }: Props = $props();
 
   const pinIcon = icon("pin", 14);
 
@@ -33,7 +35,7 @@
   }
 </script>
 
-<nav id="history" class="history" aria-label="Historique">
+<nav id="history" class="history" aria-label="Historique" {onscroll}>
   {#if groups.length === 0}
     {#if searching}
       <div class="history-empty">{NO_RESULT}</div>

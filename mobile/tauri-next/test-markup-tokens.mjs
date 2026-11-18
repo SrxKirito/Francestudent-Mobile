@@ -1,5 +1,7 @@
 // Découpe un fragment HTML en jetons comparables : balises (attributs triés) et textes.
 // Utilisé par les tests de balisage Svelte ↔ ancienne interface. Ne dit rien du rendu visuel sur appareil.
+const VOID_ELEMENTS = new Set(["area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "source", "track", "wbr"]);
+
 export function tokens(html, { ignoreClasses = [] } = {}) {
   const cleaned = html.replace(/<!--[\s\S]*?-->/g, "");
   const out = [];
@@ -27,6 +29,9 @@ export function tokens(html, { ignoreClasses = [] } = {}) {
       attrs.push(`${name}=${value}`);
     }
     out.push(`<${tag} ${attrs.sort().join(" ")}`.trim());
+    // Élément SVG auto-fermant (`<path …/>`) : équivalent à `<path …></path>` que produit le rendu serveur de Svelte.
+    // Les éléments vides HTML (`<img>`, `<input>`…) n'ont jamais de balise fermante, avec ou sans « / ».
+    if (/\/>$/.test(part) && !VOID_ELEMENTS.has(tag)) out.push("/" + tag);
   }
   return out;
 }
