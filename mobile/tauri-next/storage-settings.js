@@ -60,9 +60,10 @@
   }
 
   // Chaque catégorie est chargée indépendamment : une erreur n'invalide pas les autres.
-  async function loadOverview(api) {
+  // `store` (optionnel) est la couche de données commune : le quota y est mis en cache et partagé avec la bibliothèque.
+  async function loadOverview(api, store) {
     const [usage, images, archived] = await Promise.all([
-      attempt(() => api("/filesv2/usage"), usageOrThrow),
+      attempt(() => (store ? store.fetchUsage({ force: true }) : api("/filesv2/usage")), usageOrThrow),
       attempt(() => api("/files"), data => {
         if (!Array.isArray(data)) throw new Error("Liste d'images non reconnue.");
         return { count: data.length };
@@ -77,7 +78,10 @@
 
   function createController(deps) {
     const { doc, root, api, getSession } = deps;
-    const state = { overview: null, overviewGen: 0, filesGen: 0, session: "", cursor: "", loading: false };
+    // Liste, pagination, quota et suppression passent par la couche commune (une seule instance partagée en production).
+    const store = deps.store || (globalThis.tauriFilesStore ? globalThis.tauriFilesStore.create({ api, getSession }) : null);
+    if (!store) throw new Error("files-store.js doit être chargé avant storage-settings.js.");
+    const state = { overview: null, overviewGen: 0, filesGen: 0, session: "", loading: false, rows: new Map() };
     const el = (tag, className, text) => {
       const node = doc.createElement(tag);
       if (className) node.className = className;
@@ -188,7 +192,7 @@
       overviewStatus.textContent = "Chargement…";
       refreshButton.disabled = true;
       try {
-        const data = await loadOverview(api);
+        const data = await loadOverview(api, store);
         if (generation !== state.overviewGen) return;
         if (!sessionOk(session)) { overviewStatus.textContent = SESSION_CHANGED; return; }
         renderOverview(data);
@@ -198,7 +202,7 @@
     }
 
     async function refreshUsageOnly(session) {
-      const result = await attempt(() => api("/filesv2/usage"), usageOrThrow);
+      const result = await attempt(() => store.fetchUsage(), usageOrThrow);
       if (!sessionOk(session) || !state.overview) return;
       state.overview.usage = result;
       renderUsage(result);
@@ -229,10 +233,9 @@
         if (!sessionOk(session)) return;
         remove.disabled = true;
         try {
-          const result = await api("/filesv2/" + encodeURIComponent(file.id), { method: "DELETE" });
-          if (result?.deleted !== true) throw new Error("Suppression non confirmée par le serveur.");
-          row.remove();
-          detailStatus.textContent = !list.childElementCount && more.hidden ? "Aucun fichier enregistré." : "Fichier supprimé du stockage.";
+          await store.remove(file.id);
+          if (sessionOk(session)) syncList();
+          detailStatus.textContent = !store.files().length && !store.hasMore() ? "Aucun fichier enregistré." : "Fichier supprimé du stockage.";
           await refreshUsageOnly(session);
         } catch (error) {
           detailStatus.textContent = "Suppression impossible : " + describeError(error);
@@ -244,23 +247,32 @@
       return row;
     }
 
-    async function loadFilesPage() {
+    function syncList() {
+      const session = state.session;
+      const rows = new Map();
+      const ordered = [];
+      for (const file of store.files()) {
+        const known = state.rows.get(file.id);
+        const entry = known && known.file === file ? known : { file, row: fileRow(file, session) };
+        rows.set(file.id, entry);
+        ordered.push(entry.row);
+      }
+      state.rows = rows;
+      list.replaceChildren(...ordered);
+      if (store.isLoaded()) more.hidden = !store.hasMore();
+    }
+
+    async function loadFiles(action) {
       const session = state.session, generation = state.filesGen;
       if (state.loading || !sessionOk(session)) return;
       state.loading = true; more.disabled = true; detailStatus.textContent = "Chargement des fichiers…";
       try {
-        const page = await api("/filesv2?limit=" + PAGE_SIZE + (state.cursor ? "&after=" + encodeURIComponent(state.cursor) : ""));
-        if (generation !== state.filesGen || !sessionOk(session)) return;
-        if (!Array.isArray(page?.data)) throw new Error("Liste de fichiers non reconnue.");
-        const next = typeof page.last_id === "string" ? page.last_id : "";
-        if (page.has_more === true && (!next || next === state.cursor)) throw new Error("Curseur de pagination indisponible.");
-        for (const file of page.data) {
-          if (typeof file?.id === "string" && file.id) list.append(fileRow(file, session));
-        }
-        state.cursor = next;
-        more.hidden = page.has_more !== true;
+        const result = await action();
+        if (generation !== state.filesGen || !sessionOk(session) || (result && result.stale)) return;
+        syncList();
+        more.hidden = !store.hasMore();
         more.textContent = "Charger plus";
-        detailStatus.textContent = list.childElementCount ? "" : "Aucun fichier enregistré.";
+        detailStatus.textContent = store.files().length ? "" : "Aucun fichier enregistré.";
       } catch (error) {
         if (generation === state.filesGen && sessionOk(session)) {
           detailStatus.textContent = "Chargement impossible : " + describeError(error);
@@ -271,18 +283,24 @@
       }
     }
 
+    const loadFilesPage = () => loadFiles(() => store.loadMore());
+
     function openFiles() {
       state.filesGen++;
       state.session = getSession();
-      state.cursor = ""; state.loading = false;
+      state.loading = false; state.rows = new Map();
       list.replaceChildren(); more.hidden = true; detailStatus.textContent = "";
+      // Le cache partagé est lu avant d'afficher la vue : un éventuel changement de compte y est purgé sans bruit.
+      const cached = store.isLoaded();
       showView("detail");
-      void loadFilesPage();
+      if (cached) syncList();
+      void loadFiles(() => store.ensureLoaded());
     }
+
 
     function reset() {
       state.overviewGen++; state.filesGen++;
-      state.overview = null; state.loading = false;
+      state.overview = null; state.loading = false; state.rows = new Map();
       usageText.textContent = ""; meter.hidden = true; remainingText.textContent = "";
       categories.replaceChildren(); list.replaceChildren(); more.hidden = true;
       overviewStatus.textContent = ""; detailStatus.textContent = "";
@@ -298,7 +316,19 @@
     back.onclick = () => { state.filesGen++; state.loading = false; showView("overview"); };
     more.onclick = () => { void loadFilesPage(); };
 
-    return { show, refresh, openFiles, root, elements: { usageText, meter, fill, remainingText, categories, list, more, detailStatus, overviewStatus, refreshButton, back, overview, detail } };
+    store.subscribe(event => {
+      if (detail.hidden) return;
+      if (event.type === "reset") {
+        state.rows = new Map(); list.replaceChildren(); more.hidden = true;
+        if (!sessionOk(state.session)) { state.filesGen++; state.loading = false; detailStatus.textContent = SESSION_CHANGED; }
+        return;
+      }
+      if (!sessionOk(state.session)) return;
+      if (event.type === "files") syncList();
+      else if (event.type === "stale" && !state.loading) void loadFiles(() => store.reload());
+    });
+
+    return { show, refresh, openFiles, root, store, elements: { usageText, meter, fill, remainingText, categories, list, more, detailStatus, overviewStatus, refreshButton, back, overview, detail } };
   }
 
   function install(doc) {
@@ -319,8 +349,12 @@
     tablist.append(tab); panels.append(panel);
     // L'état des autres scripts (store, archivedChats…) est lu au moment de l'appel, jamais au chargement.
     const archivedReady = () => typeof archivedChats === "object" && Boolean(archivedChats) && Boolean(archivedChats.toggle);
+    const filesStore = globalThis.tauriFilesStore ? globalThis.tauriFilesStore.getShared({
+      api: (path, options) => settingsApi(path, options),
+      getSession: () => (typeof store === "object" && store ? store.session : "")
+    }) : null;
     return createController({
-      doc, root: panel,
+      doc, root: panel, store: filesStore,
       api: (path, options) => settingsApi(path, options),
       getSession: () => (typeof store === "object" && store ? store.session : ""),
       confirmAction: message => confirm(message),

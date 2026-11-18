@@ -24,6 +24,17 @@ async function main() {
   await assert.rejects(context.apiFetch("/filesv2", { method: "POST", body: new FormData() }), /ne peut pas encore/);
   const form = new FormData(); form.append("files", new File(["skill"], "SKILL.md", { type: "text/markdown" }));
   assert.equal((await (await context.apiFetch("/skills", { method: "POST", body: form })).json()).id, "skill-1");
+  // Un envoi Files V2 confirmé alimente le cache partagé ; une panne du cache ne casse jamais l'envoi.
+  const noted = [];
+  context.tauriFilesStore = { peekShared: () => ({ noteUploaded: raw => noted.push(raw) }) };
+  transport.upload = async (file, token, signal, progress, kind) => { assert.equal(kind, "file"); return { id: "file-9", filename: "a.pdf" }; };
+  const fileForm = new FormData(); fileForm.append("file", new File(["x"], "a.pdf"));
+  assert.equal((await (await context.apiFetch("/filesv2", { method: "POST", body: fileForm })).json()).id, "file-9");
+  assert.deepEqual(JSON.parse(JSON.stringify(noted)), [{ id: "file-9", filename: "a.pdf" }]);
+  context.tauriFilesStore = { peekShared: () => { throw new Error("cache indisponible"); } };
+  const fileForm2 = new FormData(); fileForm2.append("file", new File(["x"], "b.pdf"));
+  assert.equal((await context.apiFetch("/filesv2", { method: "POST", body: fileForm2 })).status, 200);
+  context.tauriFilesStore = undefined;
   let rateLimitRequests = 0;
   transport.request = async () => { rateLimitRequests++; return new Response("limite", { status: 429, headers: { "retry-after": "12" } }); };
   await assert.rejects(context.apiFetch("/chats?limit=20"), error => error.status === 429 && /12 secondes/.test(error.message));

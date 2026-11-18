@@ -1,4 +1,4 @@
-"use strict";
+﻿"use strict";
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
@@ -7,6 +7,7 @@ const vm = require("node:vm");
 const MB = 1024 * 1024;
 const NBSP = "\u00a0";
 const script = fs.readFileSync(path.join(__dirname, "storage-settings.js"), "utf8");
+const storeScript = fs.readFileSync(path.join(__dirname, "files-store.js"), "utf8");
 const plain = value => JSON.parse(JSON.stringify(value));
 const tick = async () => { for (let i = 0; i < 4; i++) await new Promise(resolve => setImmediate(resolve)); };
 
@@ -100,6 +101,7 @@ function makeEnv(overrides = {}) {
 }
 function makeController(env) {
   const context = vm.createContext({ Number, String, Date, Promise, encodeURIComponent });
+  vm.runInContext(storeScript, context);
   vm.runInContext(script, context);
   const root = new Node("section");
   const controller = context.tauriStorageSettings.createController({
@@ -280,6 +282,7 @@ async function testInstall() {
   });
   vm.runInContext("const selected = []; function selectSettingsTab(name, focus) { selected.push([name, focus]); }", context);
   vm.runInContext("const archivedChats = { toggle: null, panel: { hidden: true } };", context);
+  vm.runInContext(storeScript, context);
   vm.runInContext(script, context);
 
   const tab = findById(tablist, "tab-storage"), panel = findById(panels, "panel-storage");
@@ -326,11 +329,43 @@ async function testInstall() {
 }
 function findAll(root, predicate) { const out = []; walk(root, node => { if (predicate(node)) out.push(node); }); return out; }
 
+// ---------- Cache partagé avec la bibliothèque ----------
+async function testSharedStore() {
+  const listCalls = env => env.calls.filter(call => call.startsWith("GET /filesv2?"));
+  const env = makeEnv();
+  const c = makeController(env), e = c.elements;
+  await c.show(); await tick();
+  c.openFiles(); await tick();
+  assert.equal(e.list.children.length, 1);
+  assert.equal(listCalls(env).length, 1);
+
+  // Réouverture : la liste vient du cache, sans nouvelle requête.
+  e.back.onclick(); c.openFiles(); await tick();
+  assert.equal(listCalls(env).length, 1, "la réouverture réutilise le cache partagé");
+  assert.equal(e.list.children.length, 1);
+  assert.equal(e.detailStatus.textContent, "");
+
+  // Un événement « périmé » (retour au premier plan) relit la première page, une seule fois.
+  c.store.invalidate(); await tick();
+  assert.equal(listCalls(env).length, 2, "la liste périmée est rechargée une fois");
+  assert.equal(e.list.children.length, 1);
+  assert.equal(e.detailStatus.textContent, "");
+  // Un fichier ajouté ailleurs (téléversement) apparaît sans rechargement.
+  c.store.noteUploaded({ id: "new1", filename: "neuf.txt", bytes: 10, created_at: 1700000100 });
+  await tick();
+  assert.equal(e.list.children[0].children[0].children[0].textContent, "neuf.txt");
+
+  // Changement de session : la liste affichée est vidée et plus rien n'est servi du cache.
+  env.session = "s2";
+  assert.equal(c.store.isLoaded(), false);
+  assert.deepEqual(plain(c.store.files()), []);
+}
 (async () => {
   testPure();
   await testOverviewIsolation();
   await testController();
   await testFailuresAndEdgeCases();
+  await testSharedStore();
   await testInstall();
   console.log("Onglet Stockage : formats, quota, catégories indépendantes, pagination, suppression confirmée et garde de session vérifiés.");
 })().catch(error => { console.error(error); process.exitCode = 1; });

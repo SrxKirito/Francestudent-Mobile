@@ -34,6 +34,8 @@ apiFetch = async function(path, { method = "GET", body, accept = "application/js
     if (!kind || entries.length !== 1 || entries[0][0] !== field || typeof entries[0][1]?.slice !== "function") throw new Error("Ce formulaire de fichier ne peut pas encore être envoyé.");
     const token = await getAccessToken(retried);
     const result = await tauriTransport.upload(entries[0][1], token, new AbortController().signal, () => {}, kind);
+    // Le cache des fichiers enregistrés (bibliothèque, onglet Stockage) est mis à jour sans relecture complète.
+    if (kind === "file") { try { globalThis.tauriFilesStore?.peekShared()?.noteUploaded(result); } catch { /* le cache sera relu à la prochaine ouverture */ } }
     return new Response(JSON.stringify(result), { status: 200, headers: { "content-type": "application/json" } });
   }
   const token = await getAccessToken(retried);

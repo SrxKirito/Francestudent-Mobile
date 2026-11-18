@@ -1,4 +1,4 @@
-"use strict";
+﻿"use strict";
 // Keep the existing visual baseline without modifying the Capacitor source.
 const fs = require("node:fs");
 const path = require("node:path");
@@ -18,7 +18,7 @@ index = removeOnce(index, /^\s*<script src="js\/ide-link\.js"><\/script>\s*$/m, 
 index = removeOnce(index, /^\s*<script src="js\/ide-link-remembered\.js"><\/script>\s*$/m, "Script de mémorisation France IDE");
 const core = '<script src="js/core.js"></script>';
 if (!index.includes(core)) throw new Error("Point d'entrée de l'interface historique introuvable");
-index = index.replace(core, core + '\n  <script src="js/tauri-bridge.js"></script>');
+index = index.replace(core, core + '\n  <script src="js/tauri-bridge.js"></script>\n  <script src="js/tauri-files-store.js"></script>');
 const conversationsScript = '<script src="js/conversations.js"></script>';
 if (!index.includes(conversationsScript)) throw new Error("Historique des conversations introuvable");
 index = index.replace(conversationsScript, conversationsScript + '\n  <script src="js/tauri-chat-search.js"></script>');
@@ -46,6 +46,7 @@ index = index.replace(appScript, appScript + '\n  <script src="js/tauri-api-key-
 index = index.replace(appScript, appScript + '\n  <script src="js/tauri-data-import.js"></script>');
 fs.writeFileSync(indexPath, index);
 fs.copyFileSync(path.join(__dirname, "legacy-bridge.js"), path.join(destination, "js/tauri-bridge.js"));
+fs.copyFileSync(path.join(__dirname, "files-store.js"), path.join(destination, "js/tauri-files-store.js"));
 fs.copyFileSync(path.join(__dirname, "legacy-files.js"), path.join(destination, "js/tauri-files.js"));
 fs.copyFileSync(path.join(__dirname, "legacy-storage.js"), path.join(destination, "js/tauri-storage.js"));
 fs.copyFileSync(path.join(__dirname, "storage-settings.js"), path.join(destination, "js/tauri-storage-settings.js"));
