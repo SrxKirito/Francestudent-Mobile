@@ -45,7 +45,30 @@ export function parseStoredState(raw: string | null, makeId: () => string): Stor
   };
 }
 
-/** Quand IndexedDB est disponible, les conversations ne sont plus écrites dans localStorage. */
+/**
+ * Quand IndexedDB est disponible, les conversations ne sont plus écrites dans localStorage.
+ * Le cookie de session n'est jamais écrit ici : sous Tauri il vit dans le Keychain (même règle que prepare-legacy.cjs).
+ */
 export function serializeState(state: StoredState, conversationsInIndexedDb: boolean): string {
-  return JSON.stringify(conversationsInIndexedDb ? { ...state, conversations: [] } : state);
+  return JSON.stringify({ ...state, session: undefined, conversations: conversationsInIndexedDb ? [] : state.conversations });
+}
+
+/** Réglages modifiables sans toucher aux conversations ; `fileInstrSynced` est écrit par le legacy mais jamais relu. */
+export type StatePatch = Partial<Omit<StoredState, "session" | "conversations">> & { fileInstrSynced?: boolean };
+
+/**
+ * Fusionne un correctif dans le JSON brut déjà stocké : les clés inconnues et les conversations
+ * (encore en cours de migration vers IndexedDB) sont conservées telles quelles, la session est retirée.
+ */
+export function patchStoredState(raw: string | null, patch: StatePatch): string {
+  let saved: Record<string, unknown> = {};
+  try {
+    const parsed: unknown = JSON.parse(raw || "{}");
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) saved = parsed as Record<string, unknown>;
+  } catch {
+    saved = {};
+  }
+  const next: Record<string, unknown> = { ...saved, ...patch };
+  delete next.session;
+  return JSON.stringify(next);
 }

@@ -1,7 +1,9 @@
 // Tests des fondations Svelte (état persistant, nettoyage de session, jeton d'accès).
 // Les modules .ts sont chargés tels quels par Node (suppression des types native).
 import assert from "node:assert/strict";
-import { parseStoredState, serializeState, STORE_KEY, DEFAULT_AGENT_ID } from "./src/lib/utils/state.ts";
+import { parseStoredState, serializeState, patchStoredState, STORE_KEY, DEFAULT_AGENT_ID } from "./src/lib/utils/state.ts";
+import { errorMessage } from "./src/lib/utils/errors.ts";
+import { applyTheme, themeAttribute } from "./src/lib/utils/theme.ts";
 import { cleanSession } from "./src/lib/utils/session.ts";
 import { createTokenProvider, AuthError, TOKEN_MARGIN_MS } from "./src/lib/services/auth.ts";
 
@@ -137,6 +139,72 @@ await test("aller-retour parse(serialize(état)) stable", () => {
   const first = parseStoredState(JSON.stringify({ theme: "light", libraryColumns: 2, agentId: 3 }), makeId);
   const second = parseStoredState(serializeState(first, false), makeId);
   assert.deepEqual(second, first);
+});
+
+await test("serializeState n'écrit jamais le cookie de session", () => {
+  const state = parseStoredState(JSON.stringify({ session: "cookie-secret", theme: "dark" }), makeId);
+  assert.equal(state.session, "cookie-secret");
+  for (const inIndexedDb of [true, false]) {
+    const raw = serializeState(state, inIndexedDb);
+    assert.ok(!raw.includes("cookie-secret"), "le cookie fuit dans le JSON");
+    assert.ok(!("session" in JSON.parse(raw)));
+    assert.equal(JSON.parse(raw).theme, "dark");
+  }
+});
+
+// --- patchStoredState ---------------------------------------------------------
+await test("patchStoredState conserve clés inconnues et conversations", () => {
+  const raw = JSON.stringify({ theme: "light", futur: { a: 1 }, conversations: [{ id: "c1" }, { id: "c2" }] });
+  const next = JSON.parse(patchStoredState(raw, { deviceId: "d1", webSearchMode: "filtered" }));
+  assert.deepEqual(next.futur, { a: 1 });
+  assert.deepEqual(next.conversations, [{ id: "c1" }, { id: "c2" }]);
+  assert.equal(next.theme, "light");
+  assert.equal(next.deviceId, "d1");
+  assert.equal(next.webSearchMode, "filtered");
+});
+
+await test("patchStoredState retire la copie en clair de la session", () => {
+  const next = JSON.parse(patchStoredState(JSON.stringify({ session: "cookie-secret", theme: "dark" }), { deviceId: "d1" }));
+  assert.ok(!("session" in next));
+  assert.equal(next.theme, "dark");
+});
+
+await test("patchStoredState ne crée pas de conversations absentes", () => {
+  const next = JSON.parse(patchStoredState(null, { deviceId: "d1" }));
+  assert.ok(!("conversations" in next), "écrire conversations: [] casserait la migration vers IndexedDB");
+  assert.deepEqual(next, { deviceId: "d1" });
+});
+
+await test("patchStoredState : JSON corrompu, tableau ou nul → objet neuf", () => {
+  for (const raw of ["{pas du json", "[1,2]", "null", "42", ""]) {
+    assert.deepEqual(JSON.parse(patchStoredState(raw, { deviceId: "d1" })), { deviceId: "d1" }, raw);
+  }
+});
+
+await test("patchStoredState peut remettre profile à null", () => {
+  const next = JSON.parse(patchStoredState(JSON.stringify({ profile: { name: "A" } }), { profile: null }));
+  assert.equal(next.profile, null);
+});
+
+// --- errorMessage / thème -----------------------------------------------------
+await test("errorMessage lit la chaîne Rust ou le message d'une Error", () => {
+  assert.equal(errorMessage("HTTP 500"), "HTTP 500");
+  assert.equal(errorMessage(new Error("boum")), "boum");
+  assert.equal(errorMessage({ message: "objet" }), "objet");
+  assert.equal(errorMessage(null), "null");
+  assert.equal(errorMessage(new Error("")), "Error");
+});
+
+await test("thème : « système » retire data-theme, clair/sombre le posent", () => {
+  assert.equal(themeAttribute("light"), "light");
+  assert.equal(themeAttribute("dark"), "dark");
+  for (const value of ["system", "", undefined, null, "auto", 3]) assert.equal(themeAttribute(value), null, String(value));
+  const attrs = new Map();
+  const root = { setAttribute: (k, v) => attrs.set(k, v), removeAttribute: k => attrs.delete(k) };
+  applyTheme("dark", root);
+  assert.equal(attrs.get("data-theme"), "dark");
+  applyTheme("system", root);
+  assert.equal(attrs.has("data-theme"), false);
 });
 
 // --- cleanSession -------------------------------------------------------------
