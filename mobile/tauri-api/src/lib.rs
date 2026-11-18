@@ -3,7 +3,7 @@ pub mod login;
 pub mod models;
 pub mod sse;
 
-use models::{ChatCreate, ChatDetail, ChatHistory, ChatMessageRequest, Project};
+use models::{ChatCreate, ChatDetail, ChatHistory, ChatMessageRequest, FilesUsage, Project};
 use reqwest::{
     header::{HeaderValue, AUTHORIZATION, RETRY_AFTER},
     multipart, Client, Method, Response,
@@ -33,6 +33,8 @@ pub enum ApiError {
     UnsupportedRoute,
     #[error("Réponse trop volumineuse")]
     ResponseTooLarge,
+    #[error("Contenu de fichier encodé de façon non reconnue")]
+    InvalidFileEncoding,
     #[error("Accès aux conversations verrouillées requis : saisis ton code PIN")]
     LockedAccessRequired,
     #[error("Jeton d'accès aux conversations verrouillées invalide")]
@@ -143,18 +145,18 @@ impl ApiClient {
         }
         let locked_access = locked_access.filter(|token| !token.is_empty());
         if locked_access_required(route) && locked_access.is_none() {
-     return Err(ApiError::LockedAccessRequired);
+            return Err(ApiError::LockedAccessRequired);
         }
         let url = checked_route(&self.base, &method, path)?;
         let mut request = self.request(method, url).header("Accept", accept);
         if let Some(token) = locked_access {
             if !locked_access_allowed(route) || token.len() > 4096 {
-         return Err(ApiError::InvalidLockedAccess);
-     }
-     let mut value =
-  HeaderValue::from_str(token).map_err(|_| ApiError::InvalidLockedAccess)?;
-     value.set_sensitive(true);
-     request = request.header(LOCKED_CHATS_ACCESS_HEADER, value);
+                return Err(ApiError::InvalidLockedAccess);
+            }
+            let mut value =
+                HeaderValue::from_str(token).map_err(|_| ApiError::InvalidLockedAccess)?;
+            value.set_sensitive(true);
+            request = request.header(LOCKED_CHATS_ACCESS_HEADER, value);
         }
         if let Some(body) = body {
             request = request
@@ -175,14 +177,18 @@ impl ApiClient {
             .map(str::to_owned);
         if response.status().as_u16() == 429 {
             let seconds = retry_after.as_deref().and_then(|value| {
-                if value.len() <= 8 && !value.is_empty() && value.bytes().all(|b| b.is_ascii_digit()) {
+                if value.len() <= 8
+                    && !value.is_empty()
+                    && value.bytes().all(|b| b.is_ascii_digit())
+                {
                     value.parse::<u32>().ok()
                 } else {
                     None
                 }
             });
             return Err(ApiError::RateLimited {
-                message: seconds.map(|value| format!("Réessaie dans {value} secondes."))
+                message: seconds
+                    .map(|value| format!("Réessaie dans {value} secondes."))
                     .unwrap_or_else(|| "Réessaie plus tard.".into()),
             });
         }
@@ -261,6 +267,73 @@ impl ApiClient {
             request = request.query(&[("limit", limit)]);
         }
         self.json(request).await
+    }
+
+    /// Server-side quota (`GET /filesv2/usage`).
+    pub async fn files_usage(&self) -> Result<FilesUsage, ApiError> {
+        self.json(self.request(Method::GET, self.url(&["filesv2", "usage"])))
+            .await
+    }
+
+    /// File metadata (`GET /filesv2/{file_id}`).
+    pub async fn file(&self, id: &str) -> Result<Value, ApiError> {
+        let id = file_id(id)?;
+        self.json(self.request(Method::GET, self.url(&["filesv2", id])))
+            .await
+    }
+
+    /// Permanent server-side deletion (`DELETE /filesv2/{file_id}`). Callers
+    /// must have asked the user for confirmation first.
+    pub async fn delete_file(&self, id: &str) -> Result<Value, ApiError> {
+        let id = file_id(id)?;
+        self.json(self.request(Method::DELETE, self.url(&["filesv2", id])))
+            .await
+    }
+
+    /// File bytes (`GET /filesv2/{file_id}/content`). The server may answer with
+    /// a JSON base64 string (OpenAPI `format: byte`) or raw bytes; both are
+    /// returned decoded. Larger files are refused without being buffered.
+    pub async fn file_content(&self, id: &str, max_bytes: usize) -> Result<Vec<u8>, ApiError> {
+        let id = file_id(id)?;
+        let mut response = Self::check(
+            self.request(Method::GET, self.url(&["filesv2", id, "content"]))
+                .header("Accept", "*/*")
+                .send()
+                .await?,
+        )
+        .await?;
+        let is_json = response
+            .headers()
+            .get(reqwest::header::CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok())
+            .is_some_and(|v| v.to_ascii_lowercase().contains("application/json"));
+        // Base64 inflates by 4/3; allow the quotes and a little slack.
+        let limit = if is_json {
+            max_bytes.saturating_mul(4) / 3 + 1024
+        } else {
+            max_bytes
+        };
+        if response
+            .content_length()
+            .is_some_and(|length| length > limit as u64)
+        {
+            return Err(ApiError::ResponseTooLarge);
+        }
+        let mut body = Vec::new();
+        while let Some(chunk) = response.chunk().await? {
+            if body.len() + chunk.len() > limit {
+                return Err(ApiError::ResponseTooLarge);
+            }
+            body.extend_from_slice(&chunk);
+        }
+        if !is_json {
+            return Ok(body);
+        }
+        let decoded = decode_json_base64(&body)?;
+        if decoded.len() > max_bytes {
+            return Err(ApiError::ResponseTooLarge);
+        }
+        Ok(decoded)
     }
 
     /// FileObject is intentionally JSON: OpenAPI wraps its fields in generic SDK types.
@@ -380,6 +453,60 @@ impl ApiClient {
         .await?;
         Ok(())
     }
+}
+
+/// A server file id is one non-empty path segment: no separator, no control character.
+fn file_id(id: &str) -> Result<&str, ApiError> {
+    if id.is_empty()
+        || id.len() > 256
+        || id.chars().any(|c| c == '/' || c == '\\' || c.is_control())
+    {
+        return Err(ApiError::UnsupportedRoute);
+    }
+    Ok(id)
+}
+
+/// Strict decoder for a JSON string holding standard base64 (`"QUJD"`,
+/// `\/` escapes accepted, whitespace around the string ignored).
+fn decode_json_base64(body: &[u8]) -> Result<Vec<u8>, ApiError> {
+    let text = std::str::from_utf8(body).map_err(|_| ApiError::InvalidFileEncoding)?;
+    let text = text.trim();
+    let inner = text
+        .strip_prefix('"')
+        .and_then(|rest| rest.strip_suffix('"'))
+        .ok_or(ApiError::InvalidFileEncoding)?;
+    let inner = inner.replace("\\/", "/");
+    let bytes = inner.as_bytes();
+    if bytes.len() % 4 != 0 {
+        return Err(ApiError::InvalidFileEncoding);
+    }
+    fn value(byte: u8) -> Option<u32> {
+        match byte {
+            b'A'..=b'Z' => Some((byte - b'A') as u32),
+            b'a'..=b'z' => Some((byte - b'a') as u32 + 26),
+            b'0'..=b'9' => Some((byte - b'0') as u32 + 52),
+            b'+' => Some(62),
+            b'/' => Some(63),
+            _ => None,
+        }
+    }
+    let mut out = Vec::with_capacity(bytes.len() / 4 * 3);
+    let groups = bytes.len() / 4;
+    for (index, group) in bytes.chunks(4).enumerate() {
+        let padding = group.iter().rev().take_while(|b| **b == b'=').count();
+        // Padding is only valid in the last group, at most two characters.
+        if padding > 2 || (padding > 0 && index + 1 != groups) {
+            return Err(ApiError::InvalidFileEncoding);
+        }
+        let mut acc = 0_u32;
+        for byte in &group[..4 - padding] {
+            acc = (acc << 6) | value(*byte).ok_or(ApiError::InvalidFileEncoding)?;
+        }
+        acc <<= 6 * padding as u32;
+        let triple = acc.to_be_bytes();
+        out.extend_from_slice(&triple[1..4 - padding]);
+    }
+    Ok(out)
 }
 
 fn checked_route(base: &Url, method: &Method, path: &str) -> Result<Url, ApiError> {
@@ -748,5 +875,176 @@ mod tests {
         assert_eq!(events[0].id.as_deref(), Some("5"));
         assert_eq!(events[0].event, "completed");
         server.await.unwrap();
+    }
+
+    /// Serves one canned HTTP response and checks the request line it receives.
+    async fn serve_once(
+        request_line: &'static str,
+        content_type: &'static str,
+        body: &'static [u8],
+    ) -> (ApiClient, tokio::task::JoinHandle<()>) {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let request = String::from_utf8(read_request(&mut socket).await).unwrap();
+            assert!(request.starts_with(request_line), "{request}");
+            assert!(request
+                .to_ascii_lowercase()
+                .contains("authorization: test-token"));
+            let head = format!(
+  "HTTP/1.1 200 OK\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+         body.len()
+     );
+            socket.write_all(head.as_bytes()).await.unwrap();
+            socket.write_all(body).await.unwrap();
+        });
+        let api = ApiClient::with_base(
+            Url::parse(&format!("http://{addr}/")).unwrap(),
+            "test-token",
+        )
+        .unwrap();
+        (api, server)
+    }
+
+    #[tokio::test]
+    async fn usage_comes_from_the_server_and_percent_is_derived_only_from_it() {
+        let (api, server) = serve_once(
+     "GET /filesv2/usage HTTP/1.1",
+            "application/json",
+            br#"{"usedBytes":250,"maxBytes":1000,"remainingBytes":750,"filesBytes":200,"skillsBytes":50,"usedGb":0.1}"#,
+        )
+        .await;
+        let usage = api.files_usage().await.unwrap();
+        assert_eq!(usage.used_bytes, Some(250));
+        assert_eq!(usage.remaining_bytes, Some(750));
+        assert_eq!(usage.skills_bytes, Some(50));
+        assert_eq!(usage.percent(), Some(25.0));
+        server.await.unwrap();
+    }
+
+    #[test]
+    fn percent_is_absent_without_a_usable_quota_and_never_exceeds_100() {
+        let usage = |used, max| FilesUsage {
+            used_bytes: used,
+            max_bytes: max,
+            remaining_bytes: None,
+            files_bytes: None,
+            skills_bytes: None,
+        };
+        assert_eq!(usage(None, Some(10)).percent(), None);
+        assert_eq!(usage(Some(5), None).percent(), None);
+        assert_eq!(usage(Some(5), Some(0)).percent(), None);
+        assert_eq!(usage(Some(20), Some(10)).percent(), Some(100.0));
+    }
+
+    #[tokio::test]
+    async fn delete_uses_the_delete_method_on_one_encoded_segment() {
+        let (api, server) = serve_once(
+            "DELETE /filesv2/file%20x HTTP/1.1",
+            "application/json",
+            br#"{"id":"file x","deleted":true,"object":"file"}"#,
+        )
+        .await;
+        assert_eq!(api.delete_file("file x").await.unwrap()["deleted"], true);
+        server.await.unwrap();
+        for bad in ["", "a/b", "a\\b", "a\nb"] {
+            assert!(matches!(
+                api.delete_file(bad).await,
+                Err(ApiError::UnsupportedRoute)
+            ));
+            assert!(matches!(
+                api.file_content(bad, 10).await,
+                Err(ApiError::UnsupportedRoute)
+            ));
+        }
+    }
+
+    #[tokio::test]
+    async fn content_json_base64_is_decoded() {
+        let (api, server) = serve_once(
+            "GET /filesv2/file-1/content HTTP/1.1",
+            "application/json",
+            br#""aGVsbG8gZmlsZXM=""#,
+        )
+        .await;
+        assert_eq!(
+            api.file_content("file-1", 100).await.unwrap(),
+            b"hello files"
+        );
+        server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn content_raw_bytes_are_returned_unchanged() {
+        let (api, server) = serve_once(
+            "GET /filesv2/file-2/content HTTP/1.1",
+            "application/octet-stream",
+            &[0, 255, 1, 254],
+        )
+        .await;
+        assert_eq!(
+            api.file_content("file-2", 100).await.unwrap(),
+            vec![0, 255, 1, 254]
+        );
+        server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn oversized_content_is_refused_before_buffering() {
+        let (api, server) = serve_once(
+            "GET /filesv2/big/content HTTP/1.1",
+            "application/octet-stream",
+            b"0123456789",
+        )
+        .await;
+        assert!(matches!(
+            api.file_content("big", 4).await,
+            Err(ApiError::ResponseTooLarge)
+        ));
+        let _ = server.await;
+    }
+
+    #[tokio::test]
+    async fn decoded_content_larger_than_the_limit_is_refused() {
+        // 12 raw bytes encoded; the encoded form fits the base64 allowance but
+        // the decoded size exceeds the limit of 8.
+        let (api, server) = serve_once(
+            "GET /filesv2/dec/content HTTP/1.1",
+            "application/json",
+            br#""MDEyMzQ1Njc4OTBh""#,
+        )
+        .await;
+        assert!(matches!(
+            api.file_content("dec", 8).await,
+            Err(ApiError::ResponseTooLarge)
+        ));
+        server.await.unwrap();
+    }
+
+    #[test]
+    fn base64_decoder_is_strict() {
+        assert_eq!(decode_json_base64(b"\"\"").unwrap(), b"");
+        assert_eq!(decode_json_base64(b" \"QUJD\" \n").unwrap(), b"ABC");
+        assert_eq!(decode_json_base64(b"\"QUI=\"").unwrap(), b"AB");
+        assert_eq!(decode_json_base64(b"\"QQ==\"").unwrap(), b"A");
+        // "\/" is the JSON escape of "/" ("/z8=" decodes to 0xff 0x3f).
+        assert_eq!(decode_json_base64(b"\"\\/z8=\"").unwrap(), vec![0xff, 0x3f]);
+        for bad in [
+            &b"QUJD"[..],    // not a JSON string
+            b"\"QUJ\"",      // length not a multiple of 4
+            b"\"QU=D\"",     // padding inside a group
+            b"\"QQ==QUJD\"", // padding before the last group
+            b"\"Q===\"",     // too much padding
+            b"\"QU\\nJD\"",  // other escapes refused
+            b"\"QU JD\"",    // whitespace inside
+            b"{\"a\":1}",    // an object, not a string
+        ] {
+            assert!(
+                matches!(decode_json_base64(bad), Err(ApiError::InvalidFileEncoding)),
+                "{}",
+                String::from_utf8_lossy(bad)
+            );
+        }
     }
 }

@@ -77,6 +77,31 @@ pub struct ChatMessage {
     pub extra: serde_json::Map<String, Value>,
 }
 
+/// `GET /filesv2/usage`. Every value comes from the server; nothing is derived
+/// from the visible file list, and absent values stay `None`.
+#[derive(Debug, Deserialize, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct FilesUsage {
+    pub used_bytes: Option<u64>,
+    pub max_bytes: Option<u64>,
+    pub remaining_bytes: Option<u64>,
+    pub files_bytes: Option<u64>,
+    pub skills_bytes: Option<u64>,
+}
+
+impl FilesUsage {
+    /// Used share of the server quota, clamped to 0..=100. `None` when the
+    /// server gave no usable quota (never a guessed value).
+    pub fn percent(&self) -> Option<f64> {
+        match (self.used_bytes, self.max_bytes) {
+            (Some(used), Some(max)) if max > 0 => {
+                Some((used as f64 / max as f64 * 100.0).clamp(0.0, 100.0))
+            }
+            _ => None,
+        }
+    }
+}
+
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Project {
