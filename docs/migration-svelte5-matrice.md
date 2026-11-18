@@ -7,7 +7,13 @@ Légende de la colonne « État » :
 - **À auditer** : présent d'après l'arborescence ou `index.html`, **pas encore lu**. Aucun constat n'est affirmé.
 - **Non commencé** : aucune ligne de Svelte écrite.
 
-À ce jour : **aucun écran n'est migré**. `src/App.svelte` ne contient qu'une `<iframe src="/legacy/index.html">`.
+État au 2026-11-18 (commit `41da78c`) : **2 écrans sur la liste ci-dessous sont portés (démarrage, connexion)**, plus les fondations (types, état persistant, jeton, session/Keychain, transport). Ils ne s'affichent qu'avec `?ui=svelte` (ou `localStorage["fs-ui"]="svelte"`) ; **par défaut, `App.svelte` affiche toujours l'iframe historique**. Une fois connecté, la nouvelle coque affiche l'iframe : la conversation, la barre latérale, les paramètres, les projets et la bibliothèque sont encore 100 % historiques.
+
+Légende complémentaire pour « État » : **Migré** = composant Svelte écrit ; **Testé (Node/SSR)** = vérifié par un test automatisé exécuté, **jamais** sur iPhone/WebView.
+
+Limites connues de la version hybride : la coque et l'iframe font chacune un échange de jeton au démarrage (deux requêtes au lieu d'une) ; une déconnexion faite *dans* l'iframe affiche l'écran de connexion historique, pas celui de Svelte.
+
+**Périmètre réel plus large que `mobile/www`** : l'iframe charge aussi 7 feuilles Tauri (`legacy-files`, `remote-chat-search`, `archived-chats`, `chat-context`, `project-shares`, `storage-settings`, `skill-commands`) et ~17 scripts `tauri-*.js` (chats verrouillés, import de conversations, stockage, commandes /skill, Files V2…). Ces écrans doivent être migrés aussi, ils ne sont pas dans `index.html`.
 
 ## 1. Constats vérifiés
 
@@ -33,8 +39,9 @@ Légende de la colonne « État » :
 
 | Élément | Ancienne implémentation | Nouvelle implémentation | État |
 |---|---|---|---|
-| Écran de démarrage `#startup-screen` | HTML + `app.js` | `routes/Startup.svelte` | Lu (HTML), Non commencé |
-| Connexion e-mail / mot de passe, cookie de session `#login-screen` | `js/login.js` + `tauri-login.js` (`legacy-login.js`) | `routes/Login.svelte` + `services/auth.ts` | À auditer (JS), Non commencé |
+| Écran de démarrage `#startup-screen` | HTML + `app.js` | `components/Startup.svelte` | Lu, Migré, Testé (SSR : balisage identique à `index.html`) ; rendu visuel iPhone non vérifié |
+| Connexion e-mail / mot de passe, cookie de session `#login-screen` | `js/login.js` + `tauri-login.js` + `tauri-session.js` | `components/Login.svelte`, `stores/session.svelte.ts`, `services/{login,login-actions,session-flow,auth}.ts` | Lu, Migré, Testé (Node : 21 + 25 + 9 tests ; SSR : 4). **Non vérifié sur appareil** : `page-reader.ts` (DOMParser), Keychain réel, flux OAuth réel |
+| Cycle de vie de session (Keychain, migration d'une session localStorage, conflit, déconnexion) | `core.js`, `login.js`, `legacy-session.js` | `services/session-flow.ts` | Lu, Migré, Testé (Node, 3 mutations vérifiées) ; la déconnexion Svelte n'est pas encore reliée à une UI |
 | Barre latérale `#sidebar` (marque, repli, nouvelle discussion, recherche, Projets, Bibliothèque, historique, compte) | `index.html`, `conversations.js`, `app.js` | `components/navigation/Sidebar.svelte` | Lu (HTML), Non commencé |
 | Contexte projet dans la barre (paramètres, retour) | `projects.js` | `components/projects/ProjectContext.svelte` | À auditer |
 | Menu de conversation (épingler, renommer, supprimer) `#conv-menu` | `conversations.js` | `components/chat/ConversationMenu.svelte` | À auditer |
@@ -91,6 +98,7 @@ Contrainte : le DOM historique est un bloc indissociable (identifiants partagés
 
 ## 5. Limites actuelles
 
-- Les fichiers `www/js/*.js` (`app.js`, `core.js`, `stream.js`, `render.js`, `composer.js`…) n'ont **pas encore été lus** : événements, états et dépendances DOM détaillés restent à inventorier.
-- Aucune mesure de performance de base n'existe. Elle doit précéder toute affirmation d'amélioration.
+- Les fichiers `www/js/*.js` hors `app.js`, `core.js`, `login.js` n'ont **pas encore été lus en entier** (`stream.js`, `render.js`, `composer.js`, `conversations.js`, `settings.js`, `projects.js`, `library.js`, `models.js`) : événements, états et dépendances DOM de ces écrans restent à inventorier avant de les porter.
+- Mesures disponibles : taille du build uniquement (JS `main` 61,8 kB / 23,4 kB gzip ; feuilles historiques en un chunk CSS paresseux de 109,5 kB / 20,8 kB gzip, chargé seulement par `?ui=svelte`). Aucune mesure de fluidité, de mémoire ni de temps de démarrage sur appareil : aucune affirmation d'amélioration n'est faite.
+- Écart connu non repris : la limite de 50 Mo des pièces jointes (introduite dans b736855) n'existe que côté historique.
 - Rien n'a été exécuté sur iPhone ni compilé pour iOS ici.
