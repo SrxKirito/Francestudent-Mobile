@@ -72,3 +72,31 @@ export function patchStoredState(raw: string | null, patch: StatePatch): string 
   delete next.session;
   return JSON.stringify(next);
 }
+
+function parseObject(raw: string | null): Record<string, unknown> {
+  try {
+    const parsed: unknown = JSON.parse(raw || "{}");
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) return parsed as Record<string, unknown>;
+  } catch {
+    // JSON corrompu : traité comme un état vide, comme `loadStore()`.
+  }
+  return {};
+}
+
+/** Conversations encore présentes dans le JSON localStorage (anciennes versions, avant IndexedDB). */
+export function readStoredConversations<T = unknown>(raw: string | null): T[] {
+  const saved = parseObject(raw).conversations;
+  return Array.isArray(saved) ? (saved as T[]) : [];
+}
+
+/** Remplace les conversations du JSON brut en gardant tous les autres réglages ; la session est retirée. */
+export function setStoredConversations(raw: string | null, conversations: readonly unknown[]): string {
+  const next: Record<string, unknown> = { ...parseObject(raw), conversations };
+  delete next.session;
+  return JSON.stringify(next);
+}
+
+/** Vide la copie localStorage des conversations (à faire seulement une fois IndexedDB validé). */
+export function clearStoredConversations(raw: string | null): string {
+  return setStoredConversations(raw, []);
+}

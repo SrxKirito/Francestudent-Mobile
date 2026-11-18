@@ -5,6 +5,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createServer } from "vite";
+import { tokens } from "./test-markup-tokens.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const legacyHtml = fs.readFileSync(path.join(here, "..", "www", "index.html"), "utf8");
@@ -18,38 +19,6 @@ function test(name, fn) {
     console.error(`ÉCHEC : ${name}`);
     throw error;
   }
-}
-
-/** Découpe un fragment HTML en jetons comparables : balises (attributs triés) et textes. */
-function tokens(html, { ignoreClasses = [] } = {}) {
-  const cleaned = html.replace(/<!--[\s\S]*?-->/g, "");
-  const out = [];
-  for (const part of cleaned.split(/(<[^>]+>)/).filter(p => p.trim() !== "")) {
-    if (!part.startsWith("<")) {
-      out.push("#" + part.replace(/&gt;/g, ">").replace(/\s+/g, " ").trim());
-      continue;
-    }
-    const closing = /^<\//.test(part);
-    const tag = part.match(/^<\/?([a-zA-Z0-9]+)/)[1].toLowerCase();
-    if (closing) {
-      out.push("/" + tag);
-      continue;
-    }
-    const attrs = [];
-    for (const match of part.matchAll(/\s([a-zA-Z:-]+)(?:=(?:"([^"]*)"|'([^']*)'))?/g)) {
-      const name = match[1];
-      let value = match[2] ?? match[3] ?? "";
-      if (name === "src") continue; // le chemin du logo change (ressource Vite)
-      if (name === "value" && value === "") continue;
-      if (name === "class") {
-        value = value.split(/\s+/).filter(c => c && !ignoreClasses.includes(c)).sort().join(" ");
-        if (!value) continue;
-      }
-      attrs.push(`${name}=${value}`);
-    }
-    out.push(`<${tag} ${attrs.sort().join(" ")}`.trim());
-  }
-  return out;
 }
 
 function between(start, end) {
