@@ -20,34 +20,39 @@ async function test(name, fn) {
   }
 }
 
+
 // --- choix de l'interface ------------------------------------------------------
-await test("l'iframe historique reste l'interface par défaut", () => {
-  assert.equal(uiMode("", null), "legacy");
-  assert.equal(uiMode("?autre=1", ""), "legacy");
-  assert.equal(uiMode("", "n'importe quoi"), "legacy");
+await test("Svelte 5 est l'interface par défaut", () => {
+  assert.equal(uiMode("", null), "svelte");
+  assert.equal(uiMode("?autre=1", ""), "svelte");
+  assert.equal(uiMode("", "n'importe quoi"), "svelte");
   assert.equal(UI_FLAG_KEY, "fs-ui");
 });
 
-await test("?ui=svelte ou la clé locale activent la nouvelle interface, ?ui=legacy la désactive", () => {
+await test("l'interface Svelte est activée par défaut et legacy reste accessible", () => {
   assert.equal(uiMode("?ui=svelte", null), "svelte");
   assert.equal(uiMode("", "svelte"), "svelte");
+  assert.equal(uiMode("", "legacy"), "legacy");
   assert.equal(uiMode("?ui=legacy", "svelte"), "legacy");
+  assert.equal(uiMode("?ui=svelte", "legacy"), "svelte");
   assert.equal(uiMode("?ui=inconnu", "svelte"), "svelte");
   assert.equal(uiMode("?x=1&ui=svelte", null), "svelte");
 });
 
 // --- sous-drapeau du chat ------------------------------------------------------
-await test("le chat reste dans l'iframe historique par défaut, même avec la nouvelle interface", () => {
-  assert.equal(chatMode("", null), "legacy");
-  assert.equal(chatMode("?ui=svelte", null), "legacy");
-  assert.equal(chatMode("", "n'importe quoi"), "legacy");
+await test("le chat Svelte 5 est activé par défaut", () => {
+  assert.equal(chatMode("", null), "svelte");
+  assert.equal(chatMode("?ui=svelte", null), "svelte");
+  assert.equal(chatMode("", "n'importe quoi"), "svelte");
   assert.equal(CHAT_FLAG_KEY, "fs-chat");
 });
 
-await test("?chat=svelte ou la clé locale activent le chat Svelte, ?chat=legacy le désactive", () => {
+await test("le chat Svelte est activé par défaut et legacy reste accessible", () => {
   assert.equal(chatMode("?ui=svelte&chat=svelte", null), "svelte");
   assert.equal(chatMode("", "svelte"), "svelte");
+  assert.equal(chatMode("", "legacy"), "legacy");
   assert.equal(chatMode("?chat=legacy", "svelte"), "legacy");
+  assert.equal(chatMode("?chat=svelte", "legacy"), "svelte");
   assert.equal(chatMode("?chat=inconnu", "svelte"), "svelte");
 });
 
