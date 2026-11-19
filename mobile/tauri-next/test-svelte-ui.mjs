@@ -5,7 +5,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { submitCookie, submitPassword } from "./src/lib/services/login-actions.ts";
-import { uiMode, UI_FLAG_KEY } from "./src/lib/utils/ui-flag.ts";
+import { uiMode, chatMode, UI_FLAG_KEY, CHAT_FLAG_KEY } from "./src/lib/utils/ui-flag.ts";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
@@ -34,6 +34,21 @@ await test("?ui=svelte ou la clé locale activent la nouvelle interface, ?ui=leg
   assert.equal(uiMode("?ui=legacy", "svelte"), "legacy");
   assert.equal(uiMode("?ui=inconnu", "svelte"), "svelte");
   assert.equal(uiMode("?x=1&ui=svelte", null), "svelte");
+});
+
+// --- sous-drapeau du chat ------------------------------------------------------
+await test("le chat reste dans l'iframe historique par défaut, même avec la nouvelle interface", () => {
+  assert.equal(chatMode("", null), "legacy");
+  assert.equal(chatMode("?ui=svelte", null), "legacy");
+  assert.equal(chatMode("", "n'importe quoi"), "legacy");
+  assert.equal(CHAT_FLAG_KEY, "fs-chat");
+});
+
+await test("?chat=svelte ou la clé locale activent le chat Svelte, ?chat=legacy le désactive", () => {
+  assert.equal(chatMode("?ui=svelte&chat=svelte", null), "svelte");
+  assert.equal(chatMode("", "svelte"), "svelte");
+  assert.equal(chatMode("?chat=legacy", "svelte"), "legacy");
+  assert.equal(chatMode("?chat=inconnu", "svelte"), "svelte");
 });
 
 // --- formulaires de connexion --------------------------------------------------

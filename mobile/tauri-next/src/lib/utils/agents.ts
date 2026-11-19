@@ -42,7 +42,7 @@ export function providerMark(agent: AgentLike | null, logos: Readonly<Record<str
 }
 
 /** Modèle d'une discussion : celui du catalogue s'il existe encore, sinon ce que la discussion en a gardé. */
-export function conversationAgent(conversation: Conversation, agents: readonly Agent[]): AgentLike | null {
+export function conversationAgent(conversation: Conversation, agents: ReadonlyArray<AgentLike & Pick<Agent, "id">>): AgentLike | null {
   const known = agents.find(agent => agent.id === conversation.agentId);
   if (known) return known;
   if (conversation.agentName || conversation.agentProvider) {

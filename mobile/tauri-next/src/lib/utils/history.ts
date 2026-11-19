@@ -40,15 +40,40 @@ export interface HistoryFilter {
   projectId: string | null;
   /** Texte saisi dans la recherche, brut. */
   query: string;
+  /**
+   * Règle de recherche à la place de `conversationMatches` (reçoit la recherche normalisée). Sert quand les discussions
+   * arrivent sans leurs messages : la recherche dans le contenu est alors faite par le moteur qui les détient.
+   */
+  matcher?: (conversation: Conversation, query: string) => boolean;
 }
 
 /** Discussions visibles pour un projet et une recherche, dans l'ordre d'affichage. N'altère pas la liste d'entrée. */
 export function visibleConversations(conversations: readonly Conversation[], filter: HistoryFilter): Conversation[] {
   const query = filter.query.trim().toLowerCase();
+  const matches = filter.matcher ?? conversationMatches;
   return conversations
     .filter(conversation => (conversation.projectId || null) === filter.projectId)
-    .filter(conversation => conversationMatches(conversation, query))
+    .filter(conversation => matches(conversation, query))
     .sort((a, b) => Number(b.pinned === true) - Number(a.pinned === true) || (b.updatedAt || 0) - (a.updatedAt || 0));
+}
+
+/** Mêmes discussions, dans le même ordre, avec les mêmes champs d'affichage : inutile de redessiner la liste. */
+export function sameConversations(a: readonly Conversation[], b: readonly Conversation[]): boolean {
+  if (a === b) return true;
+  if (a.length !== b.length) return false;
+  return a.every((left, index) => {
+    const right = b[index];
+    return (
+      left.id === right.id &&
+      left.title === right.title &&
+      left.updatedAt === right.updatedAt &&
+      (left.pinned === true) === (right.pinned === true) &&
+      (left.projectId || null) === (right.projectId || null) &&
+      left.agentId === right.agentId &&
+      left.agentName === right.agentName &&
+      left.agentProvider === right.agentProvider
+    );
+  });
 }
 
 export interface HistoryGroup {

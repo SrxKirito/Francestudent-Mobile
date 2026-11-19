@@ -45,6 +45,10 @@ index = index.replace(appScript, appScript + '\n  <script src="js/tauri-session.
 index = index.replace(appScript, appScript + '\n  <script src="js/tauri-resume-on-foreground.js"></script>');
 index = index.replace(appScript, appScript + '\n  <script src="js/tauri-api-key-settings.js"></script>');
 index = index.replace(appScript, appScript + '\n  <script src="js/tauri-data-import.js"></script>');
+// Pont inerte vers la coque Svelte (?ui=svelte) : il ne fait rien tant que la page parente ne l'a pas activé.
+index = index.replace(appScript, appScript + '\n  <script src="js/tauri-svelte-engine.js"></script>');
+// Pont du chat Svelte (?ui=svelte&chat=svelte) : inerte lui aussi tant que le parent ne l'a pas attaché.
+index = index.replace('<script src="js/tauri-svelte-engine.js"></script>', '<script src="js/tauri-svelte-engine.js"></script>\n  <script src="js/tauri-svelte-chat-engine.js"></script>');
 fs.writeFileSync(indexPath, index);
 fs.copyFileSync(path.join(__dirname, "legacy-bridge.js"), path.join(destination, "js/tauri-bridge.js"));
 fs.copyFileSync(path.join(__dirname, "files-store.js"), path.join(destination, "js/tauri-files-store.js"));
@@ -59,6 +63,8 @@ fs.copyFileSync(path.join(__dirname, "resume-on-foreground.js"), path.join(desti
 fs.copyFileSync(path.join(__dirname, "api-key-settings.js"), path.join(destination, "js/tauri-api-key-settings.js"));
 fs.copyFileSync(path.join(__dirname, "legacy-speech.js"), path.join(destination, "js/tauri-speech.js"));
 fs.copyFileSync(path.join(__dirname, "legacy-data-import.js"), path.join(destination, "js/tauri-data-import.js"));
+fs.copyFileSync(path.join(__dirname, "svelte-engine.js"), path.join(destination, "js/tauri-svelte-engine.js"));
+fs.copyFileSync(path.join(__dirname, "svelte-chat-engine.js"), path.join(destination, "js/tauri-svelte-chat-engine.js"));
 fs.copyFileSync(path.join(__dirname, "legacy-save.js"), path.join(destination, "js/tauri-save.js"));
 fs.copyFileSync(path.join(__dirname, "project-shares.js"), path.join(destination, "js/tauri-project-shares.js"));
 fs.copyFileSync(path.join(__dirname, "project-shares.css"), path.join(destination, "tauri-project-shares.css"));
@@ -119,6 +125,27 @@ const imageUpload = 'postAttachment("/files/upload", { data: src, mime: info[1],
 if (!stream.includes(imageUpload) || !stream.includes('images.push(remoteId);')) throw new Error("Réutilisation d'image générée introuvable");
 stream = stream.replace(imageUpload, 'postAttachment("/filesv2", { data: src, mime: info[1], name: "image-precedente." + ext })');
 stream = stream.replace('images.push(remoteId);', 'files.push(remoteId);');
+// Chat Svelte (?ui=svelte&chat=svelte) : la lecture du flux SSE peut être déléguée à la page parente. Le crochet n'est
+// défini QUE si le pont du chat reçoit un `readStream` ; sinon (mode par défaut) la lecture historique s'exécute inchangée.
+const streamCheckPattern = /^  if \(!response\.ok\) \{\r?\n    const detail = await response\.text\(\)\.catch\(\(\) => ""\);/gm;
+const streamCheckMatches = stream.match(streamCheckPattern) || [];
+if (streamCheckMatches.length !== 1) throw new Error("Contrôle de la réponse du flux (stream.js) introuvable ou ambigu (" + streamCheckMatches.length + ")");
+const streamEol = stream.includes("\r\n") ? "\r\n" : "\n";
+const streamHook = [
+  '  if (typeof window.__fsStreamReader === "function") {',
+  '    const fsLog = [];',
+  '    try { window.__lastStreamLog = fsLog; } catch {}',
+  '    return await window.__fsStreamReader({',
+  '      response, conversation, resume, imageMode: store.imageMode === true, onDelta,',
+  '      onEvent: typeof onEvent === "function" ? (event => onEvent(event.name, event.data)) : undefined,',
+  '      shouldStop: () => stopRequested === true,',
+  '      fetchChatDetail: id => apiFetch("/chats/" + encodeURIComponent(id)),',
+  '      resolveImage: resolveGeneratedImage, save: saveStore, log: fsLog',
+  '    });',
+  '  }',
+  ''
+].join(streamEol);
+stream = stream.replace(streamCheckPattern, match => streamHook + match);
 fs.writeFileSync(streamPath, stream);
 const libraryPath = path.join(destination, "js/library.js");
 let library = fs.readFileSync(libraryPath, "utf8");
