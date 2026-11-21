@@ -1,3 +1,4 @@
+import type { ImageSearch } from "./image-search.ts";
 import type { Conversation } from "../types/conversation.ts";
 import type { ChatRole, ChatSource } from "../types/chat.ts";
 import type { GeneratedImage } from "../types/chat-stream.ts";
@@ -17,6 +18,7 @@ export interface NativeMessage {
   error?: boolean;
   sources?: ChatSource[];
   images?: GeneratedImage[];
+  imageSearch?: ImageSearch;
   attachments?: NativeAttachment[];
 }
 
@@ -24,6 +26,7 @@ export interface NativeConversation extends Omit<Conversation, "messages" | "pen
   messages: NativeMessage[];
   pendingResponse?: NativePending;
   serverLocked?: boolean;
+  localImageSearch?: boolean;
   serverArchived?: boolean;
   owner?: string;
   importedFrom?: { source?: string; sourceConversationId?: string; shareId?: string };

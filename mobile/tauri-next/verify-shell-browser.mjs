@@ -64,6 +64,38 @@ const FAKE_BACKEND = String.raw`(() => {
       { id: "s-web", since: ago(240), os: "Windows 11", location: "Lyon, France", lastActiveAt: ago(30) }
     ]
   };
+  backend.speech = { started: [], cancelled: 0 };
+  window.SpeechSynthesisUtterance = function (text) { this.text = text; };
+  Object.defineProperty(window, "speechSynthesis", { value: {
+    speak: item => backend.speech.started.push({ text: item.text, lang: item.lang }),
+    cancel: () => { backend.speech.cancelled++; }
+  } });
+  const originalFetch = window.fetch.bind(window);
+  window.fetch = async (input, options) => {
+    const url = new URL(input instanceof Request ? input.url : input, location.href);
+    if (url.href.startsWith("https://commons.wikimedia.org/w/api.php?")) {
+      backend.calls.push({ method: "GET", path: url.href });
+      const offset = Number(url.searchParams.get("gsroffset"));
+      const titles = offset ? ["Troisième photo"] : ["Fuji à l’aube", "Fuji sous la neige"];
+      return Response.json({
+        query: { pages: titles.map((title, i) => ({
+          pageid: offset + i + 1, title: "File:" + title + ".png",
+          imageinfo: [{
+            mime: "image/png",
+            thumburl: "https://thumb.wikimedia.org/wikipedia/commons/test.png",
+            url: "https://upload.wikimedia.org/wikipedia/commons/test.png",
+            descriptionurl: "https://commons.wikimedia.org/wiki/File:" + encodeURIComponent(title) + ".png",
+            extmetadata: { Artist: { value: "<span>Photographe de test</span>" }, LicenseShortName: { value: "CC0" } }
+          }]
+        })) },
+        ...(offset ? {} : { continue: { gsroffset: 8 } })
+      });
+    }
+    if (url.href === "https://upload.wikimedia.org/wikipedia/commons/test.png") {
+      return new Response(Uint8Array.from(atob("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl2nN8AAAAASUVORK5CYII="), char => char.charCodeAt(0)), { headers: { "content-type": "image/png" } });
+    }
+    return originalFetch(input, options);
+  };
   function route(method, path, body) {
     const url = new URL(path, "http://x");
     const p = url.pathname;
@@ -850,6 +882,95 @@ async function nativePhase(baseUrl, pageErrors) {
     await click("Confirmer", q(".fs-confirm-ok"));
     await waitFor("(" + memory + ')?.textContent.includes("Aucune mémoire enregistrée.")', "mémoire supprimée");
     await click("Fermer les paramètres", q("#settings-close"));
+  });
+  await check("lire une réponse et arrêter en changeant de discussion", async () => {
+    await click("Ouvrir Maths", historyItem("Maths"));
+    const read = '#thread .assistant button[aria-label="Lire à voix haute"]';
+    await waitFor(has(read), "lecture vocale disponible");
+    await click("Lire à voix haute", q(read));
+    await waitFor(has('#thread button[aria-label="Arrêter la lecture"][aria-pressed=true]'), "lecture active");
+    assert.equal(await ev("window.__backend.speech.started.at(-1).text"), "Contenu à retrouver");
+    await click("Changer de discussion", historyItem("Histoire"));
+    await waitFor("window.__backend.speech.cancelled === 1", "lecture interrompue");
+  });
+  await check("ouvrir et enregistrer des exports Word et Excel", async () => {
+    const fence = String.fromCharCode(96).repeat(3);
+    const content = fence + "docx\n# rapport.docx\n# Résumé\nDocument créé pour le test.\n" + fence +
+      "\n\n" + fence + 'xlsx\n# tableau.xlsx\n[["Nom","Total"],["Test",42]]\n' + fence;
+    await ev(`window.__backend.chats.find(c => c.title === "Physique").chatMessages = [
+      { id: "office-exports", role: "assistant", content: ${JSON.stringify(content)} }
+    ]`);
+    await click("Ouvrir Physique", historyItem("Physique"));
+    for (const [name, preview] of [["rapport.docx", "Document créé pour le test."], ["tableau.xlsx", "42"]]) {
+      const card = `[...document.querySelectorAll("#thread button.artifact")].find(button => button.textContent.trim() === ${JSON.stringify(name)})`;
+      await waitFor("!!(" + card + ")", "carte " + name);
+      await click("Ouvrir " + name, card);
+      await waitFor(contains("dialog.preview-dialog .preview-content pre", preview), "aperçu de " + name);
+      await ev("window.__backend.exported = []");
+      await click("Enregistrer " + name, q("dialog.preview-dialog footer button.primary"));
+      await waitFor("window.__backend.exported.length > 100", "fichier enregistré");
+      assert.deepEqual(await ev("window.__backend.exported.slice(0, 4)"), [80, 75, 3, 4]);
+      await escape();
+      await waitFor("!" + has("dialog.preview-dialog[open]"), "aperçu fermé");
+    }
+  });
+  await check("Wikimedia Commons : recherche, pagination, aperçu, téléchargement et historique", async () => {
+    await input("#prompt", "Trouve-moi des images du mont Fuji");
+    const posts = (await streamPosts()).length;
+    await click("Rechercher des images", q("#send"));
+    const gallery = ".image-search-gallery";
+    await waitFor(contains(gallery, "Fuji à l’aube"), "résultats Commons");
+    assert.equal((await streamPosts()).length, posts);
+    assert.equal(await ev(q(gallery + " a") + '.hostname'), "commons.wikimedia.org");
+    await click("Charger plus d’images", q(gallery + " > button"));
+    await waitFor(contains(gallery, "Troisième photo"), "page suivante");
+    await click("Afficher la première image", q(gallery + " .tile"));
+    await waitFor(has("dialog.commons-preview[open]"), "aperçu Commons");
+    const nav = word => `[...document.querySelectorAll("dialog.commons-preview button")].find(b => b.textContent.trim() === ${JSON.stringify(word)})`;
+    const galleryClick = async (label, selector) => {
+      await ev("(" + selector + ')?.scrollIntoView({ block: "center" })');
+      await click(label, selector);
+    };
+    await galleryClick("Suivante", nav("Suivante"));
+    assert.equal(await ev(contains("dialog.commons-preview h3", "Fuji sous la neige")), true);
+    await galleryClick("Agrandir", nav("Agrandir"));
+    assert.equal(await ev(has("dialog.commons-preview .visual.zoom")), true);
+    await galleryClick("Télécharger l’image", nav("Télécharger"));
+    await waitFor(contains("dialog.commons-preview [role=status]", "Image téléchargée."), "écriture de l’original");
+    await galleryClick("Enregistrer l’image", nav("Enregistrer dans la bibliothèque"));
+    await waitFor(contains("dialog.commons-preview [role=status]", "Image enregistrée"), "copie en bibliothèque");
+    await escape();
+    await click("Bibliothèque", q("#library-open"));
+    await waitFor(contains("#svelte-library", "Fuji sous la neige"), "image conservée dans la bibliothèque");
+    assert.equal(await ev(contains("#svelte-library", "Photographe de test · CC0")), true);
+    await escape();
+    await click("Autre discussion", historyItem("Maths"));
+    await waitFor("!" + has(gallery), "galerie fermée");
+    await click("Historique des images", historyItem("Images · mont Fuji"));
+    await waitFor(contains(gallery, "Troisième photo"), "pages restaurées depuis l’historique");
+    const searchCalls = 'window.__backend.calls.filter(row => row.path.startsWith("https://commons.wikimedia.org/w/api.php")).length';
+    assert.equal(await ev(searchCalls), 2);
+    await cdp.send("Page.reload");
+    await waitFor('!!(' + historyItem("Images · mont Fuji") + ') && !document.querySelector(".chat-pane")?.classList.contains("chat-pane-hidden")', "historique restauré après rechargement", { timeout: 30000 });
+    await click("Historique restauré", historyItem("Images · mont Fuji"));
+    await waitFor(contains(gallery, "Troisième photo"), "galerie retrouvée après rechargement");
+    assert.equal(await ev(searchCalls), 0);
+  });
+  await check("animations Svelte : menus et modales, mouvement réduit respecté", async () => {
+    await cdp.send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: "no-preference" }] });
+    await click("Outils du compositeur", q("#attach"));
+    await waitFor(has("#attach-menu:not(.hidden)"), "menu outils ouvert");
+    assert.equal(await ev("getComputedStyle(" + q("#attach-menu") + ").animationName"), "fs-rise");
+    await escape();
+    await click("Importer", q("#conversation-import-open"));
+    await waitFor(has("dialog.import-dialog[open]"), "modale animée ouverte");
+    assert.equal(await ev("getComputedStyle(" + q("dialog.import-dialog") + ").animationName"), "fs-rise");
+    await cdp.send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: "reduce" }] });
+    assert.equal(await ev("getComputedStyle(" + q("dialog.import-dialog") + ").animationName"), "none");
+    assert.equal(await ev("getComputedStyle(" + q("#send") + ").transitionDuration"), "0s");
+    await escape();
+    await waitFor("!" + has("dialog.import-dialog[open]"), "fermeture en mouvement réduit");
+    await cdp.send("Emulation.setEmulatedMedia", { features: [] });
   });
   await check("petite hauteur : compositeur et dialogue dans la fenêtre", async () => {
     await cdp.send("Emulation.setDeviceMetricsOverride", { width: 390, height: 370, deviceScaleFactor: 1, mobile: false });

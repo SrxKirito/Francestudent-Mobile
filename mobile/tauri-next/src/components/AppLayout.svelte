@@ -300,7 +300,7 @@
 <svelte:window onresize={() => store.resize(window.innerWidth)} />
 <svelte:document onclick={() => store.closeMenus()} />
 
-<div class="app" class:sidebar-collapsed={store.collapsed} class:booting={!store.ready}>
+<div class="app" class:fs-native={!legacyChat} class:sidebar-collapsed={store.collapsed} class:booting={!store.ready}>
   {#if !store.unavailable}
     <Sidebar
       open={store.drawerOpen}

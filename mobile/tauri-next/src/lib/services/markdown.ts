@@ -83,10 +83,10 @@ function fileCardHtml(name: string, index: number): string {
   return '<button type="button" class="file-card" data-file-index="' + index + '" data-name="' + safe + '" title="Aperçu de ' + safe + '"><span class="file-card-icon">' + fileIconSvg(name) + '</span><span class="file-card-name">' + safe + '</span><span class="file-card-dl" title="Télécharger">' + DL_SVG + "</span></button>";
 }
 
-const CODE_EXT: Record<string, string> = { python: "py", py: "py", javascript: "js", js: "js", typescript: "ts", ts: "ts", html: "html", css: "css", json: "json", csv: "csv", markdown: "md", md: "md", java: "java", c: "c", cpp: "cpp", "c++": "cpp", csharp: "cs", cs: "cs", bash: "sh", sh: "sh", shell: "sh", powershell: "ps1", sql: "sql", xml: "xml", yaml: "yml", yml: "yml", php: "php", ruby: "rb", go: "go", rust: "rs", kotlin: "kt", swift: "swift", latex: "tex", tex: "tex", txt: "txt", text: "txt", pdf: "pdf", svg: "svg", pptx: "pptx", powerpoint: "pptx" };
+const CODE_EXT: Record<string, string> = { python: "py", py: "py", javascript: "js", js: "js", typescript: "ts", ts: "ts", html: "html", css: "css", json: "json", csv: "csv", markdown: "md", md: "md", java: "java", c: "c", cpp: "cpp", "c++": "cpp", csharp: "cs", cs: "cs", bash: "sh", sh: "sh", shell: "sh", powershell: "ps1", sql: "sql", xml: "xml", yaml: "yml", yml: "yml", php: "php", ruby: "rb", go: "go", rust: "rs", kotlin: "kt", swift: "swift", latex: "tex", tex: "tex", txt: "txt", text: "txt", pdf: "pdf", docx: "docx", xlsx: "xlsx", svg: "svg", pptx: "pptx", powerpoint: "pptx" };
 
 /** Types MIME des fichiers générés (utile au téléchargement, étape suivante). */
-export const FILE_MIME: Record<string, string> = { py: "text/x-python", js: "text/javascript", html: "text/html", css: "text/css", json: "application/json", csv: "text/csv", md: "text/markdown", pdf: "application/pdf", pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation", svg: "image/svg+xml", xml: "application/xml", txt: "text/plain" };
+export const FILE_MIME: Record<string, string> = { py: "text/x-python", js: "text/javascript", html: "text/html", css: "text/css", json: "application/json", csv: "text/csv", md: "text/markdown", pdf: "application/pdf", docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document", xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation", svg: "image/svg+xml", xml: "application/xml", txt: "text/plain" };
 
 // Les extensions sont lues par `Object.prototype.hasOwnProperty` pour ne jamais résoudre « constructor » ou « __proto__ ».
 function extensionFor(lang: unknown): string | undefined {
@@ -100,6 +100,7 @@ export function fileNameFromCode(code: string, lang?: string | null, powerPointF
   if (!ext) return "";
   const first = String(code || "").split("\n")[0].trim();
   const m = /^(#|[/][/]|<!--|[/][*]|--|%)/.test(first) ? first.match(/[A-Za-z0-9_-]+[.][A-Za-z0-9]{1,5}/) : null;
+  if (ext === "docx" || ext === "xlsx") return m?.[0].toLowerCase().endsWith("." + ext) ? m[0] : "document." + ext;
   if (m) return m[0];
   return ext === "pdf" ? "document.pdf" : "";
 }
@@ -130,7 +131,7 @@ function renderCodeBlock(code: string, lang: string, open: boolean, downloads: D
   const fname = fileNameFromCode(code, lang, context.powerPointFileName) || guessFileName(code, lang);
   const index = downloads.length;
   downloads.push({ name: fname, index });
-  const fileOnly = /\.(pdf|pptx)$/i.test(fname);
+  const fileOnly = /\.(pdf|pptx|docx|xlsx)$/i.test(fname);
   return '<div class="file-wrap' + (fileOnly ? " file-only" : "") + '" data-file-index="' + index + '">' + renderCodeBlockInner(code, lang) + "</div>";
 }
 

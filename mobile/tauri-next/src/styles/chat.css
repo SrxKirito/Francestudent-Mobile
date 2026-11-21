@@ -1,3 +1,5 @@
+@import "./motion.css";
+
 /* Mise en page du chat Svelte et styles complémentaires. */
 main.main:has(> .chat-pane) { position: relative; }
 .chat-pane { position: absolute; inset: 0; z-index: 5; }

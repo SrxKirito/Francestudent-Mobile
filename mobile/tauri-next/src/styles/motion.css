@@ -1,0 +1,124 @@
+/* Animations Svelte au-dessus des styles partagés avec le secours historique. */
+:root {
+  --fs-motion-fast: 130ms;
+  --fs-motion-enter: 200ms;
+  --fs-motion-drawer: 260ms;
+  --fs-motion-ease: cubic-bezier(.2, .7, .25, 1);
+}
+
+@keyframes fs-appear {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes fs-rise {
+  from { opacity: 0; translate: 0 6px; }
+  to { opacity: 1; translate: 0 0; }
+}
+
+@keyframes fs-control-in {
+  from { opacity: .65; scale: .88; }
+  to { opacity: 1; scale: 1; }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  #login-screen .login-card,
+  .fs-native #empty-state:not(.hidden),
+  .fs-native #thread > .message:nth-last-child(-n+3) {
+    animation: fs-rise var(--fs-motion-enter) var(--fs-motion-ease);
+  }
+
+  /* En changeant de discussion, animer le bas du fil sans promouvoir toute la liste en couches. */
+  .fs-native #thread > .message-enter:nth-last-child(n+4) {
+    animation: none;
+  }
+
+  #startup-screen .startup-logo,
+  #login-error:not(.hidden),
+  .fs-native .generated-image:not(.loading, .image-gen-placeholder),
+  .fs-native .image-search-gallery .results li {
+    animation: fs-appear var(--fs-motion-enter) var(--fs-motion-ease);
+  }
+
+  .fs-native dialog[open],
+  .fs-native #settings-modal .settings-dialog {
+    animation: fs-rise var(--fs-motion-enter) var(--fs-motion-ease);
+  }
+
+  .fs-native dialog[open]::backdrop,
+  .fs-native #settings-modal .settings-backdrop,
+  .fs-native #app-toast.show {
+    animation: fs-appear var(--fs-motion-fast) var(--fs-motion-ease);
+  }
+
+  .fs-native .popover:not(.hidden),
+  .fs-native .native-skill-menu,
+  .fs-native .library-actions[open] .library-card-menu,
+  .fs-native .settings-panel:not([hidden]) {
+    animation: fs-rise var(--fs-motion-fast) var(--fs-motion-ease);
+  }
+
+  .fs-native .attachment-chip,
+  .fs-native .native-skill-active,
+  .fs-native .tool-progress li,
+  .fs-native .source-extra,
+  .fs-native .assistant-artifacts .artifact {
+    animation: fs-appear var(--fs-motion-fast) var(--fs-motion-ease);
+  }
+
+  .fs-native .composer-box {
+    transition: border-color var(--fs-motion-fast) ease, box-shadow var(--fs-motion-fast) ease;
+  }
+
+  .fs-native #send:not(:disabled) > svg,
+  .fs-native #attach[aria-expanded="true"] > svg {
+    animation: fs-control-in var(--fs-motion-enter) var(--fs-motion-ease);
+  }
+
+  .fs-native :is(.side-nav-item, .history-item, .library-open, .tile, .project-open, .icon-button, .tool-button, .settings-btn),
+  #login-screen button {
+    transition: background-color var(--fs-motion-fast) ease, border-color var(--fs-motion-fast) ease,
+      color var(--fs-motion-fast) ease, scale var(--fs-motion-fast) var(--fs-motion-ease);
+  }
+
+  .fs-native :is(.library-open, .tile, .icon-button, .tool-button, .settings-btn):not(:disabled):active,
+  #login-screen button:not(:disabled):active {
+    scale: .97;
+  }
+}
+
+@media (max-width: 768px) and (prefers-reduced-motion: no-preference) {
+  .fs-native > .sidebar {
+    transition: transform var(--fs-motion-drawer) var(--fs-motion-ease);
+  }
+
+  /* Le voile devient immédiatement non interactif à la fermeture, puis s’efface. */
+  .fs-native > #overlay {
+    opacity: 1;
+    visibility: visible;
+    transition: opacity var(--fs-motion-drawer) var(--fs-motion-ease),
+      visibility 0s linear;
+  }
+
+  .fs-native > #overlay.hidden {
+    display: block !important;
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transition-delay: 0s, var(--fs-motion-drawer);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fs-native *, .fs-native *::before, .fs-native *::after,
+  #login-screen *, #startup-screen * {
+    animation: none !important;
+    transition: none !important;
+    scroll-behavior: auto !important;
+  }
+
+  /* Les états de chargement restent signalés, même quand les indicateurs sont immobiles. */
+  .fs-native .typing-indicator span {
+    opacity: .8;
+  }
+}

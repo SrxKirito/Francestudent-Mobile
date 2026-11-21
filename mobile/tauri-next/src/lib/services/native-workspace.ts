@@ -151,8 +151,8 @@ function libraryRecords(owner: string, conversations: readonly NativeConversatio
   return entries;
 }
 
-function publicEntry({ id, name, kind, direction, created, projectId, conversationId }: LibraryEntry): LibraryRecord {
-  return { id, name, kind, direction, created, projectId, conversationId };
+function publicEntry({ id, name, kind, direction, created, projectId, conversationId, attribution }: LibraryEntry): LibraryRecord {
+  return { id, name, kind, direction, created, projectId, conversationId, attribution };
 }
 
 export function createNativeWorkspaceEngine(options: NativeWorkspaceOptions): NativeWorkspaceEngine {

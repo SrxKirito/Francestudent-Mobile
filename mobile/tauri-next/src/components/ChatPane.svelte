@@ -1,12 +1,13 @@
 <!-- Chat Svelte : barre du haut, messages, saisie. Posé par-dessus l'iframe historique, qui reste le moteur (voir ChatStore). -->
 <script lang="ts">
-  import { tick } from "svelte";
+  import { onMount, tick } from "svelte";
   import ChatComposer from "./ChatComposer.svelte";
   import ChatMessage from "./ChatMessage.svelte";
   import ChatSources from "./ChatSources.svelte";
   import logo from "../../../www/image.png";
   import { liveStatus, liveVisible } from "../lib/services/chat-view.ts";
   import type { PreviewFile } from "../lib/services/file-preview.ts";
+  import { createReadAloud } from "../lib/services/read-aloud.ts";
   import { studyLoading } from "../lib/services/study-content.ts";
   import { renderMarkdown } from "../lib/services/markdown.ts";
   import type { ChatStore } from "../lib/stores/chat.svelte.ts";
@@ -28,6 +29,17 @@
   let modelOpen = $state(false);
   let showScroll = $state(false);
   let stick = true;
+  let reader = $state.raw<ReturnType<typeof createReadAloud> | null>(null);
+  let speaking = $state<number | null>(null);
+  onMount(() => {
+    if (!window.speechSynthesis || !window.SpeechSynthesisUtterance) return;
+    const control = createReadAloud(window.speechSynthesis, text => new SpeechSynthesisUtterance(text),
+      index => { speaking = index; }, () => chat.toast("Lecture vocale indisponible.", true), document.documentElement.lang || "fr-FR");
+    reader = control;
+    const hidden = () => { if (document.hidden) control.stop(); };
+    document.addEventListener("visibilitychange", hidden);
+    return () => { document.removeEventListener("visibilitychange", hidden); control.stop(); };
+  });
 
   const snap = $derived(chat.state);
   const live = $derived(chat.live);
@@ -71,7 +83,8 @@
   function toBottom(smooth = false) {
     stick = true;
     showScroll = false;
-    messagesEl?.scrollTo({ top: messagesEl.scrollHeight, behavior: smooth ? "smooth" : "auto" });
+    const animate = smooth && !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    messagesEl?.scrollTo({ top: messagesEl.scrollHeight, behavior: animate ? "smooth" : "auto" });
   }
 
   // Une nouvelle conversation ou un message envoyé ramène en bas ; pendant le flux on suit tant que l'élève n'a pas remonté.
@@ -80,6 +93,7 @@
     const id = snap.id;
     if (id !== lastConversation) {
       lastConversation = id;
+      reader?.stop();
       stick = true;
     }
   });
@@ -161,7 +175,9 @@
       </div>
       <div id="thread" class="thread" aria-live="polite">
         {#each snap.messages as message (String(snap.id) + ":" + message.index)}
-          <ChatMessage {message} {chat} {openPreview} {saveMessage} />
+          <ChatMessage {message} {chat} {openPreview} {saveMessage}
+            onread={reader ? () => reader?.play(message.index, message.content) : undefined}
+            {speaking} />
         {/each}
         {#if showLive}
           <div class="message assistant message-enter">

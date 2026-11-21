@@ -1,6 +1,8 @@
 // Types du chat Svelte : instantané renvoyé par le pont de l'ancienne interface (svelte-chat-engine.js).
 // Aucun import à l'exécution : ce fichier est effacé à la compilation.
 
+import type { ImageSearch } from "../services/image-search.ts";
+
 export type ChatRole = "user" | "assistant" | "error";
 export type AttachmentKind = "image" | "file" | "text";
 export type StudyMode = "" | "fiches" | "quiz" | "cartes";
@@ -35,6 +37,7 @@ export interface ChatMessage {
   feedback?: "up" | "down";
   sources?: ChatSource[];
   images?: ChatImage[];
+  imageSearch?: ImageSearch;
   attachments?: MessageAttachment[];
 }
 

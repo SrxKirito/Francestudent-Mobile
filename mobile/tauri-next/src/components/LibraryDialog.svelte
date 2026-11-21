@@ -31,13 +31,13 @@
   const lifetime = new AbortController();
 
   const remote = $derived((source === "all" || source === "remote") && project === "*" ? engine.arrange(files, { query, kind, sort }).map(file => ({
-    key: "remote:" + file.id, id: file.id, name: file.filename || "Fichier enregistré", note: formatBytes(file.bytes),
+    key: "remote:" + file.id, id: file.id, name: file.filename || "Fichier enregistré", note: formatBytes(file.bytes), attribution: undefined,
     local: false, date: file.created_at ?? 0, bytes: file.bytes, projectId: ""
   })) : []);
   const local = $derived(localFiles.filter(file => source !== "remote" && (source === "all" || source === file.direction) &&
     (project === "*" || (file.projectId || "") === project) && (kind === "*" || (file.kind || engine.fileKind(file.name)) === kind) &&
     file.name.toLocaleLowerCase("fr").includes(query.trim().toLocaleLowerCase("fr"))).map(file => ({
-    key: "local:" + file.id, id: file.id, name: file.name, note: file.direction === "sent" ? "Envoyé" : "Généré",
+    key: "local:" + file.id, id: file.id, name: file.name, note: file.direction === "sent" ? "Envoyé" : file.direction === "found" ? "Wikimedia Commons" : "Généré", attribution: file.attribution,
     local: true, date: file.created, bytes: undefined, projectId: file.projectId
   })));
   const cards = $derived([...remote, ...local].sort((a, b) => {
@@ -133,7 +133,7 @@
   {/each}
   <div class="library-filters">
     <input type="search" placeholder="Rechercher un fichier" aria-label="Rechercher un fichier" bind:value={query}>
-    <select aria-label="Origine" bind:value={source}><option value="all">Toutes les sources</option><option value="remote">Fichiers FRST</option><option value="generated">Fichiers générés</option><option value="sent">Fichiers envoyés</option></select>
+    <select aria-label="Origine" bind:value={source}><option value="all">Toutes les sources</option><option value="remote">Fichiers FRST</option><option value="generated">Fichiers générés</option><option value="sent">Fichiers envoyés</option><option value="found">Images trouvées</option></select>
     <select aria-label="Type de fichier" bind:value={kind}>{#each FILE_KINDS as [value, label]}<option {value}>{label}</option>{/each}</select>
     <select aria-label="Projet" bind:value={project}><option value="*">Tous les projets</option><option value="">Sans projet</option>{#each projects as item (item.id)}<option value={item.id}>{item.name}</option>{/each}</select>
     <select aria-label="Trier les fichiers" bind:value={sort}>{#each FILE_SORTS as [value, label]}<option {value}>{label}</option>{/each}</select>
@@ -151,6 +151,9 @@
           <strong>{file.name}</strong>
         </button>
         <small>{file.note}</small>
+        {#if file.attribution && file.attribution.url.startsWith("https://commons.wikimedia.org/wiki/File:")}
+          <small>{file.attribution.artist} · {file.attribution.license} · <a href={file.attribution.url} target="_blank" rel="noopener noreferrer">Source</a></small>
+        {/if}
         <details class="library-actions">
           <summary aria-label={"Actions pour " + file.name}>•••</summary>
           <div class="library-card-menu">

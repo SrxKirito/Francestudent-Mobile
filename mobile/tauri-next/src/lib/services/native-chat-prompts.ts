@@ -17,6 +17,9 @@ const STUDY: Record<Exclude<StudyMode, "">, string> = {
     '{"title":"Titre","cards":[{"q":"Question ?","a":"Réponse"}]}. ' + STUDY_RULE
 };
 
+const WORD_RULE = "Pour générer un document Word, donne le texte final dans un seul bloc de code docx. Écris sur la première ligne # document.docx, puis le contenu. Utilise # devant les titres.";
+const EXCEL_RULE = 'Pour générer un classeur Excel, écris un seul bloc de code xlsx. La première ligne peut être # tableau.xlsx. Ensuite, écris uniquement un tableau JSON de lignes, par exemple [["Nom","Valeur"],["A",12]]. Les valeurs sont texte, nombres, booléens ou null.';
+
 const CHART_PATTERN = /\b(?:graphique|histogramme|camembert|nuage de points|courbe interactive)s?\b/i;
 const CHART_RULE = "Si des données fiables sont disponibles et que la demande porte sur un graphique, ajoute un bloc de code frst-ui avec uniquement du JSON : " +
   '{"version":1,"kind":"chart","title":"Titre","chart":"line","series":[{"name":"Série","points":[{"label":"Janvier","y":12}]}]}. ' +
@@ -33,6 +36,8 @@ export function chatPrompt(text: string, options: {
     ? "cartes" : /\bquiz\b/i.test(text) ? "quiz" : /\bfiches? de r[ée]vision\b/i.test(text) ? "fiches" : "");
   const powerpoint = options.powerpointMode || /\b(power[ -]?point|pptx)\b/i.test(text) ||
     (isPowerPointPrompt(options.previousPrompt) && /\b(modifi|corrig|ajout|am[ée]lior|diapos|slides?)/i.test(text));
-  const format = powerpoint ? POWERPOINT : mode ? STUDY[mode] : CHART_PATTERN.test(text) ? CHART_RULE : "";
+  const office = /\b(xlsx|classeur excel|tableau excel|fichier excel)\b/i.test(text) ? EXCEL_RULE :
+    /\b(docx|document word|fichier word)\b/i.test(text) ? WORD_RULE : "";
+  const format = options.powerpointMode ? POWERPOINT : office || (powerpoint ? POWERPOINT : mode ? STUDY[mode] : CHART_PATTERN.test(text) ? CHART_RULE : "");
   return (format ? format + "\n\n" : "") + (options.skillPrefix || "") + text;
 }

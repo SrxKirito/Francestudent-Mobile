@@ -4,6 +4,7 @@ import type {
   AttachmentKind, ChatImage, ChatMessage, ChatOptionName, ChatRole, ChatSource, ChatState, ComposerAttachment,
   ComposerState, ConversationAgent, MessageAttachment, PreviewTarget, StudyMode
 } from "../types/chat.ts";
+import type { CommonsImage, ImageSearch } from "./image-search.ts";
 import type { GeneratedImage, ProcessChatStreamOptions } from "../types/chat-stream.ts";
 import type { ImportApi, ImportExisting, ImportModel, ImportModels, ImportOutcome, ImportRequest } from "./conversation-import.ts";
 import type { LockedConversation } from "./locked-chats.ts";
@@ -36,6 +37,8 @@ export interface ChatEngine {
   resolveImage(image: GeneratedImage): Promise<string | null>;
   attachmentPreview(id: string): string;
   downloadImage(src: string): Promise<void>;
+  storeImageSearch?(id: string, index: number, search: ImageSearch): void;
+  saveImageResult?(id: string, index: number, image: CommonsImage, action: "download" | "library"): Promise<void>;
   preview(target: PreviewTarget): void;
   /** Import d'une conversation ChatGPT partagée : le réseau et l'enregistrement restent dans le moteur historique. */
   importApi: ImportApi;

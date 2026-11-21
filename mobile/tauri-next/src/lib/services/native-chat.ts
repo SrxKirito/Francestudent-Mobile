@@ -10,6 +10,8 @@ import type { ChatEngine, ChatHost } from "./chat-engine.ts";
 import { collectGeneratedImages, collectSourceUrls, friendlyError, generatedImageKey, processChatStream, resumeStreamPath } from "./chat-stream.ts";
 import type { ShareRequest, ShareResult } from "./chat-shares.ts";
 import type { ImportOutcome, ImportRequest } from "./conversation-import.ts";
+import { canSaveCommonsImage, imageSearchQuery, normalizeCommonsImage } from "./image-search.ts";
+import { safeFileName } from "./file-preview.ts";
 import { saveBytes } from "./file-saver.ts";
 import type { PreviewFile } from "./file-preview.ts";
 import { CUSTOM_INSTRUCTIONS_MAX, FILE_INSTRUCTIONS, FILE_INSTRUCTIONS_TAG } from "./general-settings.ts";
@@ -190,7 +192,7 @@ export function createNativeChatEngine(options: NativeChatOptions): NativeChatEn
     const images = transientImages.get(message) ?? message.images;
     return {
       index, role: message.role, content: message.content, feedback: message.feedback,
-      serverMessageId: message.serverMessageId, sources: message.sources,
+      serverMessageId: message.serverMessageId, sources: message.sources, imageSearch: message.imageSearch,
       attachments: message.attachments?.map(file => ({ name: file.name, kind: file.kind, mime: file.mime ?? "" })),
       images: images?.map((image, position) => ({
         index: position, id: image.id, messageId: image.messageId ?? undefined, chatId: image.chatId ?? undefined,
@@ -588,11 +590,35 @@ export function createNativeChatEngine(options: NativeChatOptions): NativeChatEn
     void run(conversation, pending, sent, false);
   }
 
+  function openImageSearch(input: string, query: string): boolean {
+    if (local.read().webSearchMode !== "open") {
+      toast("La recherche Wikimedia Commons nécessite le mode de recherche web Ouvert.", true);
+      return false;
+    }
+    const conversation: NativeConversation = {
+      id: crypto.randomUUID(), projectId: repository.projectId(), updatedAt: Date.now(),
+      title: ("Images · " + query).slice(0, 100), localImageSearch: true,
+      messages: [{ role: "user", content: input }, { role: "assistant", content: "", imageSearch: { query } }]
+    };
+    try {
+      repository.add(conversation);
+      repository.select(conversation.id);
+      repository.commit();
+      return true;
+    } catch (error) {
+      toast(error instanceof Error ? error.message : "Impossible d’ouvrir la recherche d’images.", true);
+      return false;
+    }
+  }
+
   function send(text: string, skillPrefix?: string): boolean {
     const displayed = text.trim();
     if (!host || active || pendingCancellation || !attachments.ready() || (!displayed && !carried.length && !attachments.snapshot().length)) return false;
-    const existing = repository.current();
-    if ((existing && !canUse(existing)) || existing?.pendingResponse) return false;
+    const current = repository.current();
+    if ((current && !canUse(current)) || current?.pendingResponse) return false;
+    const query = !skillPrefix && !imageMode && !carried.length && !attachments.snapshot().length ? imageSearchQuery(displayed) : null;
+    if (query) return openImageSearch(displayed, query);
+    const existing = current?.localImageSearch ? undefined : current;
     const agent = pickedAgent();
     if (!agent) {
       toast("Aucun modèle disponible. Réessaie quand le catalogue est chargé.", true);
@@ -839,6 +865,44 @@ export function createNativeChatEngine(options: NativeChatOptions): NativeChatEn
       for (const item of urls.values()) void item.then(url => { if (url?.startsWith("blob:")) URL.revokeObjectURL(url); });
       urls.clear();
       previousSourceUploads.clear();
+    },
+    storeImageSearch(id, index, search) {
+      const conversation = repository.get(id);
+      if (lifetime.signal.aborted || !canUse(conversation) || !conversation.localImageSearch) return;
+      const message = conversation.messages[index];
+      if (message?.imageSearch?.query !== search.query) return;
+      message.imageSearch = search;
+      repository.commit();
+    },
+    async saveImageResult(id, index, input, action) {
+      const conversation = repository.get(id);
+      const owner = repository.owner();
+      const signal = lifetime.signal;
+      const image = normalizeCommonsImage(input);
+      if (!owner || !canUse(conversation) || !image || !canSaveCommonsImage(image) ||
+          !conversation.messages[index]?.imageSearch?.results?.some(row => row.id === image.id && row.original === image.original)) {
+        throw new Error("Cette image ne peut pas être enregistrée.");
+      }
+      const libraryId = owner + ":commons:" + id + ":" + image.id;
+      if (action === "library" && await options.previewStorage.libraryEntry(libraryId, owner)) return;
+      signal.throwIfAborted();
+      const filename = safeFileName(image.title);
+      const blob = await files.image({ url: image.original }, signal, IMAGE_BYTES);
+      signal.throwIfAborted();
+      if (!/^image\/(jpeg|png|webp|gif)$/i.test(blob.type)) throw new Error("Format d’image indisponible.");
+      if (repository.owner() !== owner || repository.get(id) !== conversation) throw new Error("La conversation n’est plus disponible.");
+      if (action === "download") {
+        await saveBytes(filename, new Uint8Array(await blob.arrayBuffer()));
+        return;
+      }
+      const previewId = await options.previewStorage.remember(new File([blob], filename, { type: blob.type }));
+      signal.throwIfAborted();
+      if (!previewId) throw new Error("Le stockage de la bibliothèque est indisponible.");
+      await options.previewStorage.index([{
+        owner, id: libraryId, name: filename, kind: "image", direction: "found",
+        created: Date.now(), projectId: conversation.projectId ?? "", conversationId: id, previewId,
+        attribution: { url: image.source, artist: image.artist, license: image.license }
+      }]);
     },
     state, send, regenerate, setOption, editSent, editFailed, vote, preview, resolveImage, downloadImage, resume, cancelPending,
     busy: () => Boolean(active) || pendingCancellation,

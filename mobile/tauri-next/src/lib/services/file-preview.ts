@@ -54,7 +54,9 @@ export function generatedFile(name: string, code: string): PreviewFile {
     async load(signal) {
       signal?.throwIfAborted();
       const bytes = extension === "pptx" ? await encodePresentation(code) :
-        extension === "pdf" ? await encodePdf(code) : new TextEncoder().encode(code);
+        extension === "pdf" ? await encodePdf(code) :
+        extension === "docx" || extension === "xlsx" ? (await import("./office-export.ts")).encodeOffice(extension, code) :
+        new TextEncoder().encode(code);
       signal?.throwIfAborted();
       const content = new Blob([Uint8Array.from(bytes)], { type: mime });
       return content;

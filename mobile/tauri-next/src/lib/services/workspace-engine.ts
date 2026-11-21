@@ -26,7 +26,8 @@ export interface LibraryRecord {
   id: string;
   name: string;
   kind: string;
-  direction: "sent" | "generated";
+  direction: "sent" | "generated" | "found";
+  attribution?: { url: string; artist: string; license: string };
   created: number;
   projectId: string;
   conversationId: string;

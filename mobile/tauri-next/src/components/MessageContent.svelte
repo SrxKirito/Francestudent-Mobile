@@ -14,7 +14,7 @@
       if (block.type === "text") return { interactive: null, html: renderMarkdownText(block.content) };
       const interactive = block.open ? null : parseInteractiveContent(block.language, block.content);
       const artifact = byIndex.get(block.index);
-      const documentOnly = Boolean(openPreview && artifact && /\.(pdf|pptx)$/i.test(artifact.name));
+      const documentOnly = Boolean(openPreview && artifact && /\.(pdf|pptx|docx|xlsx)$/i.test(artifact.name));
       return { interactive, html: interactive || documentOnly ? "" : renderCodeBlockInner(block.content, block.language) };
     });
     return { artifacts, parts };

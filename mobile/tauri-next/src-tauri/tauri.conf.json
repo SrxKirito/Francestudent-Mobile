@@ -4,6 +4,6 @@
   "version": "0.1.0",
   "identifier": "org.francestudent.mobile.next",
   "build": { "beforeDevCommand": "npm run dev", "devUrl": "http://localhost:1420", "beforeBuildCommand": "npm run build", "frontendDist": "../dist" },
-  "app": { "windows": [{ "title": "France Student", "width": 1100, "height": 800, "create": false, "disableInputAccessoryView": true }], "security": { "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' asset: data: blob:; frame-src 'self' blob:; worker-src 'self' blob:; connect-src 'self' ipc: http://ipc.localhost" } },
+  "app": { "windows": [{ "title": "France Student", "width": 1100, "height": 800, "create": false, "disableInputAccessoryView": true }], "security": { "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' asset: data: blob: https://upload.wikimedia.org https://thumb.wikimedia.org; frame-src 'self' blob:; worker-src 'self' blob:; connect-src 'self' ipc: http://ipc.localhost https://commons.wikimedia.org https://upload.wikimedia.org https://thumb.wikimedia.org" } },
   "bundle": { "active": false, "iOS": { "minimumSystemVersion": "16.4" } }
 }

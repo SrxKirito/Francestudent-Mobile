@@ -1,5 +1,6 @@
 <!-- Un message du chat : mêmes classes que l'ancienne interface (assistant.js), donc mêmes feuilles de style. -->
 <script lang="ts">
+  import ImageSearchGallery from "./ImageSearchGallery.svelte";
   import ChatSources from "./ChatSources.svelte";
   import MessageContent from "./MessageContent.svelte";
   import type { PreviewFile } from "../lib/services/file-preview.ts";
@@ -8,6 +9,7 @@
   import { attachmentIcon } from "../lib/services/chat-view.ts";
   import { fileIconSvg } from "../lib/services/markdown.ts";
   import type { ChatImage, ChatMessage } from "../lib/types/chat.ts";
+  import { speechText } from "../lib/services/read-aloud.ts";
   import { copyText } from "../lib/utils/clipboard.ts";
   import { icon } from "../lib/utils/icons.ts";
 
@@ -16,9 +18,11 @@
     chat: ChatStore;
     openPreview?: (file: PreviewFile) => void;
     saveMessage?: (chatId: string, messageId: string) => Promise<void>;
+    onread?: () => void;
+    speaking?: number | null;
   }
 
-  let { message, chat, openPreview, saveMessage }: Props = $props();
+  let { message, chat, openPreview, saveMessage, onread, speaking }: Props = $props();
 
   let copied = $state(false);
   let saving = $state(false);
@@ -37,6 +41,7 @@
   const requested = new Set<string>();
   const hasImages = $derived((message.images?.length ?? 0) > 0);
   const text = $derived(message.content.trim());
+  const readLabel = $derived(speaking === message.index ? "Arrêter la lecture" : "Lire à voix haute");
 
   function imageKey(image: ChatImage) {
     return [message.serverMessageId ?? message.content, image.index, image.id ?? image.url ?? ""].join(":");
@@ -101,7 +106,20 @@
   {/if}
 {/snippet}
 
-{#if message.role === "user"}
+{#if message.imageSearch && chat.state.id}
+  {@const id = chat.state.id}
+  <div class="message assistant">
+    <div class="bubble">
+      <ImageSearchGallery search={message.imageSearch} canSearch={chat.state.composer.webSearchMode === "open"}
+        onupdate={search => chat.engine?.storeImageSearch?.(id, message.index, search)}
+        onfile={async (image, action) => {
+          const engine = chat.engine;
+          if (!engine?.saveImageResult) throw new Error("L’enregistrement est indisponible.");
+          await engine.saveImageResult(id, message.index, image, action);
+        }} />
+    </div>
+  </div>
+{:else if message.role === "user"}
   <div class="message user message-enter">
     {#if message.attachments && message.attachments.length > 0}
       <div class="message-attachments">
@@ -172,6 +190,15 @@
     {/if}
     <div class="message-actions">
       {@render saveButton()}
+      {#if onread && speechText(message.content)}
+        <button type="button" class="msg-action icon-only" class:active={speaking === message.index} title={readLabel} aria-label={readLabel}
+          aria-pressed={speaking === message.index} onclick={onread}>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            {#if speaking === message.index}<rect x="6" y="6" width="12" height="12" rx="2"/>
+            {:else}<path d="M4 9h4l5-4v14l-5-4H4zM16 9a4 4 0 0 1 0 6m2-8a7 7 0 0 1 0 10"/>{/if}
+          </svg>
+        </button>
+      {/if}
       <button type="button" class="msg-action icon-only" title="Copier" aria-label="Copier" onclick={copyMessage}>{#if copied}<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5L20 7"/></svg>{:else}{@html icon("copy")}{/if}</button>
       <button type="button" class="msg-action icon-only" title="Régénérer" aria-label="Régénérer" onclick={() => chat.engine?.regenerate(message.index)}>{@html icon("refresh")}</button>
       <button type="button" class="msg-action icon-only" class:active={message.feedback === "up"} title="Bonne réponse" aria-label="Bonne réponse" aria-pressed={message.feedback === "up" ? "true" : "false"} onclick={() => vote(true)}>{@html icon("like")}</button>
