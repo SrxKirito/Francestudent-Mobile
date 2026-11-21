@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { SkillsStore } from "../lib/stores/skills.svelte.ts";
 
-  let { skills }: { skills: SkillsStore } = $props();
+  let { skills, onconfirm }: { skills: SkillsStore; onconfirm: (text: string) => Promise<boolean> } = $props();
   let query = $state("");
   let fileInput: HTMLInputElement;
   const rows = $derived(skills.search(query));
@@ -34,7 +34,7 @@
       </div>
       {#if skill.description}<details class="settings-tools"><summary>Description</summary><p>{skill.description}</p></details>{/if}
       <div class="settings-item-actions">
-        <button type="button" class="settings-btn small danger" disabled={skills.busy || skills.loading} onclick={() => { if (window.confirm("Supprimer le skill « " + skill.name + " » ?")) void skills.remove(skill); }}>Supprimer</button>
+        <button type="button" class="settings-btn small danger" disabled={skills.busy || skills.loading} onclick={async () => { if (await onconfirm("Supprimer le skill « " + skill.name + " » ?")) await skills.remove(skill); }}>Supprimer</button>
       </div>
     </article>
   {/each}

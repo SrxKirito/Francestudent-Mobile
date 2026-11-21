@@ -12,13 +12,14 @@
     onpin: () => void;
     onrename: () => void;
     onarchive?: () => void;
+    onexport?: () => void;
     /** Chat Svelte : entrée « Gérer les accès » (dans l'ancienne interface, elle est ajoutée par chat-shares.js). */
     onshare?: () => void;
     onproject?: () => void;
     ondelete: () => void;
   }
 
-  let { open, pinned, archivable = false, anchor, onpin, onrename, onarchive, onshare, onproject, ondelete }: Props = $props();
+  let { open, pinned, archivable = false, anchor, onpin, onrename, onarchive, onexport, onshare, onproject, ondelete }: Props = $props();
 
   let menu: HTMLDivElement | undefined = $state();
 
@@ -41,6 +42,7 @@
 <div id="conv-menu" class="popover conv-menu" class:hidden={!open} role="menu" bind:this={menu} onclick={event => event.stopPropagation()}>
   <button type="button" id="conv-pin" class="menu-item" role="menuitem" onclick={onpin}>{pinLabel(pinned)}</button>
   <button type="button" id="conv-rename" class="menu-item" role="menuitem" onclick={onrename}>Renommer</button>
+  {#if onexport}<button type="button" class="menu-item" role="menuitem" onclick={onexport}>Exporter le texte (JSON)</button>{/if}
   {#if archivable}<button type="button" class="menu-item" role="menuitem" onclick={onarchive}>Archiver</button>{/if}
   {#if onshare}<button type="button" class="menu-item" role="menuitem" onclick={onshare}>Gérer les accès</button>{/if}
   {#if onproject}<button type="button" id="conv-project" class="menu-item" role="menuitem" onclick={onproject}>Déplacer vers un projet</button>{/if}

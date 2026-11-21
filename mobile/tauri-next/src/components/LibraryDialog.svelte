@@ -4,10 +4,13 @@
   import type { LibraryRecord, PendingResponse, RemoteFile, WorkspaceEngine } from "../lib/services/workspace-engine.ts";
   import { FILE_KINDS, FILE_SORTS, formatBytes } from "../lib/services/workspace-engine.ts";
   import { errorMessage } from "../lib/utils/errors.ts";
+  import SavedMessages from "./SavedMessages.svelte";
   import LibraryThumbnail from "./LibraryThumbnail.svelte";
 
-  let { engine, api, onclose, ontoast }: {
+  let { engine, api, onclose, ontoast, onopenmessage, onconfirm }: {
     engine: WorkspaceEngine; api: ApiClient; onclose: () => void; ontoast: (message: string, error: boolean) => void;
+    onopenmessage: (id: string) => Promise<boolean>;
+    onconfirm: (text: string) => Promise<boolean>;
   } = $props();
   let dialog: HTMLDialogElement;
   let files = $state.raw<RemoteFile[]>([]);
@@ -120,11 +123,12 @@
 
 <dialog id="svelte-library" class="file-library" aria-labelledby="svelte-library-title" bind:this={dialog} oncancel={event => { event.preventDefault(); onclose(); }}>
   <header><div><h2 id="svelte-library-title">Bibliothèque</h2></div><button type="button" aria-label="Fermer" onclick={onclose}>×</button></header>
+  <SavedMessages {api} onopen={onopenmessage} />
   {#each pending as row (row.id)}
     <div class="library-job">
       <strong>Réponse en attente · {row.title}</strong>
       <button type="button" disabled={busy || !row.resume} onclick={() => void operate(async () => { onclose(); await engine.pendingAction(row.id, "resume"); })}>Reprendre</button>
-      <button type="button" disabled={busy} onclick={() => { if (window.confirm("Annuler le suivi de cette réponse ?")) void operate(() => engine.pendingAction(row.id, "cancel")); }}>Annuler</button>
+      <button type="button" disabled={busy} onclick={() => void operate(async () => { if (await onconfirm("Annuler le suivi de cette réponse ?")) await engine.pendingAction(row.id, "cancel"); })}>Annuler</button>
     </div>
   {/each}
   <div class="library-filters">

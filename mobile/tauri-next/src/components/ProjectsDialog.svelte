@@ -7,8 +7,8 @@
   import { errorMessage } from "../lib/utils/errors.ts";
 
   type Target = { id: string; projectId: string | null };
-  let { api, engine, editId, target, onclose }: {
-    api: ApiClient; engine: WorkspaceEngine; editId?: string; target?: Target; onclose: () => void;
+  let { api, engine, editId, target, onclose, onconfirm }: {
+    api: ApiClient; engine: WorkspaceEngine; editId?: string; target?: Target; onclose: () => void; onconfirm: (text: string) => Promise<boolean>;
   } = $props();
   const lifetime = new AbortController();
   const signal = lifetime.signal;
@@ -117,8 +117,9 @@
 
   function removeProject() {
     const id = editor?.id;
-    if (!id || !window.confirm("Supprimer définitivement ce projet ?")) return;
+    if (!id) return;
     void run(async () => {
+      if (!await onconfirm("Supprimer définitivement ce projet ?") || signal.aborted) return;
       if (!engine.projectReady()) throw new Error("Attends la fin de la réponse en cours.");
       await api.json(projectPath(id), { method: "DELETE", signal });
       if (signal.aborted) return;
@@ -147,8 +148,9 @@
 
   function unshare(userId: number) {
     const id = editor?.id;
-    if (!id || !window.confirm("Retirer cet accès au projet ?")) return;
+    if (!id) return;
     void run(async () => {
+      if (!await onconfirm("Retirer cet accès au projet ?") || signal.aborted) return;
       await api.json(projectPath(id) + "/shares/" + encodeURIComponent(userId), { method: "DELETE", signal });
       await refreshShares(id);
     });

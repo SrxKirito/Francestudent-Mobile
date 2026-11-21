@@ -19,9 +19,10 @@
     skills?: SkillsStore;
     chat: ChatStore;
     openPreview?: (file: PreviewFile) => void;
+    saveMessage?: (chatId: string, messageId: string) => Promise<void>;
   }
 
-  let { chat, skills, openPreview }: Props = $props();
+  let { chat, skills, openPreview, saveMessage }: Props = $props();
 
   let messagesEl: HTMLElement | undefined = $state();
   let modelOpen = $state(false);
@@ -160,7 +161,7 @@
       </div>
       <div id="thread" class="thread" aria-live="polite">
         {#each snap.messages as message (String(snap.id) + ":" + message.index)}
-          <ChatMessage {message} {chat} {openPreview} />
+          <ChatMessage {message} {chat} {openPreview} {saveMessage} />
         {/each}
         {#if showLive}
           <div class="message assistant message-enter">

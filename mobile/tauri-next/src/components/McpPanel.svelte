@@ -5,7 +5,7 @@
   import type { McpAuth, McpOAuth, McpServer } from "../lib/services/mcp-settings.ts";
   import { errorMessage } from "../lib/utils/errors.ts";
 
-  let { api }: { api: ApiClient } = $props();
+  let { api, onconfirm }: { api: ApiClient; onconfirm: (text: string) => Promise<boolean> } = $props();
   const lifetime = new AbortController();
   const signal = lifetime.signal;
   let rows = $state.raw<McpServer[]>([]);
@@ -110,8 +110,8 @@
   }
 
   function change(server: McpServer, action: "toggle" | "discover" | "delete") {
-    if (action === "delete" && !window.confirm("Supprimer le serveur « " + (server.server_label || server.id) + " » ?")) return;
     return run(async () => {
+      if (action === "delete" && (!await onconfirm("Supprimer le serveur « " + (server.server_label || server.id) + " » ?") || signal.aborted)) return;
       const path = mcpPath(server.id);
       await api.json(path + (action === "discover" ? "/discover" : ""), {
         method: action === "delete" ? "DELETE" : "POST",

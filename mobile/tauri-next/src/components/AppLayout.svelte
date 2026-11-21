@@ -20,6 +20,7 @@
   import { createStorageAccount } from "../lib/services/account-local.ts";
   import { loadProfile, profileName } from "../lib/services/account.ts";
   import { readAvatarImage } from "../lib/services/avatar-image.ts";
+  import { savedMessages } from "../lib/services/saved-messages.ts";
   import { saveBytes, saveResponse } from "../lib/services/file-saver.ts";
   import type { TokenProvider } from "../lib/services/auth.ts";
   import type { PreviewFile } from "../lib/services/file-preview.ts";
@@ -68,6 +69,7 @@
   const avatarSrc = $derived(store.avatar && store.avatar !== "image.png" ? store.avatar : logo);
   let projects = $state.raw<{ editId?: string; target?: { id: string; projectId: string | null } } | null>(null);
   let libraryOpen = $state(false);
+  let saveMessage = $state.raw<((chatId: string, messageId: string) => Promise<void>) | undefined>(undefined);
   let settings = $state.raw<SettingsStore | null>(null);
   let preview = $state.raw<PreviewFile | null>(null);
   let renameRequest = $state.raw<{ initial: string; resolve: (title: string | null) => void } | null>(null);
@@ -110,6 +112,10 @@
     const lifetime = new AbortController();
     const signal = lifetime.signal;
     const api = createRuntimeApiClient(sessionTokens);
+    saveMessage = async (chatId, messageId) => {
+      await savedMessages(api).set(chatId, messageId, true, signal);
+      if (!signal.aborted) chat.toast("Message enregistré dans la bibliothèque.");
+    };
     const request = createNativeRequest(sessionTokens);
     const local = createStorageSettings(storage);
     const accountLocal = createStorageAccount(storage);
@@ -194,7 +200,7 @@
       confirm: text => chat.confirm(text),
       rename: askRename,
       notify: (text, error) => chat.toast(text, error),
-      saveResponse
+      saveResponse, saveBytes
     });
 
     store.connect(shellEngine);
@@ -342,6 +348,11 @@
       onpin={() => store.menuAction("togglePin")}
       onrename={() => store.menuAction("renameConversation")}
       onarchive={() => store.menuAction("archiveConversation")}
+      onexport={legacyChat ? undefined : () => {
+        const id = store.menu?.id;
+        store.closeMenus();
+        if (id) store.engine?.exportConversation?.(id);
+      }}
       ondelete={() => store.menuAction("deleteConversation")}
       onshare={legacyChat ? undefined : shareMenuConversation}
       onproject={settings?.workspace ? moveConversation : undefined}
@@ -352,7 +363,7 @@
       <LegacyFrame onframe={onFrame} />
     {:else}
       {#if !store.ready}<Startup />{/if}
-      <ChatPane {chat} {openPreview} skills={settings?.skillsPanel} />
+      <ChatPane {chat} {openPreview} {saveMessage} skills={settings?.skillsPanel} />
       <ToastHost {chat} />
       <ConfirmDialog {chat} />
       <ImportDialog {chat} />
@@ -360,13 +371,19 @@
     {/if}
   </main>
   {#if projects && settings?.workspace && settings.api}
-    <ProjectsDialog engine={settings.workspace} api={settings.api} editId={projects.editId} target={projects.target} onclose={() => { projects = null; }} />
+    <ProjectsDialog engine={settings.workspace} api={settings.api} editId={projects.editId} target={projects.target} onconfirm={text => chat.confirm(text)} onclose={() => { projects = null; }} />
   {/if}
   {#if libraryOpen && settings?.workspace && settings.api}
-    <LibraryDialog engine={settings.workspace} api={settings.api} onclose={() => { libraryOpen = false; }} ontoast={(text, error) => chat.toast(text, error)} />
+    <LibraryDialog engine={settings.workspace} api={settings.api}
+      onopenmessage={async id => {
+        const opened = await store.engine?.openServerConversation?.(id);
+        if (opened) libraryOpen = false;
+        return opened === true;
+      }}
+      onconfirm={text => chat.confirm(text)} onclose={() => { libraryOpen = false; }} ontoast={(text, error) => chat.toast(text, error)} />
   {/if}
   {#if settings}
-    <SettingsDialog store={settings} showChatToggle={false} />
+    <SettingsDialog store={settings} showChatToggle={false} onconfirm={text => chat.confirm(text)} />
   {/if}
   {#if renameRequest}
     <RenameDialog initial={renameRequest.initial} onanswer={answerRename} />

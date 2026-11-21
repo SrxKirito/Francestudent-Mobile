@@ -86,6 +86,8 @@ export interface ShellEngine {
   act(action: EngineAction): void;
   closeMenus(): void;
   openConversation(id: string): void;
+  openServerConversation?(id: string): Promise<boolean>;
+  exportConversation?(id: string): void;
   togglePin(id: string): void;
   renameConversation(id: string): void;
   deleteConversation(id: string): void;

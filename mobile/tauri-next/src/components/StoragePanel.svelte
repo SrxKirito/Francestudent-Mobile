@@ -4,7 +4,7 @@
   import { FILE_KINDS, FILE_SORTS, formatBytes } from "../lib/services/workspace-engine.ts";
   import type { FileUsage, RemoteFile, WorkspaceEngine } from "../lib/services/workspace-engine.ts";
 
-  let { engine }: { engine: WorkspaceEngine } = $props();
+  let { engine, onconfirm }: { engine: WorkspaceEngine; onconfirm: (text: string) => Promise<boolean> } = $props();
   let usage = $state.raw<FileUsage | null>(null);
   let files = $state.raw<RemoteFile[]>([]);
   let hasMore = $state(false);
@@ -54,8 +54,8 @@
   }
 
   function remove(file: RemoteFile) {
-    if (!window.confirm("Supprimer définitivement « " + (file.filename || file.id) + " » ?")) return;
     void run(async () => {
+      if (!await onconfirm("Supprimer définitivement « " + (file.filename || file.id) + " » ?") || !live) return;
       await engine.removeFile(file.id);
       try { await readUsage(false); }
       catch { if (live) message = "Fichier supprimé. Le quota n’a pas pu être actualisé."; }

@@ -15,11 +15,22 @@
     message: ChatMessage;
     chat: ChatStore;
     openPreview?: (file: PreviewFile) => void;
+    saveMessage?: (chatId: string, messageId: string) => Promise<void>;
   }
 
-  let { message, chat, openPreview }: Props = $props();
+  let { message, chat, openPreview, saveMessage }: Props = $props();
 
   let copied = $state(false);
+  let saving = $state(false);
+
+  async function save() {
+    if (saving || !saveMessage || !chat.state.chatId || !message.serverMessageId) return;
+    saving = true;
+    try { await saveMessage(chat.state.chatId, message.serverMessageId); }
+    catch (error) {
+      if (!(error instanceof DOMException && error.name === "AbortError")) chat.toast("Enregistrement du message impossible.", true);
+    } finally { saving = false; }
+  }
 
   /** Une image remplacée lors d'une régénération ne réutilise pas la source de l'ancienne. */
   let imageSources = $state.raw<Record<string, string | null>>({});
@@ -84,6 +95,12 @@
   }
 </script>
 
+{#snippet saveButton()}
+  {#if saveMessage && chat.state.chatId && message.serverMessageId}
+    <button type="button" class="msg-action" disabled={saving} onclick={save}>Enregistrer</button>
+  {/if}
+{/snippet}
+
 {#if message.role === "user"}
   <div class="message user message-enter">
     {#if message.attachments && message.attachments.length > 0}
@@ -108,6 +125,7 @@
     {/if}
     {#if text !== ""}<div class="bubble">{message.content}</div>{:else if !message.attachments?.length}<div class="bubble"></div>{/if}
     <div class="message-actions user-actions">
+      {@render saveButton()}
       <button type="button" class="msg-action icon-only" title="Modifier ce message et relancer la réponse" aria-label="Modifier ce message et relancer la réponse" onclick={() => chat.engine?.editSent(message.index)}>{@html icon("edit")}</button>
       <button type="button" class="msg-action icon-only" title="Copier le texte" aria-label="Copier le texte" onclick={copyMessage}>{#if copied}<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5L20 7"/></svg>{:else}{@html icon("copy")}{/if}</button>
     </div>
@@ -153,6 +171,7 @@
       </div>
     {/if}
     <div class="message-actions">
+      {@render saveButton()}
       <button type="button" class="msg-action icon-only" title="Copier" aria-label="Copier" onclick={copyMessage}>{#if copied}<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5L20 7"/></svg>{:else}{@html icon("copy")}{/if}</button>
       <button type="button" class="msg-action icon-only" title="Régénérer" aria-label="Régénérer" onclick={() => chat.engine?.regenerate(message.index)}>{@html icon("refresh")}</button>
       <button type="button" class="msg-action icon-only" class:active={message.feedback === "up"} title="Bonne réponse" aria-label="Bonne réponse" aria-pressed={message.feedback === "up" ? "true" : "false"} onclick={() => vote(true)}>{@html icon("like")}</button>

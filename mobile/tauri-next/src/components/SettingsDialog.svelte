@@ -16,6 +16,7 @@
   interface Props {
     store: SettingsStore;
     showChatToggle?: boolean;
+    onconfirm?: (text: string) => Promise<boolean>;
   }
 
   type MenuId = "default" | "image" | "reasoning";
@@ -31,7 +32,7 @@
   const COLUMNS: readonly LibraryColumns[] = [1, 2, 3, 4];
   const UNAVAILABLE = "Ce modèle est indisponible pour le moment.";
 
-  let { store, showChatToggle = true }: Props = $props();
+  let { store, showChatToggle = true, onconfirm = async () => false }: Props = $props();
 
   let menu: MenuId | null = $state(null);
   let webDialog: HTMLDialogElement | undefined = $state();
@@ -385,13 +386,13 @@
               </dialog>
             </section>
           {:else if store.tab === "account" && store.accountPanel}
-            <AccountPanel account={store.accountPanel} api={store.api} />
+            <AccountPanel account={store.accountPanel} api={store.api} {onconfirm} />
           {:else if store.tab === "skills" && store.skillsPanel}
-            <SkillsPanel skills={store.skillsPanel} />
+            <SkillsPanel skills={store.skillsPanel} {onconfirm} />
           {:else if store.tab === "mcp" && store.api}
-            <McpPanel api={store.api} />
+            <McpPanel api={store.api} {onconfirm} />
           {:else if store.tab === "storage" && store.workspace}
-            <StoragePanel engine={store.workspace} />
+            <StoragePanel engine={store.workspace} {onconfirm} />
           {/if}
         </div>
       </div>

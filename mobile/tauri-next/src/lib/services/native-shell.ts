@@ -48,6 +48,7 @@ export interface NativeShellOptions {
   confirm(text: string): Promise<boolean>;
   rename(title: string): Promise<string | null>;
   notify(text: string, isError?: boolean): void;
+  saveBytes(name: string, bytes: Uint8Array): Promise<unknown>;
   saveResponse(name: string, response: Response): Promise<unknown>;
 }
 
@@ -87,9 +88,9 @@ export function createNativeShell(deps: NativeShellOptions): ShellEngine {
     return deps.ready();
   }
 
-  async function open(id: string, signal: AbortSignal) {
+  async function open(id: string, signal: AbortSignal): Promise<boolean> {
     const row = repository.get(id);
-    if (!canNavigate() || !row || row.serverArchived) return;
+    if (!canNavigate() || !row || row.serverArchived) return false;
     const turn = ++navigation;
     const projectId = row.projectId || null;
     if (projectId && projectId !== repository.projectId()) {
@@ -97,16 +98,18 @@ export function createNativeShell(deps: NativeShellOptions): ShellEngine {
         api.json<Partial<Project>>(projectPath(projectId), { signal }), projectChats(api, projectId, signal),
         api.json<Project[] | { projects?: Project[]; data?: Project[] }>("/projects", { signal }).catch(() => [])
       ]);
-      if (signal.aborted || turn !== navigation || !canNavigate()) return;
+      if (signal.aborted || turn !== navigation || !canNavigate()) return false;
       const items = Array.isArray(owned) ? owned : owned?.projects ?? owned?.data ?? [];
       repository.setProject(projectResult(data, !items.some(item => item.id === projectId)), chats);
     } else if (!projectId && repository.projectId()) repository.setProject(null);
-    if (signal.aborted || turn !== navigation || !repository.get(id)) return;
+    if (signal.aborted || turn !== navigation || !repository.get(id)) return false;
     repository.select(id);
     deps.refreshAgent();
     host?.closeSidebar();
     await repository.detail(id);
-    if (repository.currentId() === id) deps.refreshAgent();
+    if (repository.currentId() !== id || signal.aborted) return false;
+    deps.refreshAgent();
+    return true;
   }
 
   function scheduleSearch(value: string, force = false) {
@@ -311,6 +314,32 @@ export function createNativeShell(deps: NativeShellOptions): ShellEngine {
     restoreArchived(id) { void archiveAction(id, true); },
     downloadArchived(id) { void archiveAction(id, false); },
     moreArchived() { void loadArchives(); },
+    async openServerConversation(id) {
+      if (!canNavigate()) return false;
+      const signal = lifetime.signal;
+      const row = await api.json<RemoteChat>(chatPath(id), { signal });
+      if (signal.aborted) return false;
+      if (row?.id !== id || !repository.canShow(row)) throw new Error("Cette conversation est indisponible.");
+      const local = repository.mergeServer(row);
+      if (!local || local.serverArchived) throw new Error("Cette conversation est indisponible dans l’historique.");
+      return open(local.id, signal);
+    },
+    exportConversation(id) {
+      if (!canNavigate()) return;
+      void mutation(id, "Export impossible : ", async signal => {
+        const row = repository.get(id);
+        if (!row || row.serverArchived) return;
+        if (row.chatId && row.needsLoad) await repository.detail(id);
+        if (signal.aborted || repository.get(id) !== row || row.serverLocked) return;
+        const data = {
+          title: row.title || "Sans titre",
+          messages: row.messages.filter(message => message.role === "user" || message.role === "assistant")
+            .map(({ role, content }) => ({ role, content }))
+        };
+        await deps.saveBytes("conversation.json", new TextEncoder().encode(JSON.stringify(data, null, 2)));
+        if (!signal.aborted) deps.notify("Conversation exportée.");
+      });
+    },
     openRemote(index) {
       const row = remote[index];
       if (!row || !canNavigate() || !repository.canShow(row)) return;

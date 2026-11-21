@@ -56,7 +56,7 @@ const FAKE_BACKEND = String.raw`(() => {
     mcp: [{ id: "mcp-1", server_label: "Démo", auth_type: "oauth", enabled: true, available_tools: [] }],
     files: [{ id: "file-1", filename: "notes-frst.txt", bytes: 17, created_at: 1700000000 }],
     projects: [{ id: U(81), name: "Projet de test", customInstructions: "Répondre brièvement." }],
-    shares: [],
+    shares: [], savedMessages: [], exported: [],
     apiKey: false,
     sessions: [
       { id: "s-iphone", since: ago(48), os: "iOS 19", location: "Paris, France", lastActiveAt: ago(1) },
@@ -92,6 +92,18 @@ const FAKE_BACKEND = String.raw`(() => {
     if (p === "/mcp/servers/mcp-1/oauth/start" && method === "POST") return [200, { authorization_url: "https://example.org/oauth", state: "test-state" }];
     if (p === "/mcp/servers/oauth/complete" && method === "POST") {
       backend.mcp[0].has_authorization = true; return [200, {}];
+    }
+    const saved = p.match(/^\/user\/@me\/saved-messages\/([^/]+)\/([^/]+)$/);
+    if (p === "/user/@me/saved-messages" && method === "GET") return [200, { savedMessages: backend.savedMessages, hasMore: false }];
+    if (saved && (method === "PUT" || method === "DELETE")) {
+      const [, chatId, messageId] = saved;
+      backend.savedMessages = backend.savedMessages.filter(row => row.chatId !== chatId || row.messageId !== messageId);
+      if (method === "PUT") {
+        const message = backend.chats.find(chat => chat.id === chatId)?.chatMessages?.find(row => row.id === messageId);
+        if (!message) return [404, {}];
+        backend.savedMessages.push({ chatId, messageId, message });
+      }
+      return [200, {}];
     }
     if (p === "/user/@me/api-key") {
       if (method === "POST") { backend.apiKey = true; return [200, { key: "fixture-key-only" }]; }
@@ -185,6 +197,10 @@ const FAKE_BACKEND = String.raw`(() => {
     async invoke(command, args) {
       backend.invokes.push(command);
       switch (command) {
+        case "plugin:dialog|save": return "conversation.json";
+        case "plugin:fs|open": return 42;
+        case "plugin:fs|write": backend.exported.push(...args.data); return args.data.length;
+        case "plugin:resources|close": return null;
         case "session_read": return backend.session;
         case "session_write": backend.session = args.value; return null;
         case "session_delete": backend.session = null; return null;
@@ -674,6 +690,48 @@ async function nativePhase(baseUrl, pageErrors) {
     await click("Envoyer", q("#send"));
     await waitFor(contains("#thread", "Réponse de test"), "réponse du flux");
     assert.match((await streamPosts()).at(-1).body, /Skill imposé.*skill-1/);
+  });
+  await check("historique natif : recherche serveur, ouverture et archives", async () => {
+    await input("#search-input", "Géographie");
+    await waitFor(contains(".remote-chat-search-results", "Géographie du serveur"), "résultat distant");
+    await click("Résultat distant", q(".remote-chat-search-result"));
+    await waitFor('window.__backend.calls.some(row => row.path === "/chats/00000000-0000-4000-8000-000000000004")', "conversation distante chargée");
+    await input("#search-input", "");
+    await escape();
+    await click("Archives", q(".archived-chat-toggle"));
+    await waitFor(contains(".archived-chats-panel", "Vieille discussion"), "archive chargée");
+    await click("Restaurer", q('.archived-chats-panel button[aria-label="Restaurer Vieille discussion"]'));
+    await waitFor('!!(' + historyItem("Vieille discussion") + ')', "archive restaurée dans l’historique");
+  });
+  await check("messages enregistrés : ajouter, retrouver et retirer dans la bibliothèque", async () => {
+    await ev(`window.__backend.chats.find(c => c.title === "Maths").chatMessages = [
+      { id: "saved-m1", role: "assistant", content: "Contenu à retrouver" }
+    ]`);
+    await click("Maths", historyItem("Maths"));
+    await waitFor(contains("#thread", "Contenu à retrouver"), "message chargé");
+    await click("Enregistrer le message", q("#thread .assistant .message-actions button"));
+    await waitFor("window.__backend.savedMessages.length === 1", "message stocké côté serveur");
+    await click("Bibliothèque", q("#library-open"));
+    await waitFor(has("#svelte-library[open]"), "bibliothèque ouverte");
+    await click("Messages enregistrés", q("#svelte-library > button[aria-expanded]"));
+    await waitFor(contains("#svelte-library section", "Contenu à retrouver"), "message retrouvé");
+    await click("Ouvrir la conversation d’origine", q("#svelte-library section article button:first-of-type"));
+    await waitFor("!" + has("#svelte-library[open]") + " && " + contains("#thread", "Contenu à retrouver"), "retour au chat");
+    await click("Bibliothèque", q("#library-open"));
+    await waitFor(has("#svelte-library[open]"), "bibliothèque ouverte à nouveau");
+    await click("Messages enregistrés", q("#svelte-library > button[aria-expanded]"));
+    await waitFor(contains("#svelte-library section", "Contenu à retrouver"), "message retrouvé après réouverture");
+    await click("Retirer", q("#svelte-library section article button:last-child"));
+    await waitFor(contains("#svelte-library section", "Aucun message enregistré."), "message retiré");
+    await escape();
+  });
+  await check("export de texte : conversation active et sélecteur de fichier", async () => {
+    await click("Menu de Maths", "(" + historyItem("Maths") + ')?.querySelector(".history-more")');
+    const item = `[...document.querySelectorAll("#conv-menu button")].find(b => b.textContent.includes("Exporter le texte"))`;
+    await click("Exporter", item);
+    await waitFor("window.__backend.exported.length > 0", "écriture via le pont fichiers");
+    const payload = await ev("JSON.parse(new TextDecoder().decode(Uint8Array.from(window.__backend.exported)))");
+    assert.deepEqual(payload, { title: "Maths", messages: [{ role: "assistant", content: "Contenu à retrouver" }] });
   });
   await check("petite hauteur : compositeur et dialogue dans la fenêtre", async () => {
     await cdp.send("Emulation.setDeviceMetricsOverride", { width: 390, height: 370, deviceScaleFactor: 1, mobile: false });

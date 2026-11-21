@@ -3,7 +3,7 @@
   import type { ApiClient } from "../lib/services/api-client.ts";
   import { copyText } from "../lib/utils/clipboard.ts";
 
-  let { api }: { api: ApiClient } = $props();
+  let { api, onconfirm }: { api: ApiClient; onconfirm: (text: string) => Promise<boolean> } = $props();
   const hint = "Consulte ta clé et ton budget API.";
   let message = $state(hint);
   let key = $state("");
@@ -20,13 +20,14 @@
 
   async function update(method: "GET" | "POST" | "DELETE") {
     if (busy) return;
-    if (method === "POST" && !window.confirm("Générer une clé remplacera la clé existante. Continuer ?")) return;
-    if (method === "DELETE" && !window.confirm("Révoquer la clé API actuelle ?")) return;
-    const controller = request = new AbortController();
-    key = "";
     busy = true;
-    message = "Chargement…";
+    const controller = request = new AbortController();
     try {
+      if (method === "POST" && !await onconfirm("Générer une clé remplacera la clé existante. Continuer ?")) return;
+      if (method === "DELETE" && !await onconfirm("Révoquer la clé API actuelle ?")) return;
+      if (controller.signal.aborted) return;
+      key = "";
+      message = "Chargement…";
       const result = await api.json<{ key?: string; maskedKey?: string; budget?: { remainingUsd?: number } }>("/user/@me/api-key", { method, signal: controller.signal });
       if (controller.signal.aborted) return;
       if (method === "DELETE") message = "Clé API révoquée.";
