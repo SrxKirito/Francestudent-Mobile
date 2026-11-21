@@ -15,13 +15,16 @@
   let sort = $state("date-desc");
   let message = $state("");
   let live = true;
+  let upload: AbortController | null = null;
+  let uploading = $state(false);
+  let transferPercent = $state(0);
   const rows = $derived(engine.arrange(files, { query, kind, sort }));
   const percent = $derived(usage && usage.maxBytes > 0 ? Math.min(100, Math.round(100 * usage.usedBytes / usage.maxBytes)) : null);
 
   onMount(() => {
     const unsubscribe = engine.watchFiles(sync);
     void run(() => readUsage(false));
-    return () => { live = false; unsubscribe(); };
+    return () => { live = false; upload?.abort(); unsubscribe(); };
   });
 
   function sync() {
@@ -53,6 +56,30 @@
     void run(() => engine.loadFiles());
   }
 
+  function chooseFile(event: Event & { currentTarget: HTMLInputElement }) {
+    const file = event.currentTarget.files?.[0];
+    event.currentTarget.value = "";
+    if (!file || !engine.uploadRemote) return;
+    void run(async () => {
+      const controller = upload = new AbortController();
+      transferPercent = 0;
+      uploading = true;
+      try {
+        await engine.uploadRemote?.(file, controller.signal, (sent, total) => {
+          transferPercent = Math.round(100 * sent / total);
+        });
+        if (!live) return;
+        await engine.loadFiles();
+        await readUsage(false);
+      } catch (error) {
+        if (!controller.signal.aborted) throw error;
+      } finally {
+        upload = null;
+        uploading = false;
+      }
+    });
+  }
+
   function remove(file: RemoteFile) {
     void run(async () => {
       if (!await onconfirm("Supprimer définitivement « " + (file.filename || file.id) + " » ?") || !live) return;
@@ -82,6 +109,15 @@
       <button type="button" class="settings-btn" disabled={busy} onclick={() => { detail = false; message = ""; }}>Retour au quota</button>
       <button type="button" class="settings-btn" disabled={busy} onclick={() => void run(() => engine.refreshFiles())}>Actualiser les fichiers</button>
     </div>
+    {#if engine.uploadRemote}
+      <label class="settings-label">Ajouter un fichier au stockage FRST
+        <input type="file" class="settings-input" disabled={busy} onchange={chooseFile}>
+      </label>
+    {/if}
+    {#if uploading}
+      <progress max="100" value={transferPercent} aria-label="Progression du transfert">{transferPercent} %</progress>
+      <button type="button" class="settings-btn" onclick={() => upload?.abort()}>Annuler le transfert</button>
+    {/if}
     <div class="library-filters">
       <input type="search" class="settings-input" aria-label="Rechercher un fichier" placeholder="Rechercher un fichier" bind:value={query}>
       <select class="settings-input" aria-label="Type de fichier" bind:value={kind}>{#each FILE_KINDS as [value, label]}<option {value}>{label}</option>{/each}</select>
@@ -90,6 +126,7 @@
     {#each rows as file (file.id)}
       <div class="settings-item">
         <div class="settings-item-head"><strong>{file.filename || file.id}</strong><span>{formatBytes(file.bytes)}</span></div>
+        <button type="button" class="settings-btn small" disabled={busy} onclick={() => void run(() => engine.saveRemote(file.id))}>Télécharger</button>
         <button type="button" class="settings-btn small danger" disabled={busy} onclick={() => remove(file)}>Supprimer</button>
       </div>
     {:else}

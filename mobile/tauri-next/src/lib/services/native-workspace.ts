@@ -66,6 +66,7 @@ export interface NativeWorkspaceOptions {
   files: NativeFiles;
   previewStorage: PreviewStorage;
   deviceOwner?: string;
+  upload(file: File, signal: AbortSignal, progress: (sent: number, total: number) => void): Promise<unknown>;
   openPreview(file: PreviewFile): void;
   resume(id: string): Promise<void>;
   cancelPending(id: string): Promise<void>;
@@ -305,6 +306,13 @@ export function createNativeWorkspaceEngine(options: NativeWorkspaceOptions): Na
     loadFiles: () => remote.ensureLoaded(),
     loadMore: () => remote.loadMore(),
     removeFile: id => remote.remove(id),
+    async uploadRemote(file, uploadSignal, progress) {
+      if (file.size > MAX_ATTACHMENT_BYTES) throw new Error("Le fichier dépasse 50 Mo.");
+      if (file.size === 0) throw new Error("Le fichier est vide.");
+      const uploaded = await options.upload(file, uploadSignal, progress);
+      if (signal.aborted) return;
+      if (!remote.noteUploaded(uploaded)) remote.invalidate();
+    },
     watchFiles(listener) {
       const removeFiles = remote.subscribe(listener);
       const removeConversations = repository.subscribe(listener);

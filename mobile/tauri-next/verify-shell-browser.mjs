@@ -113,7 +113,7 @@ const FAKE_BACKEND = String.raw`(() => {
     if (p === "/filesv2/usage" && method === "GET") return [200, { usedBytes: 10000, maxBytes: 20000, remainingBytes: 10000, filesBytes: 8000, skillsBytes: 2000 }];
     if (p === "/filesv2" && method === "GET") return [200, { data: backend.files, has_more: false }];
     if (p === "/filesv2/file-1/content" && method === "GET") return [200, "Y29udGVudSBGUlNU"];
-    if (p === "/filesv2/file-1" && method === "DELETE") { backend.files = []; return [200, { deleted: true }]; }
+    if (p === "/filesv2/file-1" && method === "DELETE") { backend.files = backend.files.filter(file => file.id !== "file-1"); return [200, { deleted: true }]; }
     if (p === "/projects" && method === "GET") return [200, backend.projects];
     if (p === "/projects/shared" && method === "GET") return [200, []];
     if (p === "/projects/" + U(81) && method === "GET") return [200, backend.projects[0]];
@@ -224,8 +224,14 @@ const FAKE_BACKEND = String.raw`(() => {
           setTimeout(() => channel?.({ index: 0, message: { kind: "ready" } }), 5);
           while ((!entry.done || backend.uploadHold) && !entry.cancelled) await new Promise(resolve => setTimeout(resolve, 10));
           if (entry.cancelled) throw new Error("Transfert annulé.");
+          const id = "fichier-" + args.id.slice(0, 8);
           if (entry.kind === "skill") backend.skills.push({ id: "imported", name: "Skill importé", enabled: true });
-          return { id: "fichier-" + args.id.slice(0, 8) };
+          else {
+            const file = { id, filename: entry.name, bytes: entry.bytes, created_at: Math.floor(Date.now() / 1000) };
+            backend.files.push(file);
+            return file;
+          }
+          return { id };
         }
         case "upload_chunk": {
           const entry = backend.uploads.get(args.id);
@@ -754,6 +760,47 @@ async function nativePhase(baseUrl, pageErrors) {
     await waitFor("window.__backend.exported.length > 0", "écriture via le pont fichiers");
     const payload = await ev("JSON.parse(new TextDecoder().decode(Uint8Array.from(window.__backend.exported)))");
     assert.deepEqual(payload, { title: "Maths", messages: [{ role: "assistant", content: "Contenu à retrouver" }] });
+  });
+  await check("stockage FRST : limite, transfert et confirmation Svelte", async () => {
+    await click("Ouvrir les paramètres", q("#user-button"));
+    await waitFor(has("#tab-storage"), "onglet stockage");
+    await click("Stockage", q("#tab-storage"));
+    const textButton = word => `[...document.querySelectorAll("#panel-storage button")].find(button => button.textContent.includes(${JSON.stringify(word)}))`;
+    await waitFor(`!(${textButton("Gérer les fichiers")})?.disabled`, "quota chargé");
+    await click("Gérer les fichiers", textButton("Gérer les fichiers"));
+    await waitFor(contains("#panel-storage", "notes-frst.txt"), "liste Files V2");
+    const choose = (name, size) => ev(`(() => {
+      const picker = document.querySelector('#panel-storage input[type="file"]');
+      const transfer = new DataTransfer();
+      const file = new File(["bonjour"], ${JSON.stringify(name)}, { type: "text/plain" });
+      if (${size}) Object.defineProperty(file, "size", { value: ${size} });
+      transfer.items.add(file);
+      picker.files = transfer.files;
+      picker.dispatchEvent(new Event("change", { bubbles: true }));
+    })()`);
+    await choose("trop-grand.txt", 50 * 1024 * 1024 + 1);
+    await waitFor(contains("#panel-storage [role=alert]", "dépasse 50 Mo"), "limite de taille appliquée");
+    assert.equal(await ev("window.__backend.uploads.size"), 0);
+    await choose("transfert-frst.txt", 0);
+    await waitFor(contains("#panel-storage", "transfert-frst.txt"), "fichier chargé dans Files V2");
+    await ev("window.__backend.uploadHold = true");
+    await choose("transfert-annule.txt", 0);
+    await waitFor("window.__backend.uploads.size === 2", "transfert en cours");
+    await click("Annuler le transfert", textButton("Annuler le transfert"));
+    await waitFor("[...window.__backend.uploads.values()].some(row => row.name === 'transfert-annule.txt' && row.cancelled)", "annulation transmise au pont Rust");
+    assert.equal(await ev("window.__backend.files.some(file => file.filename === 'transfert-annule.txt')"), false);
+    await ev("window.__backend.uploadHold = false");
+    const remove = `[...document.querySelectorAll("#panel-storage .settings-item")].find(item => item.textContent.includes("notes-frst.txt"))?.querySelector(".danger")`;
+    await waitFor("!(" + remove + ")?.disabled && !" + has('#panel-storage progress[aria-label="Progression du transfert"]'), "transfert terminé");
+    await ev("(" + remove + ')?.scrollIntoView({ block: "center" })');
+    await click("Supprimer le fichier", remove);
+    await waitFor(has("dialog.fs-confirm[open]"), "confirmation Svelte ouverte");
+    assert.equal(await ev("window.__backend.files.some(file => file.id === 'file-1')"), true);
+    await click("Confirmer", q(".fs-confirm-ok"));
+    await waitFor("!window.__backend.files.some(file => file.id === 'file-1')", "suppression envoyée");
+    assert.equal(await ev("window.__backend.files.some(file => file.filename === 'transfert-frst.txt')"), true);
+    assert.equal(dialogs.length, 0);
+    await click("Fermer les paramètres", q("#settings-close"));
   });
   await check("petite hauteur : compositeur et dialogue dans la fenêtre", async () => {
     await cdp.send("Emulation.setDeviceMetricsOverride", { width: 390, height: 370, deviceScaleFactor: 1, mobile: false });

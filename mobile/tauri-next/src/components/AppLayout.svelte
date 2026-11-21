@@ -134,6 +134,7 @@
     });
     const workspace = createNativeWorkspaceEngine({
       api, repository, local, files, previewStorage, openPreview,
+      upload: async (file, uploadSignal, progress) => uploadFile(file, await sessionTokens.getAccessToken(), uploadSignal, progress),
       deviceOwner: cached.deviceId ? "device:" + cached.deviceId : undefined,
       resume: id => engine.resume(id), cancelPending: id => engine.cancelPending(id), busy: () => engine.busy(),
       openChat: id => store.open(id)
