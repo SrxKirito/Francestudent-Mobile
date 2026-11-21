@@ -17,6 +17,11 @@ const STUDY: Record<Exclude<StudyMode, "">, string> = {
     '{"title":"Titre","cards":[{"q":"Question ?","a":"Réponse"}]}. ' + STUDY_RULE
 };
 
+const CHART_PATTERN = /\b(?:graphique|histogramme|camembert|nuage de points|courbe interactive)s?\b/i;
+const CHART_RULE = "Si des données fiables sont disponibles et que la demande porte sur un graphique, ajoute un bloc de code frst-ui avec uniquement du JSON : " +
+  '{"version":1,"kind":"chart","title":"Titre","chart":"line","series":[{"name":"Série","points":[{"label":"Janvier","y":12}]}]}. ' +
+  "Utilise line, bar, pie ou scatter ; scatter exige aussi x sur chaque point. Ne présente pas des données inventées comme des données réelles.";
+
 export function isPowerPointPrompt(value?: string): boolean {
   return value?.startsWith(POWERPOINT_MARK) === true;
 }
@@ -28,6 +33,6 @@ export function chatPrompt(text: string, options: {
     ? "cartes" : /\bquiz\b/i.test(text) ? "quiz" : /\bfiches? de r[ée]vision\b/i.test(text) ? "fiches" : "");
   const powerpoint = options.powerpointMode || /\b(power[ -]?point|pptx)\b/i.test(text) ||
     (isPowerPointPrompt(options.previousPrompt) && /\b(modifi|corrig|ajout|am[ée]lior|diapos|slides?)/i.test(text));
-  const format = powerpoint ? POWERPOINT : mode ? STUDY[mode] : "";
+  const format = powerpoint ? POWERPOINT : mode ? STUDY[mode] : CHART_PATTERN.test(text) ? CHART_RULE : "";
   return (format ? format + "\n\n" : "") + (options.skillPrefix || "") + text;
 }

@@ -725,6 +725,28 @@ async function nativePhase(baseUrl, pageErrors) {
     await waitFor(contains("#svelte-library section", "Aucun message enregistré."), "message retiré");
     await escape();
   });
+  await check("rendus structurés : graphique, zoom et checklist sans HTML actif", async () => {
+    const fence = String.fromCharCode(96).repeat(3);
+    const structured = fields => fence + "frst-ui\n" + JSON.stringify({ version: 1, ...fields }) + "\n" + fence;
+    const answer = structured({ kind: "chart", title: "Mesures", chart: "bar", series: [
+      { name: "Essai", points: [{ label: "Matin", y: 2 }, { label: "Soir", y: -3 }] }
+    ] }) + "\n\n" + structured({ kind: "checklist", items: ['<img id="frst-injection" src=x>'] });
+    await ev(`window.__backend.chats.find(c => c.title === "Histoire").chatMessages = [
+      { id: "widgets-1", role: "assistant", content: ${JSON.stringify(answer)} }
+    ]`);
+    await click("Histoire", historyItem("Histoire"));
+    await waitFor(has('#thread svg[aria-label="Mesures"]'), "graphique rendu");
+    const wordButton = word => `[...document.querySelectorAll("#thread button")].find(button => button.textContent.includes(${JSON.stringify(word)}))`;
+    await click("Agrandir", wordButton("Agrandir le graphique"));
+    assert.equal(await ev(wordButton("Agrandir le graphique") + '.getAttribute("aria-pressed")'), "true");
+    await click("Voir les données", wordButton("Voir les données"));
+    assert.equal(await ev(contains('#thread table[aria-label="Mesures"]', "Soir")), true);
+    const box = '#thread section[aria-label="Liste à cocher"] input';
+    await click("Cocher", q(box));
+    assert.equal(await ev(q(box) + ".checked"), true);
+    assert.equal(await ev(has("#frst-injection")), false);
+    assert.equal(await ev(contains("#thread", '<img id="frst-injection"')), true);
+  });
   await check("export de texte : conversation active et sélecteur de fichier", async () => {
     await click("Menu de Maths", "(" + historyItem("Maths") + ')?.querySelector(".history-more")');
     const item = `[...document.querySelectorAll("#conv-menu button")].find(b => b.textContent.includes("Exporter le texte"))`;

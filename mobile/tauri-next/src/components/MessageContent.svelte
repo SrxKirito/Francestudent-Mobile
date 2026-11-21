@@ -2,8 +2,8 @@
   import { renderCodeBlockInner, renderMarkdownText, parseMarkdownBlocks, fileIconSvg } from "../lib/services/markdown.ts";
   import { generatedArtifacts, generatedFile } from "../lib/services/file-preview.ts";
   import type { PreviewFile, GeneratedArtifact } from "../lib/services/file-preview.ts";
-  import { parseStudyContent } from "../lib/services/study-content.ts";
-  import StudyBlock from "./StudyBlock.svelte";
+  import { parseInteractiveContent } from "../lib/services/interactive-content.ts";
+  import InteractiveBlock from "./InteractiveBlock.svelte";
 
   let { content, katexReady, openPreview }: { content: string; katexReady: boolean; openPreview?: (file: PreviewFile) => void } = $props();
   const rendered = $derived.by(() => {
@@ -11,11 +11,11 @@
     const artifacts = generatedArtifacts(content);
     const byIndex = new Map(artifacts.map(file => [file.fenceIndex, file]));
     const parts = parseMarkdownBlocks(content).map(block => {
-      if (block.type === "text") return { study: null, html: renderMarkdownText(block.content) };
-      const study = block.open ? null : parseStudyContent(block.language, block.content);
+      if (block.type === "text") return { interactive: null, html: renderMarkdownText(block.content) };
+      const interactive = block.open ? null : parseInteractiveContent(block.language, block.content);
       const artifact = byIndex.get(block.index);
       const documentOnly = Boolean(openPreview && artifact && /\.(pdf|pptx)$/i.test(artifact.name));
-      return { study, html: study || documentOnly ? "" : renderCodeBlockInner(block.content, block.language) };
+      return { interactive, html: interactive || documentOnly ? "" : renderCodeBlockInner(block.content, block.language) };
     });
     return { artifacts, parts };
   });
@@ -26,10 +26,8 @@
 </script>
 
 {#each rendered.parts as part, index (index)}
-  {#if part.study}
-    {#key part.study}
-      <StudyBlock data={part.study} />
-    {/key}
+  {#if part.interactive}
+    <InteractiveBlock data={part.interactive} />
   {:else}
     {@html part.html}
   {/if}
