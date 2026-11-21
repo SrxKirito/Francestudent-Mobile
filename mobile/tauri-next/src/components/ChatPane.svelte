@@ -166,6 +166,13 @@
         {#if showLive}
           <div class="message assistant message-enter">
             {#if live.sources.length > 0}<ChatSources sources={live.sources} searching={live.searching} initiallyOpen />{/if}
+            {#if live.tools?.length}
+              <ul class="tool-progress" aria-label="Outils MCP" aria-live="polite">
+                {#each live.tools as tool (tool.id)}
+                  <li>{tool.label || "Outil MCP"} · {tool.status === "in_progress" ? "En cours" : tool.status === "completed" ? "Terminé" : "Échec"}</li>
+                {/each}
+              </ul>
+            {/if}
             <div class="bubble pending" class:streaming={live.text !== ""} class:searching={indicator === "search"} class:image-generating={live.imageStarted}>
               {#if indicator === "typing"}
                 <span class="typing-indicator" role="status" aria-label="Génération en cours"><span></span><span></span><span></span></span>

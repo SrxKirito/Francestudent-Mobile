@@ -698,8 +698,15 @@ async function nativePhase(baseUrl, pageErrors) {
     await click("Sélection du skill", q("#skill-choice-0"));
     await waitFor(q("#prompt") + '.value === "/resume "', "commande insérée");
     await cdp.send("Input.insertText", { text: "Synthétise." });
-    await setPlan({ events: [delta("Réponse de test", 44), done("Réponse de test", 44)] });
+    await setPlan({ events: [
+      { name: "response.output_item.added", data: { item: { id: "appel", type: "mcp_call", name: "Catalogue", arguments: "données internes" } } },
+      { name: "response.mcp_call.completed", data: { item_id: "appel" }, delay: 450 },
+      { ...delta("Réponse de test", 44), delay: 450 }, done("Réponse de test", 44)
+    ] });
     await click("Envoyer", q("#send"));
+    await waitFor(contains(".tool-progress", "Catalogue · En cours"), "appel MCP en cours");
+    assert.equal(await ev(contains(".tool-progress", "données internes")), false);
+    await waitFor(contains(".tool-progress", "Catalogue · Terminé"), "appel MCP terminé");
     await waitFor(contains("#thread", "Réponse de test"), "réponse du flux");
     assert.match((await streamPosts()).at(-1).body, /Skill imposé.*skill-1/);
   });
@@ -807,6 +814,21 @@ async function nativePhase(baseUrl, pageErrors) {
     assert.equal(await ev("window.__backend.files.some(file => file.filename === 'transfert-frst.txt')"), true);
     assert.equal(dialogs.length, 0);
     await click("Fermer les paramètres", q("#settings-close"));
+  });
+  await check("chargement à la demande : ouvrir un projet et prévisualiser un fichier", async () => {
+    await click("Projets", q("#projects-open"));
+    await waitFor(contains("#svelte-projects", "Projet de test"), "liste des projets");
+    const project = `[...document.querySelectorAll("#svelte-projects button")].find(button => button.textContent.trim() === "Projet de test")`;
+    await click("Ouvrir le projet", project);
+    await waitFor(contains("#project-context-name", "Projet de test"), "projet actif dans la barre latérale");
+    await click("Quitter le projet", q("#project-leave"));
+    await waitFor(q("#project-context") + ".hidden", "retour à l’historique principal");
+    await click("Bibliothèque", q("#library-open"));
+    await waitFor(contains("#svelte-library", "transfert-frst.txt"), "fichier FRST dans la bibliothèque");
+    const file = `[...document.querySelectorAll("#svelte-library .library-open")].find(button => button.textContent.includes("transfert-frst.txt"))`;
+    await click("Prévisualiser", file);
+    await waitFor(contains("dialog.preview-dialog[open] #preview-title", "transfert-frst.txt"), "module d’aperçu ouvert");
+    await escape();
   });
   await check("mémoires du compte : liste, lecture à la demande et suppression", async () => {
     await click("Ouvrir les paramètres", q("#user-button"));

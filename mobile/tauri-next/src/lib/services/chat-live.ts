@@ -1,7 +1,7 @@
 // État « en direct » d'une réponse en cours, alimenté par les rappels de processChatStream. Pur (aucun DOM, aucune
 // rune) : le magasin Svelte n'a plus qu'à recopier `live` dans son état réactif.
 import type { ChatSource } from "../types/chat.ts";
-import type { ProcessChatStreamOptions, StreamEvent } from "../types/chat-stream.ts";
+import type { ProcessChatStreamOptions, StreamEvent, ToolProgress } from "../types/chat-stream.ts";
 
 export interface LiveState {
   active: boolean;
@@ -9,6 +9,7 @@ export interface LiveState {
   searching: boolean;
   sources: ChatSource[];
   imageStarted: boolean;
+  tools?: ToolProgress[];
 }
 
 export function emptyLive(): LiveState {
@@ -32,6 +33,12 @@ export function createLiveTracker(update: (live: LiveState) => void): LiveTracke
     if (event.name === "web_search") push({ ...live, searching: true });
     else if (event.name === "sources") push({ ...live, searching: false, sources: event.data.map(source => ({ url: source.url, title: source.title, host: source.host })) });
     else if (event.name === "image_start") push({ ...live, imageStarted: true });
+    else if (event.name === "tool_progress") {
+      const previous = live.tools?.find(tool => tool.id === event.data.id);
+      const others = live.tools?.filter(tool => tool.id !== event.data.id) ?? [];
+      const progress = { ...event.data, label: event.data.label || previous?.label };
+      push({ ...live, tools: [...others.slice(-4), progress] });
+    }
   };
   return {
     get live() { return live; },

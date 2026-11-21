@@ -12,10 +12,6 @@
   import ImportDialog from "./ImportDialog.svelte";
   import SharesDialog from "./SharesDialog.svelte";
   import ToastHost from "./ToastHost.svelte";
-  import ProjectsDialog from "./ProjectsDialog.svelte";
-  import LibraryDialog from "./LibraryDialog.svelte";
-  import PreviewDialog from "./PreviewDialog.svelte";
-  import SettingsDialog from "./SettingsDialog.svelte";
   import { createRuntimeApiClient } from "../lib/services/api-runtime.ts";
   import { createStorageAccount } from "../lib/services/account-local.ts";
   import { loadProfile, profileName } from "../lib/services/account.ts";
@@ -372,24 +368,48 @@
     {/if}
   </main>
   {#if projects && settings?.workspace && settings.api}
-    <ProjectsDialog engine={settings.workspace} api={settings.api} editId={projects.editId} target={projects.target} onconfirm={text => chat.confirm(text)} onclose={() => { projects = null; }} />
+    {@const workspace = settings.workspace}
+    {@const api = settings.api}
+    {#await import("./ProjectsDialog.svelte") then { default: ProjectsDialog }}
+      <ProjectsDialog engine={workspace} {api} editId={projects?.editId} target={projects?.target}
+        onconfirm={text => chat.confirm(text)} onclose={() => { projects = null; }} />
+    {:catch}
+      <p role="alert">Impossible d’ouvrir les projets.</p>
+    {/await}
   {/if}
   {#if libraryOpen && settings?.workspace && settings.api}
-    <LibraryDialog engine={settings.workspace} api={settings.api}
-      onopenmessage={async id => {
-        const opened = await store.engine?.openServerConversation?.(id);
-        if (opened) libraryOpen = false;
-        return opened === true;
-      }}
-      onconfirm={text => chat.confirm(text)} onclose={() => { libraryOpen = false; }} ontoast={(text, error) => chat.toast(text, error)} />
+    {@const workspace = settings.workspace}
+    {@const api = settings.api}
+    {#await import("./LibraryDialog.svelte") then { default: LibraryDialog }}
+      <LibraryDialog engine={workspace} {api}
+        onopenmessage={async id => {
+          const opened = await store.engine?.openServerConversation?.(id);
+          if (opened) libraryOpen = false;
+          return opened === true;
+        }}
+        onconfirm={text => chat.confirm(text)} onclose={() => { libraryOpen = false; }} ontoast={(text, error) => chat.toast(text, error)} />
+    {:catch}
+      <p role="alert">Impossible d’ouvrir la bibliothèque.</p>
+    {/await}
   {/if}
-  {#if settings}
-    <SettingsDialog store={settings} showChatToggle={false} onconfirm={text => chat.confirm(text)} />
+  {#if settings?.open}
+    {@const current = settings}
+    {#await import("./SettingsDialog.svelte") then { default: SettingsDialog }}
+      <SettingsDialog store={current} showChatToggle={false} onconfirm={text => chat.confirm(text)} />
+    {:catch}
+      <p role="alert">Impossible d’ouvrir les paramètres.</p>
+    {/await}
   {/if}
   {#if renameRequest}
     <RenameDialog initial={renameRequest.initial} onanswer={answerRename} />
   {/if}
-  <PreviewDialog file={preview} onclose={() => { preview = null; }} />
+  {#if preview}
+    {#await import("./PreviewDialog.svelte") then { default: PreviewDialog }}
+      <PreviewDialog file={preview} onclose={() => { preview = null; }} />
+    {:catch}
+      <p role="alert">Impossible de charger l’aperçu.</p>
+    {/await}
+  {/if}
 </div>
 
 <style>

@@ -406,6 +406,16 @@ export async function processChatStream(options: ProcessChatStreamOptions): Prom
     }
     logEvent(name, data);
     if (!data || typeof data !== "object") return;
+    const mcpStatus = /^response\.mcp_call\.(in_progress|completed|failed)$/.exec(name)?.[1];
+    const tool = data.item?.type === "mcp_call" ? data.item : null;
+    const state = mcpStatus ?? tool?.status ?? (name === "response.output_item.added" && tool ? "in_progress" : undefined);
+    const toolId = mcpStatus ? data.item_id : tool?.id;
+    if (typeof toolId === "string" && toolId && (state === "in_progress" || state === "completed" || state === "failed")) {
+      emit({
+        name: "tool_progress",
+        data: { id: toolId.slice(0, 160), label: typeof tool?.name === "string" ? tool.name.trim().slice(0, 100) : undefined, status: state }
+      });
+    }
     if (data.chat_id) {
       conversation.chatId = data.chat_id;
       if (conversation.pendingResponse) save?.();

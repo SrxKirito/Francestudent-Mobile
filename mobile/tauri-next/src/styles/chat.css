@@ -5,6 +5,8 @@ main.main:has(> .chat-pane) { position: relative; }
 
 .chat-pane .generated-image-error { padding: 14px 16px; color: var(--muted, #8b8fa3); font-size: .9rem; }
 
+.tool-progress { margin: .25rem 0; padding-inline-start: 1.25rem; font-size: .875rem; color: var(--muted); overflow-wrap: anywhere; }
+
 /* Notifications : dans la couche supérieure (popover), sans le style par défaut du navigateur. */
 .fs-toast-host {
   position: fixed; inset: 0 auto auto 0; width: 0; height: 0; margin: 0; padding: 0; border: 0;

@@ -26,12 +26,19 @@ export interface ImageEventData {
   chatId: string | null;
 }
 
+export interface ToolProgress {
+  id: string;
+  label?: string;
+  status: "in_progress" | "completed" | "failed";
+}
+
 export type StreamEvent =
   | { name: "image_start"; data: null }
   | { name: "image"; data: ImageEventData }
   | { name: "sources"; data: StreamSource[] }
   | { name: "message_saved"; data: Record<string, unknown> }
-  | { name: "web_search"; data: Record<string, unknown> };
+  | { name: "web_search"; data: Record<string, unknown> }
+  | { name: "tool_progress"; data: ToolProgress };
 
 export type SseHandler = (name: string, payload: string, eventId: string, explicitId: boolean) => void;
 
