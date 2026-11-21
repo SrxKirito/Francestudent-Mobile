@@ -39,6 +39,25 @@ impl<R: Runtime> Stt<R> {
             .map_err(Into::into)
     }
 
+    #[cfg(target_os = "ios")]
+    pub async fn speak(&self, sequence: u64, text: String, language: String) -> crate::Result<()> {
+        self.0
+            .run_mobile_plugin_async(
+                "speakText",
+                serde_json::json!({ "sequence": sequence, "text": text, "language": language }),
+            )
+            .await
+            .map_err(Into::into)
+    }
+
+    #[cfg(target_os = "ios")]
+    pub async fn stop_speaking(&self, sequence: u64) -> crate::Result<()> {
+        self.0
+            .run_mobile_plugin_async("stopSpeaking", serde_json::json!({ "sequence": sequence }))
+            .await
+            .map_err(Into::into)
+    }
+
     /// Check if STT is available
     pub fn is_available(&self) -> crate::Result<AvailabilityResponse> {
         self.0

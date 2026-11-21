@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onMount, tick, type Snippet } from "svelte";
   import { errorMessage } from "../lib/utils/errors.ts";
   import LibraryThumbnail from "./LibraryThumbnail.svelte";
   import WorkspaceIcon from "./WorkspaceIcon.svelte";
@@ -7,17 +7,20 @@
   import type { FileUsage, RemoteFile, WorkspaceEngine } from "../lib/services/workspace-engine.ts";
 
   type Category = "files" | "images";
-  let { engine, onconfirm, onarchives, onskills }: {
+  let { engine, onconfirm, onarchives, archivePage, onskills }: {
     engine: WorkspaceEngine;
     onconfirm: (text: string) => Promise<boolean>;
     onarchives?: () => void;
+    archivePage?: Snippet;
     onskills?: () => void;
   } = $props();
   let usage = $state.raw<FileUsage | null>(null);
   let files = $state.raw<RemoteFile[]>([]);
   let hasMore = $state(false);
   let busy = $state(false);
-  let detail = $state<Category | null>(null);
+  let detail = $state<Category | "archives" | null>(null);
+  let archiveButton: HTMLButtonElement | undefined = $state();
+  let detailHeading: HTMLHeadingElement | undefined = $state();
   let query = $state("");
   let sort = $state("date-desc");
   let message = $state("");
@@ -70,6 +73,20 @@
     void run(() => engine.loadFiles());
   }
 
+  function showArchives() {
+    message = "";
+    detail = "archives";
+    onarchives?.();
+    void tick().then(() => detailHeading?.focus());
+  }
+
+  function back() {
+    const fromArchives = detail === "archives";
+    detail = null;
+    message = "";
+    if (fromArchives) void tick().then(() => archiveButton?.focus());
+  }
+
   function remove(file: RemoteFile) {
     void run(async () => {
       if (!await onconfirm("Supprimer définitivement « " + (file.filename || file.id) + " » ?") || !live) return;
@@ -100,9 +117,9 @@
       <button id="storage-images" type="button" class="settings-btn category" disabled={busy} onclick={() => showFiles("images")}>
         <WorkspaceIcon name="image" size={21} /><span><strong>Images</strong><small>Voir les images et leurs aperçus</small></span><WorkspaceIcon name="next" size={16} />
       </button>
-      {#if onarchives}
-        <button type="button" class="settings-btn category" onclick={onarchives}>
-          <WorkspaceIcon name="archive" size={21} /><span><strong>Discussions archivées</strong></span><WorkspaceIcon name="next" size={16} />
+      {#if onarchives && archivePage}
+        <button id="storage-archives" type="button" class="settings-btn category" bind:this={archiveButton} onclick={showArchives}>
+          <WorkspaceIcon name="archive" size={21} /><span><strong>Discussions archivées</strong><small>Restaurer ou télécharger</small></span><WorkspaceIcon name="next" size={16} />
         </button>
       {/if}
       {#if onskills}
@@ -114,11 +131,14 @@
   {:else}
     <div class="storage-heading detail">
       <button type="button" class="settings-btn storage-action" aria-label="Retour au stockage" disabled={busy}
-        onclick={() => { detail = null; message = ""; }}><WorkspaceIcon name="back" size={18} /></button>
-      <h3 class="settings-section-title">{detail === "images" ? "Images" : "Fichiers"}</h3>
-      <button type="button" class="settings-btn storage-action" aria-label="Actualiser les fichiers" disabled={busy}
-        onclick={() => void run(() => engine.refreshFiles())}><WorkspaceIcon name="refresh" size={17} /></button>
+        onclick={back}><WorkspaceIcon name="back" size={18} /></button>
+      <h3 class="settings-section-title" tabindex="-1" bind:this={detailHeading}>{detail === "archives" ? "Discussions archivées" : detail === "images" ? "Images" : "Fichiers"}</h3>
+      {#if detail !== "archives"}<button type="button" class="settings-btn storage-action" aria-label="Actualiser les fichiers" disabled={busy}
+        onclick={() => void run(() => engine.refreshFiles())}><WorkspaceIcon name="refresh" size={17} /></button>{/if}
     </div>
+    {#if detail === "archives"}
+      {@render archivePage?.()}
+    {:else}
     <div class="library-filters">
       <input type="search" class="settings-input" aria-label="Rechercher un fichier" placeholder="Rechercher un fichier" bind:value={query}>
       <select class="settings-input" aria-label="Trier les fichiers" bind:value={sort}>{#each FILE_SORTS as [value, label]}<option {value}>{label}</option>{/each}</select>
@@ -143,6 +163,7 @@
       {/each}
     </div>
     {#if hasMore}<button type="button" class="settings-btn" disabled={busy} onclick={() => void run(() => engine.loadMore())}>Charger plus</button>{/if}
+    {/if}
   {/if}
   {#if busy}<p role="status" class="settings-hint">Chargement…</p>{/if}
   {#if message}<p role="alert" class="settings-error">{message}</p>{/if}
@@ -155,7 +176,7 @@
   .storage-heading h3, .storage-heading h4 { margin: 0; }
   .storage-heading.detail h3 { flex: 1; }
   .storage-list { display: grid; gap: 8px; }
-  .category { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 10px; align-items: center; text-align: left; width: 100%; border-radius: 12px; }
+  .category { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 10px; align-items: center; text-align: left; width: 100%; min-block-size: 62px; border-radius: 12px; }
   .storage-list strong, .storage-list small { display: block; overflow-wrap: anywhere; }
   .storage-list small { color: var(--muted, #999); font-size: .78rem; margin-top: 2px; }
   .storage-file { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 5px; padding: 6px; }

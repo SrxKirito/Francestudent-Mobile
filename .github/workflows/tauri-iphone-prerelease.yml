@@ -65,6 +65,10 @@ jobs:
         run: npm ci
       - name: Initialiser le projet iOS Tauri
         run: npm run tauri -- ios init --ci --skip-targets-install
+      - name: Ajouter l’icône France Student
+        run: |
+          test -f src-tauri/gen/apple/Assets.xcassets/AppIcon.appiconset/Contents.json
+          npm run icon:ios
       - name: Ajouter le manifeste de confidentialité
         run: ruby scripts/install-ios-privacy.rb
       - name: Construire l'IPA ARM64 non signé

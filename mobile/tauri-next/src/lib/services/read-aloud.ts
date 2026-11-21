@@ -26,6 +26,64 @@ function chunks(text: string): string[] {
   return result;
 }
 
+export interface ReadAloudPlayer {
+  play(index: number, markdown: string): void;
+  stop(): void;
+}
+
+let playbackSequence = 0;
+function nextSequence(): number {
+  playbackSequence = Math.max(playbackSequence + 1, Date.now());
+  return playbackSequence;
+}
+
+export function createNativeReadAloud(
+  transport: {
+    start(sequence: number, text: string, language: string): Promise<void>;
+    stop(sequence: number): Promise<void>;
+  },
+  onChange: (index: number | null) => void,
+  onError: () => void,
+  language: string
+): ReadAloudPlayer {
+  let active: number | null = null;
+  let ticket = 0;
+
+  function clear() {
+    active = null;
+    onChange(null);
+  }
+
+  function stop() {
+    if (active === null) return;
+    ticket++;
+    clear();
+    void transport.stop(nextSequence()).catch(() => {});
+  }
+
+  function play(index: number, markdown: string) {
+    const previous = active;
+    stop();
+    if (previous === index) return;
+    const text = speechText(markdown);
+    if (!text) return;
+
+    const id = ++ticket;
+    active = index;
+    onChange(index);
+    void transport.start(nextSequence(), text, language).then(
+      () => { if (ticket === id) clear(); },
+      () => {
+        if (ticket !== id) return;
+        clear();
+        onError();
+      }
+    );
+  }
+
+  return { play, stop };
+}
+
 export function createReadAloud(
   synthesis: Pick<SpeechSynthesis, "speak" | "cancel">,
   utterance: (text: string) => SpeechSynthesisUtterance,

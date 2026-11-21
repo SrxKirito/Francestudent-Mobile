@@ -1,6 +1,6 @@
 {
   "name": "francestudent-tauri",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "private": true,
   "type": "module",
   "scripts": {
@@ -9,6 +9,7 @@
     "check": "svelte-check --tsconfig ./tsconfig.json",
     "test": "node prepare-legacy.cjs && node test-legacy-bridge.cjs && node test-legacy-files.cjs && node test-skill-commands.cjs && node test-legacy-storage.cjs && node test-storage-settings.cjs && node test-files-store.cjs && node test-file-thumbnails.cjs && node test-config-hygiene.cjs && node test-legacy-login.cjs && node test-legacy-session.cjs && node test-conversation-storage.cjs && node test-save-file.cjs && node test-remote-chat-search.cjs && node test-archived-chats.cjs && node test-project-shares.cjs && node test-saved-messages.cjs && node test-speech-bridge.mjs && node test-speech-integration.mjs && node migration/test-backup.mjs && node migration/test-adapters.mjs && node migration/test-orchestrate.mjs && node test-locked-chats.cjs && node test-conversation-import.cjs && node test-legacy-data-import.cjs && node migration/test-startup-barrier.mjs && node migration/test-ui.mjs && node migration/test-migration-page.mjs && node migration/test-ios-guard.mjs && node migration/test-capacitor-host.mjs && node migration/test-install-ios-bridge.mjs && node migration/test-legacy-export-wiring.mjs && node migration/test-prepare-transition.mjs && node migration/test-transition-version.mjs && node test-svelte-foundation.mjs && node test-svelte-login.mjs && node test-svelte-session.mjs && node test-svelte-ui.mjs && node test-svelte-markup.mjs && node test-svelte-conversations-storage.mjs && node test-svelte-history.mjs && node test-svelte-history-markup.mjs && node test-svelte-sidebar-markup.mjs && node test-svelte-engine-state.mjs && node test-svelte-legacy-shell.mjs && node test-svelte-chat-stream.mjs && node test-svelte-markdown.mjs && node test-svelte-interactive-content.mjs && node test-image-search.mjs && node test-read-aloud.mjs && node test-office-export.mjs && node test-svelte-chat-engine.mjs && node test-prepare-chat-hook.cjs && node test-svelte-chat-client.mjs && node test-svelte-chat-live.mjs && node test-svelte-chat-view.mjs && node test-svelte-locked-chats.mjs && node test-svelte-conversation-import.mjs && node test-svelte-chat-shares.mjs && node test-interface-settings.cjs && node test-svelte-api-client.mjs && node test-svelte-general-settings.mjs && node test-svelte-local-settings.mjs && node test-prepare-settings-hook.cjs && node test-svelte-interface-choice.mjs && node test-svelte-model-menu.mjs && node test-svelte-account.mjs && node test-svelte-account-local.mjs && node test-svelte-account-bridge.mjs && node test-svelte-account-store.mjs && node test-svelte-settings-store.mjs && node test-svelte-settings-markup.mjs && node test-svelte-viewport.mjs",
     "tauri": "tauri",
+    "icon:ios": "tauri icon ../ios/App/App/Assets.xcassets/AppIcon.appiconset/AppIcon-512@2x.png",
     "verify:browser": "node prepare-legacy.cjs && node verify-shell-browser.mjs"
   },
   "dependencies": {

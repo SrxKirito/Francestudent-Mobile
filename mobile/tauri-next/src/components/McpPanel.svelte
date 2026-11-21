@@ -13,6 +13,7 @@
   let message = $state("");
   let step = $state(0);
   let wizard: HTMLDialogElement;
+  let wizardTitle: HTMLHeadingElement;
   let addButton: HTMLButtonElement;
   let label = $state("");
   let url = $state("");
@@ -54,7 +55,9 @@
     step = next;
     formError = "";
     await tick();
-    wizard.querySelector<HTMLElement>("fieldset input, fieldset select")?.focus();
+    if (!wizard.open) return;
+    wizard.scrollTop = 0;
+    wizardTitle.focus({ preventScroll: true });
   }
 
   function closeWizard() {
@@ -109,13 +112,12 @@
     if (!signal.aborted) oauth = flow;
   }
 
-  function change(server: McpServer, action: "toggle" | "discover" | "delete") {
+  function change(server: McpServer, action: "toggle" | "delete") {
     return run(async () => {
       if (action === "delete" && (!await onconfirm("Supprimer le serveur « " + (server.server_label || server.id) + " » ?") || signal.aborted)) return;
-      const path = mcpPath(server.id);
-      await api.json(path + (action === "discover" ? "/discover" : ""), {
+      await api.json(mcpPath(server.id), {
         method: action === "delete" ? "DELETE" : "POST",
-        body: action === "toggle" ? { enabled: server.enabled === false } : action === "discover" ? {} : undefined,
+        body: action === "toggle" ? { enabled: server.enabled === false } : undefined,
         signal
       });
       if (action === "delete" && oauth?.id === server.id) { oauth = null; code = ""; }
@@ -151,14 +153,20 @@
   {#each rows as server (server.id)}
     <article class="settings-item" data-mcp-id={server.id}>
       <div class="settings-item-head">
-        <div class="settings-item-info"><strong>{server.server_label || server.id}</strong><div class="settings-item-sub">{server.server_url ?? ""}</div></div>
-        <label><input type="checkbox" role="switch" aria-label={"Activer " + (server.server_label || server.id)} checked={server.enabled !== false} disabled={busy} onchange={event => { event.currentTarget.checked = server.enabled !== false; void change(server, "toggle"); }}> {server.enabled !== false ? "Activé" : "Désactivé"}</label>
+        <div class="settings-item-info"><strong class="settings-item-title">{server.server_label || server.id}</strong><div class="settings-item-sub">{server.server_url ?? ""}</div></div>
+        <label class="settings-switch">
+          <input type="checkbox" role="switch" aria-label={"Activer " + (server.server_label || server.id)}
+            checked={server.enabled !== false} disabled={busy}
+            onchange={event => { event.currentTarget.checked = server.enabled !== false; void change(server, "toggle"); }}>
+          <span class="settings-switch-track" aria-hidden="true"></span>
+        </label>
       </div>
       {#if server.server_description}<p class="settings-item-desc">{server.server_description}</p>{/if}
       <div class="settings-badges">
+        <span class="settings-badge">{server.enabled !== false ? "Activé" : "Désactivé"}</span>
         <span class="settings-badge">{server.available_tools?.length ?? 0} outil(s)</span>
         {#if server.has_authorization}<span class="settings-badge ok">Authentifié</span>{/if}
-        {#if server.oauth_status && server.oauth_status !== "none"}<span class="settings-badge">OAuth · {server.oauth_status}</span>{/if}
+        {#if server.auth_type === "oauth" && server.oauth_status && server.oauth_status !== "none" && server.oauth_status !== "not_applicable"}<span class="settings-badge">OAuth · {server.oauth_status}</span>{/if}
         {#if server.require_approval === "always"}<span class="settings-badge">Approbation requise</span>{/if}
       </div>
       {#if server.available_tools?.length}
@@ -168,7 +176,6 @@
       {/if}
       <div class="settings-item-actions">
         {#if server.auth_type === "oauth"}<button type="button" class="settings-btn" disabled={busy} onclick={() => void run(() => connect(server.id), "Impossible de démarrer la connexion OAuth.")}>Connecter mon compte</button>{/if}
-        <button type="button" class="settings-btn" disabled={busy} onclick={() => void change(server, "discover")}>Actualiser les outils</button>
         <button type="button" class="settings-btn danger" disabled={busy} onclick={() => void change(server, "delete")}>Supprimer</button>
       </div>
       {#if oauth?.id === server.id}
@@ -180,9 +187,9 @@
       {/if}
     </article>
   {/each}
-  <dialog class="project-editor" aria-label="Ajouter un serveur MCP" bind:this={wizard} oncancel={event => { event.preventDefault(); event.stopPropagation(); if (!busy) closeWizard(); }}>
+  <dialog class="mcp-add-dialog" aria-labelledby="mcp-add-title" bind:this={wizard} oncancel={event => { event.preventDefault(); event.stopPropagation(); if (!busy) closeWizard(); }}>
     <form class="settings-form" onsubmit={submit}>
-      <h3>Ajouter un serveur MCP</h3>
+      <h3 id="mcp-add-title" tabindex="-1" bind:this={wizardTitle}>Ajouter un serveur MCP</h3>
       <p class="settings-hint">Étape {step} sur 3</p>
       <fieldset disabled={busy}>
         {#if step === 1}
@@ -208,3 +215,31 @@
     </form>
   </dialog>
 </div>
+
+<style>
+  .settings-item-title, .settings-item-sub, .settings-item-desc, .settings-tool-list { overflow-wrap: anywhere; }
+  .mcp-add-dialog {
+    position: fixed;
+    inset: auto 0;
+    top: calc(var(--ios-viewport-top, 0px) + (var(--ios-viewport-height, 100dvh) + var(--fs-safe-top, 0px) - var(--fs-safe-bottom, 0px)) / 2);
+    translate: 0 -50%;
+    box-sizing: border-box;
+    width: min(32rem, calc(100% - max(12px, env(safe-area-inset-left)) - max(12px, env(safe-area-inset-right))));
+    max-width: none;
+    max-height: calc(var(--ios-viewport-height, 100dvh) - var(--fs-safe-top, 0px) - var(--fs-safe-bottom, 0px) - 24px);
+    margin: 0 auto;
+    padding: clamp(14px, 4vw, 22px);
+    border: 1px solid var(--border, #333);
+    border-radius: 18px;
+    background: var(--surface, #18181a);
+    color: var(--text, #eee);
+    overflow: auto;
+    overscroll-behavior: contain;
+  }
+  .mcp-add-dialog::backdrop { background: #000a; }
+  .mcp-add-dialog form, fieldset { display: grid; gap: .75rem; min-width: 0; }
+  .mcp-add-dialog h3, .mcp-add-dialog p { margin: 0; overflow-wrap: anywhere; }
+  fieldset { border: 0; padding: 0; margin: 0; }
+  .mcp-add-dialog input:not([type=checkbox]), .mcp-add-dialog textarea, .mcp-add-dialog select { box-sizing: border-box; width: 100%; font-size: 16px; }
+  .mcp-add-dialog .settings-item-actions { justify-content: flex-end; }
+</style>

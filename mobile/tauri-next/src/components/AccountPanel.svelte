@@ -91,10 +91,10 @@
         {/if}
       </div>
     </section>
+    {@render children?.()}
     <button id="logout" class="settings-btn danger" type="button" disabled={account.signingOut} onclick={() => void account.logout()}>Se déconnecter</button>
     {#if account.logoutError}
       <p id="logout-status" role="alert" class="settings-hint general-status-error">{account.logoutError}</p>
     {/if}
-    {@render children?.()}
   </div>
 </section>

@@ -95,9 +95,6 @@
     previewAttachment(index);
   }
 
-  function vote(up: boolean) {
-    void chat.engine?.vote(message.index, up);
-  }
 </script>
 
 {#snippet saveButton()}
@@ -201,8 +198,6 @@
       {/if}
       <button type="button" class="msg-action icon-only" title="Copier" aria-label="Copier" onclick={copyMessage}>{#if copied}<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5L20 7"/></svg>{:else}{@html icon("copy")}{/if}</button>
       <button type="button" class="msg-action icon-only" title="Régénérer" aria-label="Régénérer" onclick={() => chat.engine?.regenerate(message.index)}>{@html icon("refresh")}</button>
-      <button type="button" class="msg-action icon-only" class:active={message.feedback === "up"} title="Bonne réponse" aria-label="Bonne réponse" aria-pressed={message.feedback === "up" ? "true" : "false"} onclick={() => vote(true)}>{@html icon("like")}</button>
-      <button type="button" class="msg-action icon-only" class:active={message.feedback === "down"} title="Mauvaise réponse" aria-label="Mauvaise réponse" aria-pressed={message.feedback === "down" ? "true" : "false"} onclick={() => vote(false)}>{@html icon("dislike")}</button>
     </div>
   </div>
 {/if}

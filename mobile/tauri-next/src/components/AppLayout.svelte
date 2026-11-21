@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { flushSync, onMount } from "svelte";
   import logo from "../../../www/image.png";
   import ConversationMenu from "./ConversationMenu.svelte";
   import Sidebar from "./Sidebar.svelte";
@@ -335,37 +335,111 @@
   $effect(() => {
     store.syncSearch(store.conversations.query);
   });
-  let drawerSwipe: { id: number; x: number; y: number; open: boolean } | null = null;
+  function watchDrawer(app: HTMLDivElement) {
+    type Drag = {
+      id: number; x: number; y: number; width: number; open: boolean;
+      position: number; active: boolean; lastX: number; lastTime: number; velocity: number;
+    };
+    const lifetime = new AbortController();
+    const { signal } = lifetime;
+    let drag: Drag | undefined;
+    let swallowClick: { until: number; x: number; y: number } | undefined;
 
-  function startDrawerSwipe(event: TouchEvent) {
-    drawerSwipe = null;
-    const target = event.target;
-    if (legacyChat || !store.ready || store.wide || event.touches.length !== 1 || !(target instanceof Element)) return;
-    if (document.querySelector("dialog[open]") || target.closest("input, textarea, select, button, a, label, [contenteditable], [role=option], pre, table, .visual")) return;
-    const open = store.drawerOpen;
-    if (!target.closest(open ? "#sidebar, #overlay" : "#messages, .chat-pane .topbar")) return;
-    const touch = event.touches[0];
-    if (open || touch.clientX >= 14) drawerSwipe = { id: touch.identifier, x: touch.clientX, y: touch.clientY, open };
-  }
+    function finish(cancelled = false) {
+      const current = drag;
+      drag = undefined;
+      if (!current?.active) return;
+      swallowClick = { until: performance.now() + 350, x: current.lastX, y: current.y };
+      const velocity = performance.now() - current.lastTime < 110 ? current.velocity : 0;
+      const traveled = Math.abs(current.position - (current.open ? current.width : 0));
+      const flick = traveled >= 20 && Math.abs(velocity) > .5;
+      const open = flick ? velocity > 0 : current.position >= current.width / 2;
 
-  function finishDrawerSwipe(event: TouchEvent) {
-    const start = drawerSwipe;
-    drawerSwipe = null;
-    if (!start || store.wide || store.drawerOpen !== start.open || document.querySelector("dialog[open]")) return;
-    const touch = Array.from(event.changedTouches).find(item => item.identifier === start.id);
-    if (!touch) return;
-    const distance = (touch.clientX - start.x) * (start.open ? -1 : 1);
-    if (distance < 60 || distance < Math.abs(touch.clientY - start.y) * 1.5) return;
-    if (start.open) store.overlayClick();
-    else store.menuToggle();
+      app.classList.remove("drawer-finger");
+      // Rétablit les transitions à la position courante avant de rejoindre la butée.
+      app.querySelector("#sidebar")?.getBoundingClientRect();
+      flushSync(() => {
+        if (!store.wide && !cancelled && store.drawerOpen !== open) {
+          if (open) store.menuToggle();
+          else store.overlayClick();
+        }
+        app.removeAttribute("data-drawer-gesture");
+        app.style.removeProperty("--drawer-offset");
+        app.style.removeProperty("--drawer-progress");
+      });
+    }
+
+    function startSwipe(event: TouchEvent) {
+      finish(true);
+      const target = event.target;
+      if (legacyChat || !store.ready || store.wide || event.touches.length !== 1 || !(target instanceof Element)) return;
+      if (document.querySelector("dialog[open]") || target.closest("input, textarea, select, label, [contenteditable], [role=option], pre, table, iframe, .visual, .map-surface, .carousel-frame, .preview-image-viewport, .settings-modal, .popover")) return;
+      if (window.getSelection()?.isCollapsed === false) return;
+      const open = store.drawerOpen;
+      if (!target.closest(open ? "#sidebar, #overlay" : "#messages, .chat-pane .topbar")) return;
+      if (!open && target.closest("button, a")) return;
+      const touch = event.touches[0];
+      if (!open && touch.clientX < 14) return;
+      const width = app.querySelector("#sidebar")?.getBoundingClientRect().width;
+      if (!width) return;
+      drag = { id: touch.identifier, x: touch.clientX, y: touch.clientY, width, open,
+        position: open ? width : 0, active: false, lastX: touch.clientX, lastTime: performance.now(), velocity: 0 };
+    }
+
+    function update(touch: Touch) {
+      if (!drag) return;
+      const dx = touch.clientX - drag.x, dy = touch.clientY - drag.y;
+      if (!drag.active) {
+        if (Math.abs(dy) > 8 && Math.abs(dy) > Math.abs(dx)) { drag = undefined; return; }
+        if (Math.abs(dx) < 9 || Math.abs(dx) < Math.abs(dy) * 1.5) return;
+        if (drag.open ? dx > 0 : dx < 0) { drag = undefined; return; }
+        drag.active = true;
+        store.closeMenus();
+        app.classList.add("drawer-finger");
+        app.setAttribute("data-drawer-gesture", "");
+      }
+      const now = performance.now();
+      if (touch.clientX !== drag.lastX && now > drag.lastTime) {
+        drag.velocity = (touch.clientX - drag.lastX) / (now - drag.lastTime);
+        drag.lastX = touch.clientX;
+        drag.lastTime = now;
+      }
+      drag.position = Math.max(0, Math.min(drag.width, (drag.open ? drag.width : 0) + dx));
+      app.style.setProperty("--drawer-offset", (drag.position - drag.width) + "px");
+      app.style.setProperty("--drawer-progress", String(drag.position / drag.width));
+    }
+
+    app.addEventListener("touchstart", startSwipe, { passive: true, signal });
+    app.addEventListener("touchmove", event => {
+      if (!drag) return;
+      if (event.touches.length !== 1 || store.drawerOpen !== drag.open || store.wide) { finish(true); return; }
+      const touch = event.touches[0];
+      if (touch.identifier !== drag.id) return;
+      update(touch);
+      if (drag?.active && event.cancelable) event.preventDefault();
+    }, { passive: false, signal });
+    app.addEventListener("touchend", event => {
+      if (!drag) return;
+      const touch = Array.from(event.changedTouches).find(item => item.identifier === drag?.id);
+      if (touch && drag.active) update(touch);
+      finish();
+    }, { passive: true, signal });
+    app.addEventListener("touchcancel", () => finish(true), { passive: true, signal });
+    window.addEventListener("resize", () => finish(true), { signal });
+    app.addEventListener("click", event => {
+      if (!event.detail || !swallowClick || performance.now() >= swallowClick.until ||
+          Math.abs(event.clientX - swallowClick.x) > 24 || Math.abs(event.clientY - swallowClick.y) > 24) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+    }, { capture: true, signal });
+    return { destroy: () => lifetime.abort() };
   }
 </script>
 
-<svelte:window onresize={() => store.resize(window.innerWidth)} ontouchstart={startDrawerSwipe}
-  ontouchend={finishDrawerSwipe} ontouchcancel={() => { drawerSwipe = null; }} />
+<svelte:window onresize={() => store.resize(window.innerWidth)} />
 <svelte:document onclick={() => store.closeMenus()} />
 
-<div class="app" class:fs-native={!legacyChat} class:sidebar-collapsed={store.collapsed} class:booting={!store.ready}>
+<div class="app" use:watchDrawer class:fs-native={!legacyChat} class:sidebar-collapsed={store.collapsed} class:booting={!store.ready}>
   {#if !store.unavailable}
     <Sidebar
       open={store.drawerOpen}
@@ -443,7 +517,7 @@
     {@const workspace = settings.workspace}
     {@const api = settings.api}
     {#await import("./LibraryDialog.svelte") then { default: LibraryDialog }}
-      <LibraryDialog engine={workspace} {api}
+      <LibraryDialog engine={workspace} {api} katexReady={chat.katexReady}
         onopenmessage={async id => {
           const opened = await store.engine?.openServerConversation?.(id);
           if (opened) libraryOpen = false;
@@ -458,7 +532,7 @@
     {@const current = settings}
     {#await import("./SettingsDialog.svelte") then { default: SettingsDialog }}
       <SettingsDialog store={current} showChatToggle={false} onconfirm={text => chat.confirm(text)}
-        onimport={importConversation} onarchives={() => { current.selectTab("general"); if (!store.archive.open) store.toggleArchive(); }}>
+        onimport={importConversation} onarchives={store.archive.available ? () => { if (!store.archive.open) store.toggleArchive(); } : undefined}>
         {#snippet conversations()}
           {@const snapshot = chat.state}
           <section class="general-section" aria-labelledby="settings-conversations-title">
@@ -469,11 +543,11 @@
                 <p class="settings-hint">Envoyer avec un autre modèle démarrera une nouvelle discussion côté serveur.</p>
               {/if}
             {/if}
-            {#if store.archive.available}
-              <ArchivedChats archive={store.archive} ontoggle={() => store.toggleArchive()} onrestore={id => store.restoreArchived(id)}
-                ondownload={id => store.downloadArchived(id)} onmore={() => store.moreArchived()} />
-            {/if}
           </section>
+        {/snippet}
+        {#snippet archivePage()}
+          <ArchivedChats archive={store.archive} standalone onrestore={id => store.restoreArchived(id)}
+            ondownload={id => store.downloadArchived(id)} onmore={() => store.moreArchived()} />
         {/snippet}
       </SettingsDialog>
     {:catch}

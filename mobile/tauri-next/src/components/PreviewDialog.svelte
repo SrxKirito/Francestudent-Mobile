@@ -5,6 +5,7 @@
   import { extractDocumentText, MAX_PREVIEW_BYTES, openPdf, readWordDocument } from "../lib/services/document-assets.ts";
   import { saveBytes } from "../lib/services/file-saver.ts";
   import PreviewPdf from "./PreviewPdf.svelte";
+  import PreviewImage from "./PreviewImage.svelte";
   import { copyText } from "../lib/utils/clipboard.ts";
   import InteractiveTable from "./InteractiveTable.svelte";
   import { renderMarkdownText, highlightCode } from "../lib/services/markdown.ts";
@@ -30,7 +31,6 @@
   let status = $state("");
   let slideIndex = $state(0);
   let sheetIndex = $state(0);
-  let zoom = $state(1);
   const canShare = typeof navigator !== "undefined" && typeof navigator.share === "function";
   function selectedSlide(current: View | null, index: number) {
     return current?.kind === "slides" ? current.presentation.slides[index] : null;
@@ -54,7 +54,6 @@
     status = "";
     slideIndex = 0;
     sheetIndex = 0;
-    zoom = 1;
     if (!element.open) element.showModal();
 
     async function read() {
@@ -195,15 +194,12 @@
       <h2 id="preview-title">{file.name}</h2>
       <button type="button" class="settings-btn" onclick={onclose} aria-label="Fermer l’aperçu">Fermer</button>
     </header>
-    <div class="preview-content">
+    <div class="preview-content" class:image-content={view?.kind === "image"}>
       {#if view?.kind === "image"}
-        <div class="image-controls">
-          <button type="button" class="settings-btn" aria-label="Réduire le zoom" disabled={zoom === 1} onclick={() => { zoom = Math.max(1, zoom - .5); }}>−</button>
-          <span role="status">{Math.round(zoom * 100)} %</span>
-          <button type="button" class="settings-btn" aria-label="Augmenter le zoom" disabled={zoom === 3} onclick={() => { zoom = Math.min(3, zoom + .5); }}>+</button>
-        </div>
-        <img src={view.url} alt={file.name} class:zoomed={zoom > 1} style:--preview-width={zoom * 100 + "%"}
-          onerror={() => { view = { kind: "unavailable", detail: "Le format de cette image n’est pas pris en charge par cet appareil." }; }}>
+        {#key view.url}
+          <PreviewImage source={view.url} name={file.name}
+            onerror={() => { view = { kind: "unavailable", detail: "Le format de cette image n’est pas pris en charge par cet appareil." }; }} />
+        {/key}
       {:else if view?.kind === "pdf"}
         {#key view.pdf}<PreviewPdf pdf={view.pdf} />{/key}
       {:else if view?.kind === "slides" && slide}
@@ -290,9 +286,7 @@
   .word-preview .bold { font-weight: 700; }
   .word-preview .italic { font-style: italic; }
   .word-preview .underline { text-decoration: underline; }
-  img { display: block; margin: 0 auto; width: auto; max-width: 100%; max-height: 100%; object-fit: contain; }
-  img.zoomed { max-width: none; max-height: none; margin: 0; width: var(--preview-width); }
-  .image-controls { position: sticky; left: 0; top: 0; display: flex; align-items: center; justify-content: center; gap: .75rem; margin-bottom: .75rem; background: var(--surface); }
+  .preview-content.image-content { overflow: hidden; }
   .preview-actions { display: flex; flex-wrap: wrap; gap: .5rem; justify-content: end; }
   pre { white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; font: inherit; }
   .slides-controls { display: flex; align-items: center; justify-content: center; gap: .75rem; margin-bottom: .75rem; }

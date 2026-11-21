@@ -120,5 +120,8 @@ export const native = {
   deleteSession: () => invoke<void>("session_delete"),
   scheduleMigration: () => invoke("migration_schedule"),
   speechSupported: () => invoke<boolean>("speech_supported").catch(() => false),
+  readAloudSupported: () => invoke<boolean>("read_aloud_supported").catch(() => false),
+  readAloudStart: (sequence: number, text: string, language: string) => invoke<void>("read_aloud_start", { sequence, text, language }),
+  readAloudStop: (sequence: number) => invoke<void>("read_aloud_stop", { sequence }),
   openSavedFile: (path: string) => invoke("plugin:file-preview|open", { path })
 };

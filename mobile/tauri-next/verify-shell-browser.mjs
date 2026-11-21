@@ -789,16 +789,22 @@ async function nativePhase(baseUrl, pageErrors) {
     await click("Confirmer l’archivage", q(".fs-confirm-ok"));
     await waitFor("!(" + historyItem("Histoire") + ")", "discussion retirée de l’historique");
     await click("Ouvrir les paramètres", q("#user-button"));
-    const archives = q("#panel-general .archived-chat-toggle");
-    await waitFor(archives, "archives dans Général");
-    assert.equal(await ev(has("#sidebar .archived-chat-toggle, #messages #conversation-model")), false);
-    await ev(archives + '.scrollIntoView({ block: "center" })');
+    await waitFor(has("#panel-general"), "onglet Général");
+    assert.equal(await ev(has("#sidebar .archived-chat-toggle, #panel-general .archived-chat-toggle, #messages #conversation-model")), false);
+    await click("Stockage", q("#tab-storage"));
+    const archives = q("#storage-archives");
+    await waitFor(archives + " && " + q("#panel-storage") + '.getAnimations().every(animation => animation.playState !== "running")', "entrée des archives dans Stockage");
+    assert.equal(await ev(archives + ".offsetHeight === " + q("#storage-files") + ".offsetHeight"), true);
     await click("Archives", archives);
+    await waitFor(contains("#panel-storage .storage-heading h3", "Discussions archivées"), "sous-page des archives");
+    assert.equal(await ev(has("#storage-files, #panel-storage .library-filters")), false);
     await waitFor(contains(".archived-chats-panel", "Vieille discussion"), "archives serveur chargées après un archivage local");
     await click("Restaurer Histoire", q('.archived-chats-panel button[aria-label="Restaurer Histoire"]'));
     await waitFor("!!(" + historyItem("Histoire") + ")", "nouvelle archive restaurée");
     await click("Restaurer", q('.archived-chats-panel button[aria-label="Restaurer Vieille discussion"]'));
     await waitFor('!!(' + historyItem("Vieille discussion") + ')', "archive restaurée dans l’historique");
+    await click("Retour au stockage", q('#panel-storage button[aria-label="Retour au stockage"]'));
+    await waitFor(has("#storage-archives"), "retour aux catégories");
     await closeSettings();
   });
   await check("messages enregistrés : ajouter, retrouver et retirer dans la bibliothèque", async () => {
@@ -809,10 +815,19 @@ async function nativePhase(baseUrl, pageErrors) {
     await waitFor(contains("#thread", "Contenu à retrouver"), "message chargé");
     await click("Enregistrer le message", q("#thread .assistant .message-actions button"));
     await waitFor("window.__backend.savedMessages.length === 1", "message stocké côté serveur");
+    await ev('window.__backend.savedMessages[0].message = { content: "Contenu à retrouver $x^2$" }');
     await click("Bibliothèque", q("#library-open"));
     await waitFor(has("#svelte-library[open]"), "bibliothèque ouverte");
     await click("Messages enregistrés", q("#svelte-library > button[aria-expanded]"));
     await waitFor(contains("#svelte-library section", "Contenu à retrouver"), "message retrouvé");
+    await waitFor(has("#svelte-library .saved-message-content .katex"), "formule rendue dans le message enregistré");
+    await waitFor('getComputedStyle(document.querySelector("#svelte-library .katex-mathml")).position === "absolute"', "styles KaTeX locaux actifs");
+    assert.equal(await ev(has('#thread button[aria-label="Bonne réponse"], #thread button[aria-label="Mauvaise réponse"]')), false);
+    assert.equal(await ev(`(() => {
+      const button = document.querySelector("#svelte-library .library-refresh");
+      const a = button.getBoundingClientRect(), b = button.querySelector("svg").getBoundingClientRect();
+      return Math.abs(a.x + a.width / 2 - b.x - b.width / 2) < 1 && Math.abs(a.y + a.height / 2 - b.y - b.height / 2) < 1;
+    })()`), true);
     await click("Ouvrir la conversation d’origine", q("#svelte-library section article button:first-of-type"));
     await waitFor("!" + has("#svelte-library[open]") + " && " + contains("#thread", "Contenu à retrouver"), "retour au chat");
     await click("Bibliothèque", q("#library-open"));
@@ -834,6 +849,8 @@ async function nativePhase(baseUrl, pageErrors) {
     ]`);
     await click("Histoire", historyItem("Histoire"));
     await waitFor(has('#thread svg[aria-label="Mesures"]'), "graphique rendu");
+    await click("Sélectionner la barre du matin", q('#thread svg[aria-label="Mesures"] rect[data-point="0:0"]'));
+    assert.equal(await ev(q("#thread figure label select") + ".value"), "0:0");
     const wordButton = word => `[...document.querySelectorAll("#thread button")].find(button => button.textContent.includes(${JSON.stringify(word)}))`;
     await click("Agrandir", wordButton("Agrandir le graphique"));
     assert.equal(await ev(wordButton("Agrandir le graphique") + '.getAttribute("aria-pressed")'), "true");
@@ -852,9 +869,10 @@ async function nativePhase(baseUrl, pageErrors) {
       { kind: "simulator", title: "Puissance", fields: [{ id: "x", label: "Intensité", type: "range", min: 0, max: 100, value: 35 }],
         results: [{ label: "Résultat", unit: "W", formula: { op: "mul", args: [{ field: "x" }, 2] } }] },
       { kind: "map", title: "Étapes", route: true, places: [{ title: "Paris", lat: 48.85, lon: 2.35 }, { title: "Lyon", lat: 45.75, lon: 4.85 }] },
-      { kind: "carousel", title: "Exemples", items: [{ title: "Première carte" }, { title: "Deuxième carte" }] }
+      { kind: "carousel", title: "Exemples", items: [{ title: "Première carte" }, { title: "Deuxième carte" }] },
+      { kind: "editor", title: "Compte rendu", text: "# Objectif\nTester les aperçus." }
     ].map(row => fence + "frst-ui\n" + JSON.stringify({ version: 1, ...row }) + "\n" + fence);
-    answer.push(fence + 'html\n<h1>Aperçu test</h1><script id="bad-script">window.test = 1</script><form action="https://example.org"><input></form><p onmouseover="window.test = 2">Texte</p>\n' + fence);
+    answer.push(fence + 'html\n<!-- apercu.html --><!doctype html><html><head><style>h1{color:blue}</style></head><body><h1>Aperçu test</h1><details><summary>Voir le bilan</summary>Résultat</details><script id="bad-script">window.test = 1</script><form action="https://example.org"><input></form><p onmouseover="window.test = 2">Texte</p></body></html>\n' + fence);
     const reply = answer.join("\n\n");
     await click("Nouvelle discussion", q("#new-chat"));
     await input("#prompt", "Fais un tableau interactif et un simulateur.");
@@ -873,17 +891,60 @@ async function nativePhase(baseUrl, pageErrors) {
     await waitFor(contains("#thread .interactive-form dd", "40 W"), "calcul recalculé");
     const map = "#thread .interactive-map";
     await waitFor(q(map + " .land") + '?.getAttribute("d").length > 1000', "fond cartographique local");
-    const zoom = map + ' button[aria-label="Agrandir la carte"]';
-    await show(zoom);
-    await click("Zoom de la carte", q(zoom));
-    await waitFor(q(map + " svg") + '.getAttribute("viewBox").split(" ")[2] === "180"', "carte zoomée");
-    const next = '#thread .interactive-collection button[aria-label="Suivant"]';
-    await show(next);
-    await click("Carte suivante", q(next));
-    assert.equal(await ev(contains("#thread .interactive-collection", "Deuxième carte")), true);
-    const html = "#thread .assistant-artifacts button";
-    await show(html);
-    await click("Prévisualiser HTML", q(html));
+    const surface = map + " .map-surface";
+    await show(surface);
+    const bounds = selector => ev(`(() => {
+      const r = ${q(selector)}.getBoundingClientRect();
+      return { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) };
+    })()`);
+    const camera = `JSON.parse(JSON.stringify(${q(surface)}.getAttribute("viewBox").split(" ").map(Number)))`;
+    const pinchStart = await ev(camera);
+    const touch = (type, touchPoints) => cdp.send("Input.dispatchTouchEvent", { type, touchPoints });
+    await cdp.send("Emulation.setTouchEmulationEnabled", { enabled: true, maxTouchPoints: 2 });
+    try {
+      const { x, y } = await bounds(surface);
+      await touch("touchStart", [{ id: 0, x: x - 25, y }, { id: 1, x: x + 25, y }]);
+      await touch("touchMove", [{ id: 0, x: x - 65, y }, { id: 1, x: x + 65, y }]);
+      await touch("touchEnd", []);
+      await waitFor(camera + "[2] < " + pinchStart[2], "pincement : carte zoomée");
+      const panned = await ev(camera);
+      await touch("touchStart", [{ id: 0, x, y }]);
+      await touch("touchMove", [{ id: 0, x: x + 90, y: y + 16 }]);
+      await touch("touchEnd", []);
+      await waitFor(camera + "[0] < " + panned[0], "glissement : carte déplacée");
+      assert.equal(await ev(has("#sidebar.open")), false);
+
+      const carousel = "#thread .carousel-frame";
+      await show(carousel);
+      const slide = await bounds(carousel);
+      await touch("touchStart", [{ id: 0, x: slide.x + 65, y: slide.y }]);
+      await touch("touchMove", [{ id: 0, x: slide.x - 65, y: slide.y }]);
+      await touch("touchEnd", []);
+      await waitFor(contains(carousel, "Deuxième carte"), "carte suivante au glissement");
+    } finally {
+      await cdp.send("Emulation.setTouchEmulationEnabled", { enabled: false });
+    }
+    const editor = "#thread .interactive-editor";
+    await waitFor(contains(editor + " .editor-preview h1", "Objectif"), "Markdown mis en forme");
+    const edit = editor + " .editor-actions button:first-child";
+    await show(edit);
+    await click("Modifier le compte rendu", q(edit));
+    await input(editor + " textarea", "# Aperçu modifié");
+    await show(edit);
+    await click("Voir l’aperçu", q(edit));
+    await waitFor(contains(editor + " .editor-preview h1", "Aperçu modifié"), "modification visible dans l’aperçu");
+
+    const html = "#thread .inline-html-preview";
+    const inline = html + ' iframe[sandbox=""]';
+    await waitFor(has(inline), "aperçu HTML dans la réponse");
+    assert.equal(await ev(q(html + " details") + ".open"), false);
+    const source = await ev(q(inline) + ".srcdoc");
+    assert.match(source, /h1\{color:blue\}/);
+    assert.match(source, /<summary>Voir le bilan<\/summary>/);
+    assert.doesNotMatch(source, /bad-script|<form|onmouseover/);
+    const expand = html + " header button";
+    await show(expand);
+    await click("Prévisualiser HTML en grand", q(expand));
     const frame = 'dialog.preview-dialog iframe[sandbox=""]';
     await waitFor(has(frame), "aperçu HTML avec bac à sable");
     const srcdoc = await ev(q(frame) + ".srcdoc");
@@ -892,6 +953,14 @@ async function nativePhase(baseUrl, pageErrors) {
     assert.doesNotMatch(srcdoc, /bad-script|<form|onmouseover/);
     await escape();
     await waitFor("!" + has("dialog.preview-dialog[open]"), "aperçu fermé");
+    await ev('document.querySelector("#messages").scrollTop = 0');
+    const down = "#scroll-bottom:not(.hidden)";
+    await waitFor(has(down), "aller en bas visible");
+    const size = await ev(`(() => {
+      const r = ${q(down)}.getBoundingClientRect();
+      return [r.width, r.height];
+    })()`);
+    assert.deepEqual(size, [44, 44]);
   });
   await check("export de texte : conversation active et sélecteur de fichier", async () => {
     await click("Menu de Maths", "(" + historyItem("Maths") + ')?.querySelector(".history-more")');
@@ -944,20 +1013,77 @@ async function nativePhase(baseUrl, pageErrors) {
     await click("Compte", q("#tab-account"));
     await waitFor(has("#panel-account #logout"), "déconnexion disponible");
     assert.equal(await ev(contains("#panel-account", "Mémoires du compte")), false);
-    assert.equal(await ev(has("#panel-account #account-api-key")), true);
+    assert.equal(await ev(has("#panel-account #account-api-key + #logout")), true);
     assert.equal(await ev(has("#account-sessions")), false);
     assert.equal(await ev('window.__backend.calls.some(row => row.path === "/user/sessions")'), false);
     await click("Général", q("#tab-general"));
     await waitFor(has("#prompt-compression"), "compression chargée");
     assert.equal(await ev(has("#account-api-key, #settings-image-model-button")), false);
-    await ev(`(() => {
-      const field = document.querySelector("#prompt-compression");
-      field.value = "ultra";
-      field.dispatchEvent(new Event("change", { bubbles: true }));
-      document.querySelector("#personalization-save").form.requestSubmit();
-    })()`);
+    const reveal = target => ev(q(target) + '.scrollIntoView({ block: "center", behavior: "instant" })');
+    await reveal("#gpt-reasoning-button");
+    await click("Niveau de réflexion", q("#gpt-reasoning-button"));
+    assert.equal(await ev('document.querySelectorAll("#gpt-reasoning-menu .reasoning-icon svg").length'), 6);
+    await escape();
+    await reveal("#prompt-compression");
+    await click("Compression du contexte", q("#prompt-compression"));
+    await waitFor(has("#prompt-compression-menu:not(.hidden)"), "menu de compression affiché comme celui de réflexion");
+    await click("Maximale", q('[data-compression="ultra"]'));
+    await reveal("#personalization-save");
+    await click("Enregistrer", q("#personalization-save"));
     await waitFor('window.__backend.prefs.promptCompression === "ultra"', "compression maximum enregistrée");
     await click("Fermer les paramètres", q("#settings-close"));
+  });
+  await check("Recherche web : menus Svelte et annulation conservée", async () => {
+    await click("Ouvrir les paramètres", q("#user-button"));
+    await waitFor(q("#web-settings-open") + " && !" + q("#web-settings-open") + ".disabled", "recherche web disponible");
+    await ev(q("#web-settings-open") + '.scrollIntoView({ block: "center" })');
+    await click("Recherche web", q("#web-settings-open"));
+    await waitFor(q("#web-settings-fields") + " && !" + q("#web-settings-fields") + ".disabled", "filtres web chargés");
+    await click("Accès au web", q("#web-search-mode"));
+    await click("Filtrer les sites", q('#web-search-mode-menu [data-value="filtered"]'));
+    await click("Filtre", q("#web-filter-type"));
+    await click("Exclure ces sites", q('#web-filter-type-menu [data-value="blocklist"]'));
+    assert.equal(await ev(has("#web-blocked-field:not([hidden])")), true);
+    await ev(q("#web-settings-cancel") + '.scrollIntoView({ block: "center" })');
+    await click("Annuler", q("#web-settings-cancel"));
+    await waitFor("!" + has("#web-settings-dialog[open]"), "dialogue web fermé");
+    assert.equal(await ev('window.__backend.prefs.webSearchMode'), "open");
+    await closeSettings();
+  });
+  await check("MCP : cartes alignées et modale avec clavier simulé", async () => {
+    await click("Ouvrir les paramètres", q("#user-button"));
+    await waitFor(has("#tab-mcp"), "onglet MCP disponible");
+    await cdp.send("Emulation.setDeviceMetricsOverride", { width: 390, height: 660, deviceScaleFactor: 1, mobile: false });
+    try {
+      await ev(q("#tab-mcp") + '.scrollIntoView({ block: "nearest" })');
+      await click("MCP", q("#tab-mcp"));
+      await waitFor(q("#panel-mcp .settings-switch-track") + " && " + q("#panel-mcp") + '.getAnimations().every(animation => animation.playState !== "running")', "interrupteur visible");
+      assert.equal(await ev(contains("#panel-mcp", "Actualiser les outils")), false);
+      assert.equal(await ev(q("#panel-mcp .settings-item") + ".scrollWidth > " + q("#panel-mcp .settings-item") + ".clientWidth"), false);
+      const add = `[...document.querySelectorAll("#panel-mcp button")].find(button => button.textContent === "Ajouter MCP")`;
+      await click("Ajouter MCP", add);
+      const wizard = "dialog.mcp-add-dialog[open]";
+      await waitFor(has(wizard), "assistant MCP ouvert");
+      await waitFor('document.activeElement.id === "mcp-add-title"', "le clavier n’est pas ouvert automatiquement");
+      await ev(`(() => {
+        document.documentElement.style.setProperty("--ios-viewport-height", "370px");
+        document.documentElement.style.setProperty("--fs-safe-top", "52px");
+        ${q(wizard + " input")}.focus();
+      })()`);
+      await waitFor(`(() => {
+        const d = ${q(wizard)};
+        const r = d.getBoundingClientRect();
+        return r.top >= 52 && r.bottom <= 370 && r.width < 390 &&
+          getComputedStyle(d).backgroundColor !== "rgb(255, 255, 255)" &&
+          getComputedStyle(d.querySelector("fieldset")).borderTopWidth === "0px";
+      })()`, "dialogue sombre dans la hauteur visible");
+      await escape();
+      await waitFor("!" + has(wizard), "assistant MCP fermé");
+    } finally {
+      await ev('document.documentElement.style.removeProperty("--ios-viewport-height"); document.documentElement.style.removeProperty("--fs-safe-top")');
+      await cdp.send("Emulation.setDeviceMetricsOverride", { width: 1280, height: 800, deviceScaleFactor: 1, mobile: false });
+    }
+    await closeSettings();
   });
   await check("lire une réponse et arrêter en changeant de discussion", async () => {
     await click("Ouvrir Maths", historyItem("Maths"));
@@ -980,6 +1106,7 @@ async function nativePhase(baseUrl, pageErrors) {
     for (const [name, preview, selector] of [["rapport.docx", "Document créé pour le test.", ".formatted-preview"], ["tableau.xlsx", "42", "table"]]) {
       const card = `[...document.querySelectorAll("#thread button.artifact")].find(button => button.textContent.trim() === ${JSON.stringify(name)})`;
       await waitFor("!!(" + card + ")", "carte " + name);
+      assert.equal(await ev("(" + card + ')?.querySelector(".file-format-preview")?.dataset.extension'), name.split(".").at(-1).toUpperCase());
       await click("Ouvrir " + name, card);
       await waitFor(contains("dialog.preview-dialog .preview-content " + selector, preview), "aperçu de " + name);
       await ev("window.__backend.exported = []");
@@ -1126,8 +1253,32 @@ async function nativePhase(baseUrl, pageErrors) {
     const documentPdf = `[...document.querySelectorAll("#svelte-library .library-open")].find(button => button.textContent.includes("Première page.pdf"))`;
     await ev("(" + documentPdf + ")?.scrollIntoView()");
     await waitFor("(" + documentPdf + ')?.querySelector("img")?.naturalHeight === 300', "première page PDF rendue");
+    await ev("(" + image + ")?.scrollIntoView()");
+    await click("Ouvrir l’image de la bibliothèque", image);
+    const zoomSurface = "dialog.preview-dialog[open] .preview-image-viewport";
+    await waitFor(q(zoomSurface + " img") + "?.naturalWidth > 0", "image chargée dans l’aperçu tactile");
+    const { x, y } = await ev(`(() => {
+      const r = ${q(zoomSurface)}.getBoundingClientRect();
+      return { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) };
+    })()`);
+    await cdp.send("Emulation.setTouchEmulationEnabled", { enabled: true, maxTouchPoints: 2 });
+    try {
+      const touch = (type, touchPoints) => cdp.send("Input.dispatchTouchEvent", { type, touchPoints });
+      await touch("touchStart", [{ id: 0, x: x - 25, y }, { id: 1, x: x + 25, y }]);
+      await touch("touchMove", [{ id: 0, x: x - 70, y }, { id: 1, x: x + 70, y }]);
+      await touch("touchEnd", []);
+      const transform = "getComputedStyle(" + q(zoomSurface + " img") + ").transform";
+      await waitFor("new DOMMatrix(" + transform + ").a > 1", "pincement : image agrandie");
+      const initial = await ev(transform);
+      await touch("touchStart", [{ id: 0, x, y }]);
+      await touch("touchMove", [{ id: 0, x: x + 50, y: y + 40 }]);
+      await touch("touchEnd", []);
+      await waitFor(transform + " !== " + JSON.stringify(initial), "image zoomée déplacée au doigt");
+    } finally {
+      await cdp.send("Emulation.setTouchEmulationEnabled", { enabled: false });
+    }
     await escape();
-    await waitFor("!" + has("#svelte-library[open]"), "bibliothèque fermée");
+    await waitFor("!" + has("dialog.preview-dialog[open], #svelte-library[open]"), "aperçu et bibliothèque fermés");
     await click("Ouvrir les paramètres", q("#user-button"));
     await waitFor(has("#tab-storage"), "onglet stockage");
     await click("Stockage", q("#tab-storage"));
@@ -1158,11 +1309,21 @@ async function nativePhase(baseUrl, pageErrors) {
     };
     await swipe(32, 350, 50, 530);
     assert.equal(await ev(has("#sidebar.open")), false);
-    await swipe(32, 350, 180, 353);
+    const touch = (type, touchPoints) => cdp.send("Input.dispatchTouchEvent", { type, touchPoints });
+    await touch("touchStart", [{ x: 32, y: 350 }]);
+    await touch("touchMove", [{ x: 100, y: 353 }]);
+    await waitFor(`(() => {
+      const app = document.querySelector(".app[data-drawer-gesture]");
+      const r = document.querySelector("#sidebar").getBoundingClientRect();
+      return app && Math.abs(r.right - 68) < 2 && !document.querySelector("#sidebar.open");
+    })()`, "tiroir synchronisé avec le doigt avant relâchement");
+    await touch("touchCancel", []);
+    await waitFor("!" + has(".app[data-drawer-gesture], #sidebar.open"), "geste annulé");
+    await swipe(32, 350, 222, 353);
     await waitFor(has("#sidebar.open"), "tiroir ouvert au glissement droit");
     await swipe(360, 350, 195, 350);
     await waitFor("!" + has("#sidebar.open"), "tiroir refermé au glissement gauche");
-    await swipe(32, 350, 180, 353);
+    await swipe(32, 350, 222, 353);
     await cdp.send("Emulation.setTouchEmulationEnabled", { enabled: false });
     await waitFor(`(() => {
       const target = document.querySelector("#sidebar.open #projects-open");
@@ -1631,9 +1792,12 @@ async function chatPhase(baseUrl, pageErrors) {
     await click("Recherche web", `document.getElementById("web-settings-open")`);
     await waitFor(`document.getElementById("web-settings-dialog").open`, "sous-dialogue Recherche web ouvert", { timeout: 8000 });
     await waitFor(`!document.getElementById("web-settings-fields").disabled`, "filtres web chargés (champs actifs)", { timeout: 8000 });
-    await ev(`(() => { const s = document.getElementById("web-search-mode"); s.value = "filtered"; s.dispatchEvent(new Event("change", { bubbles: true })); return s.value; })()`);
+    await click("Accès au web", `document.getElementById("web-search-mode")`);
+    await click("Filtrer les sites", `document.querySelector('#web-search-mode-menu [data-value="filtered"]')`);
     await waitFor(`!document.getElementById("web-domain-options").hidden`, "options de filtre visibles en mode filtré");
-    await ev(`(() => { const f = document.getElementById("web-filter-type"); f.value = "allowlist"; f.dispatchEvent(new Event("change", { bubbles: true })); const t = document.getElementById("web-allowed-domains"); t.value = "wikipedia.org\\nfrancestudent.org"; t.dispatchEvent(new Event("input", { bubbles: true })); return true; })()`);
+    await click("Filtre", `document.getElementById("web-filter-type")`);
+    await click("Autoriser des sites", `document.querySelector('#web-filter-type-menu [data-value="allowlist"]')`);
+    await ev(`(() => { const t = document.getElementById("web-allowed-domains"); t.value = "wikipedia.org\\nfrancestudent.org"; t.dispatchEvent(new Event("input", { bubbles: true })); return true; })()`);
     await click("Enregistrer (recherche web)", `document.getElementById("web-settings-save")`);
     await waitFor(`!document.getElementById("web-settings-dialog").open`, "sous-dialogue fermé après enregistrement", { timeout: 8000 });
     const sent = await ev(`window.__backend.calls.filter(c => (c.method === "PUT" && c.path === "/user/web-search-domains") || (c.method === "PATCH" && c.path === "/user/instructions")).map(c => c.method + " " + c.body)`);

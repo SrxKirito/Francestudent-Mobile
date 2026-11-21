@@ -21,14 +21,16 @@
     onarchives?: () => void;
     onimport?: () => void;
     conversations?: Snippet;
+    archivePage?: Snippet;
     onconfirm?: (text: string) => Promise<boolean>;
   }
 
-  type MenuId = "default" | "reasoning";
+  type MenuId = "default" | "reasoning" | "compression" | "web-mode" | "web-filter";
 
   const AUTO_MODEL_MARK = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8z"/><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z"/></svg>';
-  const BUTTON_IDS: Record<MenuId, string> = { default: "default-model-button", reasoning: "gpt-reasoning-button" };
-  const MENU_IDS: Record<MenuId, string> = { default: "default-model-menu", reasoning: "gpt-reasoning-menu" };
+  const BUTTON_IDS: Record<MenuId, string> = { default: "default-model-button", reasoning: "gpt-reasoning-button", compression: "prompt-compression", "web-mode": "web-search-mode", "web-filter": "web-filter-type" };
+  const MENU_IDS: Record<MenuId, string> = { default: "default-model-menu", reasoning: "gpt-reasoning-menu", compression: "prompt-compression-menu", "web-mode": "web-search-mode-menu", "web-filter": "web-filter-type-menu" };
+  const WEB_FILTERS = [{ value: "allowlist", label: "Autoriser uniquement ces sites" }, { value: "blocklist", label: "Exclure ces sites" }] as const;
   const THEMES: readonly { id: Theme; label: string }[] = [
     { id: "system", label: "Système" },
     { id: "light", label: "Clair" },
@@ -37,7 +39,7 @@
   const COLUMNS: readonly LibraryColumns[] = [1, 2, 3, 4];
   const UNAVAILABLE = "Ce modèle est indisponible pour le moment.";
 
-  let { store, showChatToggle = true, onarchives, onimport, conversations, onconfirm = async () => false }: Props = $props();
+  let { store, showChatToggle = true, onarchives, onimport, conversations, archivePage, onconfirm = async () => false }: Props = $props();
 
   let menu: MenuId | null = $state(null);
   let webDialog: HTMLDialogElement | undefined = $state();
@@ -46,7 +48,9 @@
   const groups = $derived(store.groups);
   const valid = $derived(store.defaultValid);
   const current = $derived(valid ? groups.flatMap(group => group.agents).find(agent => agent.id === store.settings.defaultAgentId) ?? null : null);
-  const reasoningLabel = $derived(REASONING_LEVELS.find(level => level.value === store.reasoning)?.label ?? REASONING_LEVELS[0].label);
+  const reasoningIndex = $derived(Math.max(0, REASONING_LEVELS.findIndex(level => level.value === store.reasoning)));
+  const reasoningLabel = $derived(REASONING_LEVELS[reasoningIndex].label);
+  const compressionLevel = $derived(COMPRESSION_LEVELS.find(level => level.value === store.compression) ?? COMPRESSION_LEVELS[0]);
 
   // Ouverture : bloque le défilement de la page, mémorise l'élément focalisé, met le focus sur « Fermer ».
   $effect(() => {
@@ -68,7 +72,10 @@
     const el = webDialog;
     if (!el) return;
     if (store.webOpen && !el.open) el.showModal();
-    else if (!store.webOpen && el.open) el.close();
+    else if (!store.webOpen && el.open) {
+      if (menu === "web-mode" || menu === "web-filter") menu = null;
+      el.close();
+    }
   });
 
   function focusButton(id: MenuId) {
@@ -98,6 +105,24 @@
     store.reasoning = value;
     menu = null;
     focusButton("reasoning");
+  }
+
+  function pickWebOption(id: "web-mode" | "web-filter", value: string) {
+    if (id === "web-mode") {
+      const option = WEB_MODES.find(item => item.value === value);
+      if (option) store.webMode = option.value;
+    } else {
+      const option = WEB_FILTERS.find(item => item.value === value);
+      if (option) store.webFilterType = option.value;
+    }
+    menu = null;
+    focusButton(id);
+  }
+
+  function pickCompression(value: (typeof COMPRESSION_LEVELS)[number]["value"]) {
+    store.compression = value;
+    menu = null;
+    focusButton("compression");
   }
 
   function chooseTheme(theme: Theme) {
@@ -184,7 +209,10 @@
       store.close();
       return;
     }
-    if (store.webOpen || (event.target instanceof Element && event.target.closest("dialog[open]"))) return;
+    if (store.webOpen || (event.target instanceof Element && event.target.closest("dialog[open]"))) {
+      if (menu === "web-mode" || menu === "web-filter") navigate(event);
+      return;
+    }
     if (event.key === "Tab") trap(event);
     else navigate(event);
   }
@@ -218,8 +246,43 @@
   <span class="model-caret" aria-hidden="true"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></span>
 {/snippet}
 
+{#snippet reasoningIcon(level: number)}
+  <span class="reasoning-icon" aria-hidden="true">
+    <svg viewBox="0 0 20 20" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+      {#if level === 0}
+        <path d="M5 10h10" />
+      {:else}
+        {#each [4, 6, 8, 11, 14] as height, index (height)}
+          <path d={"M" + (4 + index * 3) + " 17v-" + height} opacity={index < level ? 1 : .28} />
+        {/each}
+      {/if}
+    </svg>
+  </span>
+{/snippet}
+
 {#snippet check()}
   <span class="model-check" aria-hidden="true"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5L20 7"/></svg></span>
+{/snippet}
+
+{#snippet webPicker(id: "web-mode" | "web-filter", label: string, options: readonly { value: string; label: string }[], value: string)}
+  {@const control = BUTTON_IDS[id]}
+  {@const list = MENU_IDS[id]}
+  <div class="settings-label">
+    <span id={control + "-title"}>{label}</span>
+    <div class="settings-field default-model-field">
+      <button type="button" id={control} class="model-button default-model-button" aria-controls={list}
+        aria-haspopup="listbox" aria-expanded={menu === id} aria-labelledby={control + "-title " + control + "-label"}
+        onclick={() => void toggleMenu(id)}>
+        <span class="model-name"><span class="model-title" id={control + "-label"}>{options.find(option => option.value === value)?.label}</span></span>{@render caret()}
+      </button>
+      <div id={list} class="popover model-menu default-model-menu" class:hidden={menu !== id} role="listbox" aria-labelledby={control + "-title"}>
+        {#each options as option (option.value)}
+          <button type="button" role="option" class="model-option" aria-selected={option.value === value} data-value={option.value}
+            onclick={() => pickWebOption(id, option.value)}><span>{option.label}</span>{#if option.value === value}{@render check()}{/if}</button>
+        {/each}
+      </div>
+    </div>
+  </div>
 {/snippet}
 
 {#if store.open}
@@ -332,20 +395,31 @@
                     <div><label id="gpt-reasoning-title" for="gpt-reasoning-button"><strong>Niveau de réflexion</strong></label><p class="settings-hint">Préférence héritée pour les modèles GPT.</p></div>
                     <div class="settings-field default-model-field reasoning-field">
                       <input id="gpt-reasoning" type="hidden" value={store.reasoning}>
-                      <button id="gpt-reasoning-button" class="model-button default-model-button" type="button" aria-haspopup="listbox" aria-controls="gpt-reasoning-menu" aria-expanded={menu === "reasoning" ? "true" : "false"} aria-labelledby="gpt-reasoning-title gpt-reasoning-label" onclick={() => void toggleMenu("reasoning")}><span class="model-name"><span id="gpt-reasoning-label" class="model-title">{reasoningLabel}</span></span>{@render caret()}</button>
+                      <button id="gpt-reasoning-button" class="model-button default-model-button" type="button" aria-haspopup="listbox" aria-controls="gpt-reasoning-menu" aria-expanded={menu === "reasoning" ? "true" : "false"} aria-labelledby="gpt-reasoning-title gpt-reasoning-label" onclick={() => void toggleMenu("reasoning")}>{@render reasoningIcon(reasoningIndex)}<span class="model-name"><span id="gpt-reasoning-label" class="model-title">{reasoningLabel}</span></span>{@render caret()}</button>
                       <div id="gpt-reasoning-menu" class="popover model-menu default-model-menu" class:hidden={menu !== "reasoning"} role="listbox" aria-labelledby="gpt-reasoning-title">
-                        {#each REASONING_LEVELS as level (level.value)}
-                          <button type="button" class="model-option" role="option" data-reasoning={level.value} aria-selected={store.reasoning === level.value ? "true" : "false"} onclick={() => pickReasoning(level.value)}>{level.label}</button>
+                        {#each REASONING_LEVELS as level, index (level.value)}
+                          <button type="button" class="model-option" role="option" data-reasoning={level.value} aria-selected={store.reasoning === level.value ? "true" : "false"} onclick={() => pickReasoning(level.value)}>{@render reasoningIcon(index)}<span>{level.label}</span>{#if store.reasoning === level.value}{@render check()}{/if}</button>
                         {/each}
                       </div>
                     </div>
                   </div>
-                  <section class="general-section" aria-labelledby="compression-title">
-                    <h3 id="compression-title" class="settings-section-title">Compression du contexte</h3>
-                    <p class="settings-hint">Raccourcit les anciens messages avant leur envoi au modèle. Le niveau maximal peut atténuer certaines nuances.</p>
-                    <label class="settings-label">Niveau<select id="prompt-compression" class="settings-input" value={store.compression ?? "off"} onchange={event => {
-                      store.compression = COMPRESSION_LEVELS.find(level => level.value === event.currentTarget.value)?.value;
-                    }}>{#each COMPRESSION_LEVELS as level (level.value)}<option value={level.value}>{level.label}</option>{/each}</select></label>
+                  <section class="general-section general-setting-row" aria-labelledby="compression-title">
+                    <div><h3 id="compression-title" class="settings-section-title">Compression du contexte</h3>
+                      <p class="settings-hint">Raccourcit les anciens messages avant leur envoi au modèle. Le niveau maximal peut atténuer certaines nuances.</p>
+                    </div>
+                    <div class="settings-field default-model-field reasoning-field">
+                      <button id="prompt-compression" class="model-button default-model-button" type="button" aria-haspopup="listbox"
+                        aria-controls="prompt-compression-menu" aria-expanded={menu === "compression" ? "true" : "false"}
+                        aria-labelledby="compression-title prompt-compression-label" onclick={() => void toggleMenu("compression")}>
+                        <span class="model-name"><span id="prompt-compression-label" class="model-title">{compressionLevel.label}</span></span>{@render caret()}
+                      </button>
+                      <div id="prompt-compression-menu" class="popover model-menu default-model-menu" class:hidden={menu !== "compression"} role="listbox" aria-labelledby="compression-title">
+                        {#each COMPRESSION_LEVELS as level (level.value)}
+                          <button type="button" class="model-option" role="option" data-compression={level.value} aria-selected={compressionLevel.value === level.value ? "true" : "false"}
+                            onclick={() => pickCompression(level.value)}><span>{level.label}</span>{#if compressionLevel.value === level.value}{@render check()}{/if}</button>
+                        {/each}
+                      </div>
+                    </div>
                   </section>
                   <div class="general-section"><label for="custom-instructions" class="settings-label">Instructions personnalisées</label><p class="settings-hint">Indique le ton, le format et les consignes à suivre dans vos réponses.</p><textarea id="custom-instructions" class="settings-input" rows="6" placeholder="Comment souhaites-tu que l’assistant réponde ?" bind:value={store.instructions}></textarea><p class="settings-hint">Appliquées à vos conversations.</p></div>
                   <button type="submit" id="personalization-save" class="settings-btn primary">Enregistrer</button>
@@ -360,8 +434,8 @@
                 <header class="mcp-wizard-head"><h3 id="web-settings-title">Recherche web</h3><button type="button" id="web-settings-close" class="settings-icon-btn" aria-label="Fermer" onclick={() => store.closeWeb()}>×</button></header>
                 <form id="web-settings-form" class="settings-form" onsubmit={submitWeb}>
                   <fieldset id="web-settings-fields" disabled={store.webFieldsDisabled}>
-                    <label class="settings-label">Accès au web<select id="web-search-mode" class="settings-input" bind:value={store.webMode}>{#each WEB_MODES as mode (mode.value)}<option value={mode.value}>{mode.label}</option>{/each}</select></label>
-                    <div id="web-domain-options" class="general-section" hidden={store.webMode !== "filtered"}><label class="settings-label">Filtre<select id="web-filter-type" class="settings-input" bind:value={store.webFilterType}><option value="allowlist">Autoriser uniquement ces sites</option><option value="blocklist">Exclure ces sites</option></select></label>
+                    {@render webPicker("web-mode", "Accès au web", WEB_MODES, store.webMode)}
+                    <div id="web-domain-options" class="general-section" hidden={store.webMode !== "filtered"}>{@render webPicker("web-filter", "Filtre", WEB_FILTERS, store.webFilterType)}
                       <label id="web-allowed-field" class="settings-label" hidden={store.webFilterType !== "allowlist"}>Sites autorisés<textarea id="web-allowed-domains" class="settings-input" rows="5" placeholder={"wikipedia.org\nfrancestudent.org"} bind:value={store.webAllowed}></textarea></label>
                       <label id="web-blocked-field" class="settings-label" hidden={store.webFilterType !== "blocklist"}>Sites exclus<textarea id="web-blocked-domains" class="settings-input" rows="5" placeholder="exemple.com" bind:value={store.webBlocked}></textarea></label>
                       <p class="settings-hint">Un domaine par ligne, sans chemin ni paramètres.</p>
@@ -382,10 +456,15 @@
           {:else if store.tab === "mcp" && store.api}
             <McpPanel api={store.api} {onconfirm} />
           {:else if store.tab === "storage" && store.workspace}
-            <StoragePanel engine={store.workspace} {onconfirm} {onarchives} onskills={() => store.selectTab("skills")} />
+            <StoragePanel engine={store.workspace} {onconfirm} {onarchives} {archivePage} onskills={() => store.selectTab("skills")} />
           {/if}
         </div>
       </div>
     </div>
   </div>
 {/if}
+
+<style>
+  .reasoning-icon { display: inline-grid; flex: none; place-items: center; color: var(--brand, currentColor); }
+  :global(#settings-menu #gpt-reasoning-menu [aria-selected="true"]::after) { content: none; }
+</style>

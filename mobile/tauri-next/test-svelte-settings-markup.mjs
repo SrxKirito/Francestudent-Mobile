@@ -140,6 +140,13 @@ try {
     for (const [id, legacy] of expected) {
       const modern = actual.get(id);
       assert.ok(modern, `élément manquant : #${id}`);
+      if (id === "web-search-mode" || id === "web-filter-type") {
+        assert.equal(modern.tag, "button");
+        assert.equal(modern.attrs["aria-haspopup"], "listbox");
+        assert.equal(modern.attrs["aria-controls"], id + "-menu");
+        assert.equal(actual.get(id + "-menu")?.attrs.role, "listbox");
+        continue;
+      }
       assert.equal(modern.tag, legacy.tag, `balise de #${id}`);
       assert.equal(classes(modern.attrs.class), classes(legacy.attrs.class), `classes de #${id}`);
       for (const key of keys) {

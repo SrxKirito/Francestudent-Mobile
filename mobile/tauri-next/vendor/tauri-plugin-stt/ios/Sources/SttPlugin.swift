@@ -25,9 +25,21 @@ struct ListenConfig: Decodable {
     }
 }
 
-/// Tauri plugin for Speech-to-Text recognition on iOS
-/// Uses Apple's Speech framework (SFSpeechRecognizer)
-class SttPlugin: Plugin, SFSpeechRecognitionTaskDelegate {
+private struct SpeakConfig: Decodable {
+    let sequence: UInt64
+    let text: String
+    let language: String
+}
+
+private struct StopSpeakingConfig: Decodable {
+    let sequence: UInt64
+}
+
+/// Native speech recognition and synthesis on iOS.
+class SttPlugin: Plugin, SFSpeechRecognitionTaskDelegate, AVSpeechSynthesizerDelegate {
+    private let synthesizer = AVSpeechSynthesizer()
+    private var playback: (AVSpeechUtterance, Invoke)?
+    private var lastPlaybackSequence: UInt64 = 0
     private var speechRecognizer: SFSpeechRecognizer?
     private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
     private var recognitionTask: SFSpeechRecognitionTask?
@@ -41,6 +53,7 @@ class SttPlugin: Plugin, SFSpeechRecognitionTaskDelegate {
     
     override init() {
         super.init()
+        synthesizer.delegate = self
         NSLog("[SttPlugin] ============================================")
         NSLog("[SttPlugin] PLUGIN INIT")
         NSLog("[SttPlugin]   iOS Version: \(UIDevice.current.systemVersion)")
@@ -111,6 +124,7 @@ class SttPlugin: Plugin, SFSpeechRecognitionTaskDelegate {
         
         switch type {
         case .began:
+            DispatchQueue.main.async { [weak self] in self?.stopPlayback() }
             // Interruption began - stop recognition
             if isListening {
                 wasListeningBeforeInterruption = true
@@ -460,10 +474,82 @@ class SttPlugin: Plugin, SFSpeechRecognitionTaskDelegate {
         }
     }
     
+    // MARK: - Read aloud
+
+    @objc func speakText(_ invoke: Invoke) throws {
+        let args = try invoke.parseArgs(SpeakConfig.self)
+        DispatchQueue.main.async {
+            guard args.sequence > self.lastPlaybackSequence else {
+                invoke.resolve()
+                return
+            }
+            self.lastPlaybackSequence = args.sequence
+            guard !self.isListening else {
+                invoke.reject("Recording is already active")
+                return
+            }
+            self.stopPlayback()
+            let session = AVAudioSession.sharedInstance()
+            do {
+                try session.setCategory(.playback, mode: .spokenAudio, options: [.duckOthers])
+                try session.setActive(true)
+            } catch {
+                invoke.reject("Audio playback is unavailable")
+                return
+            }
+            let utterance = AVSpeechUtterance(string: args.text)
+            let spokenLanguage = args.language.split(separator: "-").first
+            utterance.voice = AVSpeechSynthesisVoice(language: args.language)
+                ?? AVSpeechSynthesisVoice.speechVoices().first { $0.language.split(separator: "-").first == spokenLanguage }
+            self.playback = (utterance, invoke)
+            self.synthesizer.speak(utterance)
+        }
+    }
+
+    @objc func stopSpeaking(_ invoke: Invoke) throws {
+        let args = try invoke.parseArgs(StopSpeakingConfig.self)
+        DispatchQueue.main.async {
+            if args.sequence > self.lastPlaybackSequence {
+                self.lastPlaybackSequence = args.sequence
+                self.stopPlayback()
+            }
+            invoke.resolve()
+        }
+    }
+
+    func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
+        DispatchQueue.main.async { self.finishPlayback(utterance) }
+    }
+
+    func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didCancel utterance: AVSpeechUtterance) {
+        DispatchQueue.main.async { self.finishPlayback(utterance) }
+    }
+
+    private func finishPlayback(_ utterance: AVSpeechUtterance) {
+        guard let (current, invoke) = playback, current === utterance else { return }
+        playback = nil
+        releasePlaybackSession()
+        invoke.resolve()
+    }
+
+    private func stopPlayback() {
+        guard let (_, invoke) = playback else { return }
+        playback = nil
+        synthesizer.stopSpeaking(at: .immediate)
+        releasePlaybackSession()
+        invoke.resolve()
+    }
+
+    private func releasePlaybackSession() {
+        guard !isListening else { return }
+        try? AVAudioSession.sharedInstance().setActive(false, options: [.notifyOthersOnDeactivation])
+    }
+
     // MARK: - Private Methods
     
     private func startRecognition(config: ListenConfig) throws {
         NSLog("[SttPlugin] startRecognition called")
+        stopPlayback()
         
         // Reset manual stop flag when starting new recognition
         isManualStop = false

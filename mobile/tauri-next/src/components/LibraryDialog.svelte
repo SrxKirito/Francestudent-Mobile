@@ -8,8 +8,8 @@
   import SavedMessages from "./SavedMessages.svelte";
   import LibraryThumbnail from "./LibraryThumbnail.svelte";
 
-  let { engine, api, onclose, ontoast, onopenmessage, onconfirm }: {
-    engine: WorkspaceEngine; api: ApiClient; onclose: () => void; ontoast: (message: string, error: boolean) => void;
+  let { engine, api, katexReady, onclose, ontoast, onopenmessage, onconfirm }: {
+    engine: WorkspaceEngine; api: ApiClient; katexReady: boolean; onclose: () => void; ontoast: (message: string, error: boolean) => void;
     onopenmessage: (id: string) => Promise<boolean>;
     onconfirm: (text: string) => Promise<boolean>;
   } = $props();
@@ -146,10 +146,10 @@
 
 <dialog id="svelte-library" class="file-library" aria-labelledby="svelte-library-title" bind:this={dialog} oncancel={event => { event.preventDefault(); onclose(); }}>
   <header><div><h2 id="svelte-library-title">Bibliothèque</h2></div><div class="library-header-actions">
-    <button type="button" aria-label="Actualiser les fichiers" title="Actualiser" disabled={busy} onclick={() => void refresh(true)}><WorkspaceIcon name="refresh" size={18} /></button>
+    <button type="button" class="library-refresh" aria-label="Actualiser les fichiers" title="Actualiser" disabled={busy} onclick={() => void refresh(true)}><WorkspaceIcon name="refresh" size={18} /></button>
     <button type="button" aria-label="Fermer" onclick={onclose}>×</button>
   </div></header>
-  <SavedMessages {api} onopen={onopenmessage} />
+  <SavedMessages {api} {katexReady} onopen={onopenmessage} />
   {#each pending as row (row.id)}
     <div class="library-job">
       <strong>Réponse en attente · {row.title}</strong>
@@ -204,7 +204,8 @@
 </dialog>
 
 <style>
-  .library-header-actions { display: flex; gap: .5rem; }
+  .library-header-actions { display: flex; align-items: center; gap: .5rem; }
+  .library-refresh { display: grid; place-items: center; flex: none; width: 44px; height: 44px; padding: 0; }
   .library-search { width: 100%; margin-block: .6rem; }
   .library-refinements { margin-block-end: .65rem; }
   .library-refinements summary { cursor: pointer; min-height: 44px; display: flex; align-items: center; gap: .45rem; color: var(--muted); }

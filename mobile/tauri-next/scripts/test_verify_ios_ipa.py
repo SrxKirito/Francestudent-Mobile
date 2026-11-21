@@ -11,13 +11,14 @@ module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
 
 
-def fixture(destination, *, bundle="org.francestudent.mobile.next", minimum="16.4", privacy=True, executable=True):
+def fixture(destination, *, bundle="org.francestudent.mobile.next", minimum="16.4", privacy=True, executable=True, icon=True):
     info = {
         "CFBundleIdentifier": bundle,
         "CFBundlePackageType": "APPL",
         "MinimumOSVersion": minimum,
         "CFBundleSupportedPlatforms": ["iPhoneOS"],
         "CFBundleExecutable": "FranceStudent",
+        "CFBundleIcons": {"CFBundlePrimaryIcon": {"CFBundleIconFiles": ["AppIcon60x60"], "CFBundleIconName": "AppIcon"}},
         "NSCameraUsageDescription": "photo",
         "NSPhotoLibraryUsageDescription": "photos",
         "NSMicrophoneUsageDescription": "microphone",
@@ -26,6 +27,8 @@ def fixture(destination, *, bundle="org.francestudent.mobile.next", minimum="16.
     manifest = plistlib.loads((HERE.parent / "src-tauri" / "PrivacyInfo.xcprivacy").read_bytes())
     with zipfile.ZipFile(destination, "w") as archive:
         archive.writestr("Payload/Test.app/Info.plist", plistlib.dumps(info))
+        if icon:
+            archive.write(HERE.parent / "src-tauri/icons/ios/AppIcon-60x60@2x.png", "Payload/Test.app/AppIcon60x60@2x.png")
         if executable:
             archive.writestr("Payload/Test.app/FranceStudent", b"mock-binary")
         if privacy:
@@ -46,7 +49,7 @@ class VerifyIosIpa(unittest.TestCase):
         self.assertEqual(self.binary.read_bytes(), b"mock-binary")
 
     def test_wrong_bundle_and_missing_content_are_rejected(self):
-        for options in ({"bundle": "org.francestudent.chat"}, {"minimum": "15.0"}, {"privacy": False}, {"executable": False}):
+        for options in ({"bundle": "org.francestudent.chat"}, {"minimum": "15.0"}, {"privacy": False}, {"executable": False}, {"icon": False}):
             with self.subTest(options=options):
                 fixture(self.ipa, **options)
                 with self.assertRaises(ValueError):

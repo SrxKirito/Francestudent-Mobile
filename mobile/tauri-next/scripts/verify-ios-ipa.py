@@ -14,6 +14,24 @@ import zipfile
 from pathlib import Path
 
 
+def verify_app_icon(archive: zipfile.ZipFile, app_root: str, info: dict):
+    icons = info.get("CFBundleIcons") or {}
+    primary = icons.get("CFBundlePrimaryIcon") if isinstance(icons, dict) else None
+    files = primary.get("CFBundleIconFiles") if isinstance(primary, dict) else None
+    if not isinstance(files, list) or not files:
+        raise ValueError("Icône principale iPhone absente du manifeste.")
+    stems = [Path(entry).stem for entry in files if isinstance(entry, str) and re.fullmatch(r"[\w.-]+", entry)]
+    names = archive.namelist()
+    for stem in stems:
+        pattern = re.compile(re.escape(app_root + stem) + r"(?:@[23]x)?\.png")
+        for name in names:
+            if pattern.fullmatch(name):
+                with archive.open(name) as stream:
+                    if stream.read(8) == b"\x89PNG\r\n\x1a\n":
+                        return
+    raise ValueError("Image de l’icône principale absente ou invalide dans l’IPA.")
+
+
 def verify_ipa(ipa: Path, expected_bundle: str, executable_output: Path | None = None):
     with zipfile.ZipFile(ipa) as archive:
         names = archive.namelist()
@@ -37,7 +55,9 @@ def verify_ipa(ipa: Path, expected_bundle: str, executable_output: Path | None =
         for key in ("NSCameraUsageDescription", "NSPhotoLibraryUsageDescription", "NSMicrophoneUsageDescription", "NSSpeechRecognitionUsageDescription"):
             if not isinstance(info.get(key), str) or not info[key].strip():
                 raise ValueError(f"Description d'autorisation absente : {key}.")
-        privacy_name = candidates[0].rsplit("/", 1)[0] + "/PrivacyInfo.xcprivacy"
+        app_root = candidates[0].rsplit("/", 1)[0] + "/"
+        verify_app_icon(archive, app_root, info)
+        privacy_name = app_root + "PrivacyInfo.xcprivacy"
         try:
             privacy_entry = archive.getinfo(privacy_name)
         except KeyError as error:
@@ -51,7 +71,7 @@ def verify_ipa(ipa: Path, expected_bundle: str, executable_output: Path | None =
         executable = info.get("CFBundleExecutable")
         if not isinstance(executable, str) or not executable or "/" in executable or "\\" in executable or executable in (".", ".."):
             raise ValueError("Nom d'exécutable invalide.")
-        binary_name = candidates[0].rsplit("/", 1)[0] + "/" + executable
+        binary_name = app_root + executable
         try:
             binary = archive.getinfo(binary_name)
         except KeyError as error:

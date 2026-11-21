@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { createReadAloud, speechText } from "./src/lib/services/read-aloud.ts";
+import { createNativeReadAloud, createReadAloud, speechText } from "./src/lib/services/read-aloud.ts";
 
 const fence = String.fromCharCode(96).repeat(3);
 assert.equal(speechText("# Titre\nVoici [la source](https://example.org)\n\n" + fence + "js\nalert()\n" + fence),
@@ -30,4 +30,36 @@ player.play(3, "Erreur");
 queue.at(-1).onerror();
 assert.equal(errors, 1);
 assert.equal(states.at(-1), null);
-console.log("Lecture vocale : texte, découpage, arrêt, remplacement et erreurs vérifiés.");
+const nativeEvents = [], nativeStates = [];
+let nativeErrors = 0;
+const nativePlayer = createNativeReadAloud({
+  start(sequence, text, language) {
+    return new Promise((resolve, reject) => nativeEvents.push({ sequence, text, language, resolve, reject }));
+  },
+  async stop(sequence) { nativeEvents.push({ sequence }); }
+}, index => nativeStates.push(index), () => { nativeErrors++; }, "fr-FR");
+
+nativePlayer.play(4, "**Lecture**");
+assert.equal(nativeEvents[0].text, "Lecture");
+assert.equal(nativeEvents[0].language, "fr-FR");
+nativePlayer.play(5, "Remplacement");
+assert.ok(nativeEvents[0].sequence < nativeEvents[1].sequence && nativeEvents[1].sequence < nativeEvents[2].sequence);
+nativeEvents[0].reject(new Error("Réponse périmée"));
+await Promise.resolve();
+assert.deepEqual(nativeStates, [4, null, 5]);
+assert.equal(nativeErrors, 0);
+nativeEvents[2].resolve();
+await Promise.resolve();
+assert.equal(nativeStates.at(-1), null);
+nativePlayer.play(6, "Lecture à interrompre");
+nativePlayer.play(6, "Lecture à interrompre");
+assert.ok(nativeEvents[3].sequence < nativeEvents[4].sequence);
+nativeEvents[3].resolve();
+await Promise.resolve();
+assert.equal(nativeStates.at(-1), null);
+nativePlayer.play(7, "Audio indisponible");
+nativeEvents[5].reject(new Error("Audio indisponible"));
+await Promise.resolve();
+assert.equal(nativeStates.at(-1), null);
+assert.equal(nativeErrors, 1);
+console.log("Lecture vocale Web et native : texte, arrêt, remplacement, fin et erreurs vérifiés.");

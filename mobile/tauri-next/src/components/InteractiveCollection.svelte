@@ -13,6 +13,26 @@
   const nodeY = (node: number) => 32 + Math.floor(node / 4) * 60;
   const diagramHeight = $derived(8 + Math.ceil(data.items.length / 4) * 60);
   const step = (delta: number) => { index = (index + delta + data.items.length) % data.items.length; };
+  let swipe: { id: number; x: number; y: number } | undefined;
+
+  function startSwipe(event: TouchEvent) {
+    swipe = undefined;
+    if (event.touches.length !== 1 || data.items.length < 2) return;
+    const touch = event.touches[0];
+    swipe = { id: touch.identifier, x: touch.clientX, y: touch.clientY };
+  }
+
+  function endSwipe(event: TouchEvent) {
+    const start = swipe;
+    swipe = undefined;
+    if (!start) return;
+    const touch = Array.from(event.changedTouches).find(item => item.identifier === start.id);
+    if (!touch) return;
+    const dx = touch.clientX - start.x, dy = touch.clientY - start.y;
+    if (Math.abs(dx) < 48 || Math.abs(dx) <= Math.abs(dy) * 1.4) return;
+    playing = false;
+    step(dx < 0 ? 1 : -1);
+  }
 
   $effect(() => {
     const media = matchMedia("(prefers-reduced-motion: reduce)");
@@ -54,7 +74,8 @@
 <section class="interactive-collection" aria-label={data.title}>
   <strong>{data.title}</strong>
   {#if data.kind === "carousel" || data.kind === "animation"}
-    <div class="frame" aria-live={playing ? "off" : "polite"}>{@render card(current)}</div>
+    <div class="carousel-frame" role="group" aria-label="Diapositive" aria-live={playing ? "off" : "polite"} ontouchstart={startSwipe}
+      ontouchend={endSwipe} ontouchcancel={() => { swipe = undefined; }}>{@render card(current)}</div>
     <div class="actions">
       <button type="button" class="settings-btn" aria-label="Précédent" disabled={data.items.length === 1} onclick={() => step(-1)}>‹</button>
       <span>{index + 1} / {data.items.length}</span>
@@ -121,6 +142,7 @@
   article p { margin: 0; white-space: pre-wrap; }
   small { color: var(--muted); }
   .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 12rem), 1fr)); gap: .5rem; }
+  .carousel-frame { touch-action: pan-y pinch-zoom; }
   .timeline { border-inline-start: 2px solid var(--border); padding-inline-start: 1.25rem; }
   .actions { display: flex; align-items: center; gap: .45rem; flex-wrap: wrap; }
   .actions button { min-height: 44px; }

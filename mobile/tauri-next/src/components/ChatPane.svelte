@@ -7,7 +7,8 @@
   import logo from "../../../www/image.png";
   import { liveStatus, liveVisible } from "../lib/services/chat-view.ts";
   import type { PreviewFile } from "../lib/services/file-preview.ts";
-  import { createReadAloud } from "../lib/services/read-aloud.ts";
+  import { createNativeReadAloud, createReadAloud, type ReadAloudPlayer } from "../lib/services/read-aloud.ts";
+  import { native } from "../lib/services/transport.ts";
   import { studyLoading } from "../lib/services/study-content.ts";
   import { renderMarkdown } from "../lib/services/markdown.ts";
   import type { ChatStore } from "../lib/stores/chat.svelte.ts";
@@ -29,16 +30,28 @@
   let modelOpen = $state(false);
   let showScroll = $state(false);
   let stick = true;
-  let reader = $state.raw<ReturnType<typeof createReadAloud> | null>(null);
+  let reader = $state.raw<ReadAloudPlayer | null>(null);
   let speaking = $state<number | null>(null);
   onMount(() => {
-    if (!window.speechSynthesis || !window.SpeechSynthesisUtterance) return;
-    const control = createReadAloud(window.speechSynthesis, text => new SpeechSynthesisUtterance(text),
-      index => { speaking = index; }, () => chat.toast("Lecture vocale indisponible.", true), document.documentElement.lang || "fr-FR");
-    reader = control;
-    const hidden = () => { if (document.hidden) control.stop(); };
+    let mounted = true;
+    const language = document.documentElement.lang || "fr-FR";
+    const onSpeaking = (index: number | null) => { speaking = index; };
+    const onError = () => chat.toast("Lecture vocale indisponible.", true);
+    void native.readAloudSupported().then(supported => {
+      if (!mounted) return;
+      if (supported) {
+        reader = createNativeReadAloud({ start: native.readAloudStart, stop: native.readAloudStop }, onSpeaking, onError, language);
+      } else if (window.speechSynthesis && window.SpeechSynthesisUtterance) {
+        reader = createReadAloud(window.speechSynthesis, text => new SpeechSynthesisUtterance(text), onSpeaking, onError, language);
+      }
+    });
+    const hidden = () => { if (document.hidden) reader?.stop(); };
     document.addEventListener("visibilitychange", hidden);
-    return () => { document.removeEventListener("visibilitychange", hidden); control.stop(); };
+    return () => {
+      mounted = false;
+      document.removeEventListener("visibilitychange", hidden);
+      reader?.stop();
+    };
   });
 
   const snap = $derived(chat.state);

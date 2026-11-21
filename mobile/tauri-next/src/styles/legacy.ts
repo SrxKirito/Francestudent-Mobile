@@ -1,7 +1,7 @@
 // Feuilles de style historiques, dans l'ordre exact de mobile/www/index.html (test-svelte-styles.mjs le vérifie).
 // Ce module n'est chargé que par la nouvelle interface (import dynamique) : le chemin iframe reste inchangé.
 // Exclus volontairement : ide-link.css (France IDE retiré de la préversion Tauri, comme dans prepare-legacy.cjs)
-// et katex/katex.min.css (utile seulement au rendu des messages, pas encore migré).
+// et katex/katex.min.css (chargé à la demande avec KaTeX).
 import "../../../www/style.css";
 import "../../../www/modern.css";
 import "../../../www/image-gen.css";

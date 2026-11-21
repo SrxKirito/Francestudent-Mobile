@@ -465,6 +465,53 @@ fn speech_supported() -> bool {
     cfg!(target_os = "ios")
 }
 
+#[tauri::command]
+fn read_aloud_supported() -> bool {
+    cfg!(target_os = "ios")
+}
+
+#[tauri::command]
+async fn read_aloud_start(
+    app: tauri::AppHandle,
+    sequence: u64,
+    text: String,
+    language: String,
+) -> Result<(), String> {
+    #[cfg(target_os = "ios")]
+    {
+        use tauri_plugin_stt::SttExt;
+        if text.trim().is_empty() || text.len() > 128_000 || language.len() > 60 {
+            return Err("Texte trop long ou invalide pour la lecture vocale.".into());
+        }
+        app.stt()
+            .speak(sequence, text, language)
+            .await
+            .map_err(|error| error.to_string())
+    }
+    #[cfg(not(target_os = "ios"))]
+    {
+        let _ = (app, sequence, text, language);
+        Err("Lecture vocale native indisponible.".into())
+    }
+}
+
+#[tauri::command]
+async fn read_aloud_stop(app: tauri::AppHandle, sequence: u64) -> Result<(), String> {
+    #[cfg(target_os = "ios")]
+    {
+        use tauri_plugin_stt::SttExt;
+        app.stt()
+            .stop_speaking(sequence)
+            .await
+            .map_err(|error| error.to_string())
+    }
+    #[cfg(not(target_os = "ios"))]
+    {
+        let _ = (app, sequence);
+        Ok(())
+    }
+}
+
 fn build_main_window(app: &tauri::AppHandle) -> tauri::Result<()> {
     let window = app
         .config()
@@ -532,6 +579,9 @@ pub fn run() {
             upload_finish,
             upload_cancel,
             speech_supported,
+            read_aloud_supported,
+            read_aloud_start,
+            read_aloud_stop,
             migration_host::migration_schedule,
             migration_host::migration_assert,
             migration_host::migration_mark_writes,

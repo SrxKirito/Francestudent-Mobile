@@ -50,6 +50,13 @@ main.main:has(> .chat-pane) { position: relative; }
 
 @media (max-width: 768px) {
   .app > .sidebar:not(.open) { pointer-events: none; }
+  .fs-native[data-drawer-gesture] > .sidebar { transform: translateX(var(--drawer-offset, -100%)); }
+  .fs-native[data-drawer-gesture] > #overlay {
+    display: block !important; visibility: visible; opacity: var(--drawer-progress, 0);
+    pointer-events: none;
+  }
+  .fs-native.drawer-finger > .sidebar, .fs-native.drawer-finger > #overlay { transition: none; }
+  .fs-native.drawer-finger { user-select: none; }
 }
 
 /* La coque utilise la hauteur visible. Les zones sûres ne sont appliquées qu’aux bords accessibles. */
@@ -71,6 +78,11 @@ main.main:has(> .chat-pane) { position: relative; }
   padding-left: max(10px, env(safe-area-inset-left, 0px));
 }
 .chat-pane > .chat-area, .chat-pane .messages { min-height: 0; }
+.chat-pane > .chat-area { position: relative; }
+.chat-pane .scroll-bottom:not(.hidden) {
+  position: absolute; z-index: 2; inset: auto auto 12px 50%; translate: -50% 0;
+  display: grid; place-items: center; inline-size: 44px; block-size: 44px; padding: 0;
+}
 .chat-pane .messages { overscroll-behavior-y: contain; }
 :root.ios-keyboard-open .chat-pane > .composer {
   position: relative;

@@ -22,6 +22,11 @@
   const value = new Intl.NumberFormat("fr-FR", { maximumSignificantDigits: 8 });
   const caption = (series: ChartSeries, point: ChartPoint) => series.name + " · " + point.label + " · " + value.format(point.y);
 
+  function pickPoint(event: MouseEvent) {
+    const mark = event.target instanceof Element ? event.target.closest("[data-point]")?.getAttribute("data-point") : null;
+    if (mark) focusPoint = mark;
+  }
+
   const pie = $derived.by(() => {
     if (data.chart !== "pie") return [];
     const total = points.reduce((sum, point) => sum + point.y, 0);
@@ -40,9 +45,10 @@
   <!-- svelte-ignore a11y_no_noninteractive_tabindex (Le zoom rend le graphique défilable au clavier.) -->
   <div class="plot" class:magnified tabindex={magnified ? 0 : undefined} role="region" aria-label={data.title}>
   {#if data.chart === "pie"}
-    <svg viewBox="0 0 180 180" role="img" aria-label={data.title}>
+    <!-- svelte-ignore a11y_no_noninteractive_element_interactions, a11y_click_events_have_key_events (Le sélecteur sous le graphique donne accès aux mêmes points au clavier.) -->
+    <svg viewBox="0 0 180 180" role="img" aria-label={data.title} onclick={pickPoint}>
       {#each pie as segment, index (index)}
-        <circle cx="90" cy="90" r="57" pathLength="100" fill="none" stroke={colors(index)} stroke-width="34"
+        <circle data-point={"0:" + index} cx="90" cy="90" r="57" pathLength="100" fill="none" stroke={colors(index)} stroke-width="34"
           opacity={!focusPoint || focusPoint === "0:" + index ? 1 : .38}
           stroke-dasharray={segment.part + " " + (100 - segment.part)} stroke-dashoffset={-segment.offset} transform="rotate(-90 90 90)">
           <title>{segment.point.label} · {value.format(segment.point.y)} ({value.format(segment.part)} %)</title>
@@ -55,7 +61,8 @@
       {/each}
     </ul>
   {:else}
-    <svg viewBox={"0 0 " + width + " " + height} role="img" aria-label={data.title}>
+    <!-- svelte-ignore a11y_no_noninteractive_element_interactions, a11y_click_events_have_key_events (Le sélecteur sous le graphique donne accès aux mêmes points au clavier.) -->
+    <svg viewBox={"0 0 " + width + " " + height} role="img" aria-label={data.title} onclick={pickPoint}>
       <path d={"M" + gap + "," + gap + "V" + (height-gap) + "M" + gap + "," + cy(0) + "H" + (width-gap)}
         fill="none" stroke="currentColor" opacity=".45" />
       {#each data.series as series, seriesIndex (seriesIndex)}
@@ -65,12 +72,12 @@
         {/if}
         {#each series.points as point, index (index)}
           {#if data.chart === "bar"}
-            <rect x={cx(point.x) + slot * .1 + seriesIndex * bar} y={Math.min(cy(0), cy(point.y))}
+            <rect data-point={seriesIndex + ":" + index} x={cx(point.x) + slot * .1 + seriesIndex * bar} y={Math.min(cy(0), cy(point.y))}
               width={bar} height={Math.abs(cy(point.y) - cy(0))} fill={colors(seriesIndex)} stroke={focusPoint === seriesIndex + ":" + index ? "currentColor" : "none"}>
               <title>{caption(series, point)}</title>
             </rect>
           {:else}
-            <circle cx={cx(point.x)} cy={cy(point.y)} r={focusPoint === seriesIndex + ":" + index ? 8 : 4} fill={colors(seriesIndex)}><title>{caption(series, point)}</title></circle>
+            <circle data-point={seriesIndex + ":" + index} cx={cx(point.x)} cy={cy(point.y)} r={focusPoint === seriesIndex + ":" + index ? 8 : 4} fill={colors(seriesIndex)}><title>{caption(series, point)}</title></circle>
           {/if}
         {/each}
       {/each}
@@ -82,7 +89,7 @@
     </ul>
   {/if}
   </div>
-  {#if points.length > 1}
+  {#if points.length}
     <label>Point du graphique
       <select class="settings-input" bind:value={focusPoint}>
         <option value="">Choisir un point</option>
@@ -118,6 +125,7 @@
   figure { margin: .8rem 0; padding: .8rem; border: 1px solid var(--border); border-radius: .75rem; min-width: 0; }
   figcaption { font-weight: 600; }
   .plot { overflow: auto; }
+  [data-point] { cursor: pointer; }
   .plot.magnified svg { width: 175%; max-height: none; }
   svg { display: block; margin-inline: auto; width: 100%; max-height: 16rem; }
   .legend { display: flex; flex-wrap: wrap; gap: .25rem .85rem; padding: 0; list-style: none; }

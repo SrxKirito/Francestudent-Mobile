@@ -236,6 +236,13 @@ export class ChatStore {
   // ---------- KaTeX ----------
   /** Charge KaTeX (script du dossier legacy) une seule fois ; les formules n'apparaissent qu'ensuite. */
   loadKatex(): void {
+    if (!document.getElementById("fs-katex-style")) {
+      const style = document.createElement("link");
+      style.id = "fs-katex-style";
+      style.rel = "stylesheet";
+      style.href = "/legacy/katex/katex.min.css";
+      document.head.appendChild(style);
+    }
     const scope = window as unknown as { katex?: unknown };
     if (scope.katex) {
       this.katexReady = true;
