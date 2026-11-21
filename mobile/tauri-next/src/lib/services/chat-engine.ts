@@ -20,7 +20,7 @@ export interface ChatEngine {
   attach(host: ChatHost): void;
   detach(): void;
   state(): ChatState;
-  send(text: string): boolean;
+  send(text: string, skillPrefix?: string): boolean;
   stop(): void;
   regenerate(index: number): void;
   removeAttachment(id: string): void;
@@ -30,7 +30,7 @@ export interface ChatEngine {
   editSent(index: number): void;
   editFailed(index: number): void;
   vote(index: number, isUpvoted: boolean): Promise<void>;
-  setOption(name: ChatOptionName, value: boolean | StudyMode): void;
+  setOption(name: ChatOptionName, value: string | boolean): void;
   setAgent(id: number | string): void;
   image(messageIndex: number, imageIndex: number): Promise<string | null>;
   resolveImage(image: GeneratedImage): Promise<string | null>;
@@ -49,7 +49,7 @@ interface RawChat {
   attach(host: ChatHost): void;
   detach(): void;
   state(): string;
-  send(text: string): boolean;
+  send(text: string, skillPrefix?: string): boolean;
   stop(): void;
   regenerate(index: number): unknown;
   removeAttachment(id: string): void;
@@ -353,7 +353,7 @@ export function connectChatEngine(frameWindow: unknown): ChatEngine | null {
     attach: host => chat.attach(host),
     detach: () => chat.detach(),
     state: () => parseChatState(chat.state()),
-    send: value => chat.send(value) === true,
+    send: (value, skillPrefix) => (skillPrefix === undefined ? chat.send(value) : chat.send(value, skillPrefix)) === true,
     stop: () => chat.stop(),
     regenerate: index => { void chat.regenerate(index); },
     removeAttachment: id => chat.removeAttachment(id),

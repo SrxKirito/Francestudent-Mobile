@@ -97,7 +97,7 @@ isIncognito:false, isPrivate:false, files?, projectId?}`. Reprise : `GET /chats/
 Cette section remplace l'état « non branché » de la section 5 : le service de streaming est désormais utilisé par le chat Svelte.
 
 ### Activation
-- Chat legacy par défaut. `?ui=svelte` active la nouvelle interface ; le chat Svelte demande en plus le sous-drapeau `&chat=svelte` (ou `localStorage["fs-chat"] = "svelte"` avec `fs-ui`). `chat=legacy` force le retour au legacy.
+- **Depuis le 20/11/2026, Svelte 5 et son chat sont l'interface par défaut.** L'ancien écran reste accessible : `?ui=legacy` ou `localStorage["fs-ui"] = "legacy"` ; le chat historique dans la nouvelle coque : `?chat=legacy` ou `localStorage["fs-chat"] = "legacy"`. L'URL l'emporte sur la clé ; toute autre valeur est ignorée.
 - L'iframe legacy et `prepare-legacy.cjs` sont conservés. `mobile/www` n'est jamais modifié.
 
 ### Architecture
@@ -113,8 +113,27 @@ Cette section remplace l'état « non branché » de la section 5 : le service d
 - Les changements d'état de la zone legacy (Paramètres, dialogues) ne passent pas par les fonctions patchées : le pont observe le DOM avec un `MutationObserver` pour republier `legacyOverlay`.
 
 ### Vérification
-- `npm test`, `npm run check` (0 erreur, 0 avertissement), `npm run build` et `npm run verify:browser` (33 vérifications dont 17 de chat) : exit 0.
+- `npm test`, `npm run check` (0 erreur, 0 avertissement), `npm run build` et `npm run verify:browser` (34 vérifications au 20/11/2026) : exit 0.
 - Le test navigateur utilise Chrome headless et un faux backend (y compris un faux `upload_*`). Il ne vaut pas test iOS/Android ni test sur le vrai serveur.
 
 ### Reste legacy / non porté
-Construction de requête, téléversements et conversions (via le moteur) ; récupération en arrière-plan iOS de `streamChat` ; bascule PowerPoint ; dictée ; sélecteur de modèle d'image ; indisponibilité des modèles ; rendus interactifs (quiz, cartes, PPTX/PDF, fichiers générés, aperçu d'image générée) ; réinitialisation du PIN.
+Construction de requête, téléversements et conversions (via le moteur) ; récupération en arrière-plan iOS de `streamChat` ; bascule PowerPoint ; sélecteur de modèle d'image ; indisponibilité des modèles ; rendus interactifs (quiz, cartes, PPTX/PDF, fichiers générés, aperçu d'image générée) ; réinitialisation du PIN.
+
+### Choix de l'interface dans les Paramètres (classique / Svelte 5 bêta)
+- Paramètres > Général > « Interface » : deux boutons radio (« Interface classique », « Interface Svelte 5 (bêta) ») et, avec Svelte, un interrupteur « Utiliser aussi le nouveau chat (bêta) ». Un clic écrit `fs-ui` / `fs-chat` dans le `localStorage` de la page parente, puis recharge la page sans `?ui` ni `?chat`.
+- Mécanisme : `interface-settings.js` est copié par `prepare-legacy.cjs` vers `mobile/www/js/tauri-interface-settings.js` (fichier généré) et injecté après `app.js`. Aucun fichier de `mobile/www` n'est modifié à la main. Le choix est également disponible dans Général côté Svelte. L’interface classique reste accessible pendant la transition.
+- Garde-fous : refus pendant une réponse en cours ; si le stockage est refusé, les anciennes valeurs sont restaurées et un message l'indique ; une URL invalide ne modifie rien.
+- Limites : le rechargement perd un brouillon non envoyé ; les règles de lecture/écriture des drapeaux sont dupliquées de `src/lib/utils/ui-flag.ts` (à aligner si les défauts changent) ; vérifié seulement par `test-interface-settings.cjs` (12 tests) et un scénario Chrome headless avec clics programmatiques dans l'iframe, pas sur iOS/Android.
+
+### Commandes et dictée depuis le composeur Svelte
+
+Le menu `/` utilise le catalogue de l’onglet Skills. La consigne de sélection est transmise au moteur de chat et le message affiché conserve le texte saisi. Le composeur Svelte utilise directement l’adaptateur de dictée iOS exposé par Tauri. Il arrête la session de dictée à l’envoi, en arrière-plan et lors d’un changement de discussion. Le parcours du composeur est simulé dans Chrome; les permissions, l’interruption, la reprise et la reconnaissance restent à vérifier sur iPhone. L’adaptateur natif est activé uniquement sur iOS.
+
+
+## 9. Chat Svelte autonome
+
+Le mode Svelte démarre une session Tauri et crée son moteur de chat, sa navigation et son stockage sans monter l’iframe. Le lecteur SSE utilise le transport Rust. La réponse partielle et le curseur restent dans IndexedDB afin de reprendre un flux interrompu sans envoyer à nouveau la demande. Le composeur utilise les options PowerPoint et modèle d’image. Les quiz, cartes et aperçus de fichiers sont rendus par Svelte. Les PDF utilisent un canvas et la génération des fichiers réutilise les convertisseurs existants.
+
+L’interface Svelte ne propose ni discussions verrouillées ni code PIN. Les marques de verrouillage existantes sont conservées avec les données locales et les éléments verrouillés sont écartés de l’affichage. L’option Interface classique reste accessible comme repli explicite en attendant les validations sur appareil.
+
+Les résultats de vérification mentionnés dans les sections précédentes concernent l’architecture hybride. Cette étape n’a pas été testée ni compilée à la demande du contributeur. À contrôler notamment sur iPhone et Android : suspension et reconnexion pendant un flux, restauration des données existantes, ouverture des fichiers, téléchargement et cycle de session.

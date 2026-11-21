@@ -2,6 +2,29 @@
 
 Branche : `migration/tauri-mobile` (ne pas toucher `main`). Créé le 2026-11-18.
 
+## État de la branche au 21 novembre 2026
+
+La coque monte `AppLayout.svelte` après ouverture de la session. Le chat et l’historique Svelte sont actifs par défaut. `?ui=legacy` conserve l’interface historique complète. `?ui=svelte&chat=legacy` charge le transport Tauri avant l’iframe, puis attache le pont après le chargement de sa fenêtre. Chaque mode utilise un seul moteur pour écrire l’historique.
+
+| Phase | État vérifié et écarts |
+| --- | --- |
+| 1 — Coque et pont | Injection et ordre des scripts, attachement/détachement, identifiants numériques et textuels, synchronisation, filtre projet, recherche et rendu serveur exercés. Le test VM supprime volontairement `projectId` dans une copie du pont et vérifie que l’assertion échoue. |
+| 2–3 — Historique | Ouverture, recherche locale et distante, archives, import ChatGPT, renommage, suppression et épinglage existent dans les services Svelte. Les conversations verrouillées et le PIN sont exclus de l’interface Svelte à la demande du propriétaire. Le parcours complet des messages enregistrés reste à porter. L’export serveur disponible concerne les archives. |
+| 4 — Chat | Transport SSE, reprise, arrêt, pièces jointes, Markdown, KaTeX, code, citations et dictée sont présents. Le terminal SSE sans identifiant reste pris en compte à la reprise. La cartographie de `render.js`, `stream.js` et `composer.js` est dans [migration-chat-cartographie.md](migration-chat-cartographie.md). |
+| 5–6 — Rendus et recherche d’images | Quiz, cartes mémoire et aperçus de fichiers existent. Le registre général de rendus interactifs et la galerie de recherche d’images restent à faire. OpenAPI v0 expose la recherche web et les images générées dans le flux, mais aucun endpoint ni événement de galerie d’images trouvées. Il faut confirmer un fournisseur autorisé et un contrat backend avant de brancher une galerie. |
+| 7 — Espace de travail | Paramètres, Compte, Skills, MCP, clé API, Projets, Bibliothèque et Files V2 sont présents. Limite de 50 Mo appliquée côté Svelte aux pièces jointes, et côté espace de travail aux transferts concernés. Les parcours de bout en bout et les écarts de parité restent à vérifier sur mobile. |
+| 8 — Capacités IA | Recherche web avec sources, analyse de fichiers et d’images, génération d’images, dictée, options de modèle et instructions existent dans le chat. Génération DOCX/XLSX, voix temps réel, mémoire et états d’outils restent à valider ou porter. |
+| 9 — Rust | Les deux interfaces utilisent les commandes typées de session, le transfert segmenté et le transport Rust existant. Le chemin `connect` / `list_chats` / `generate` expose des commandes typées, mais `generate` n’embarque ni projet ni images et ne couvre pas la reprise du chat Svelte. Conserver un seul chemin actif par opération et ne remplacer ce transport qu’après alignement des contrats. |
+| 10–12 — Mesures, validation et retrait | Mesure du build Vite disponible. Profiler RAM, CPU, réseau, batterie et démarrage sur appareil. Conserver l’iframe et `prepare-legacy.cjs` jusqu’à validation explicite. |
+
+Le premier build après stabilisation donne **400,84 kB** pour le JavaScript `main` (135,81 kB gzip), soit **+339,04 kB** par rapport à la coque de référence (61,8 kB). Le point d’entrée inclut désormais le chat, les paramètres, les projets, la bibliothèque et les aperçus. Le CSS historique mesure **109,53 kB** (20,84 kB gzip), contre 109,5 kB. Ce sont des tailles de fichiers de build et elles ne mesurent ni le temps de démarrage, ni la RAM.
+
+`npm test`, `npm run check`, `npm run build` et `npm run verify:browser` ont été exécutés sur Windows. Chrome CDP exerce le clavier et la souris sur le chat Svelte, la modale d’import et le pont de secours face à un backend simulé. `cargo check --locked` a compilé les cibles de vérification Windows. Les builds et parcours iOS/Android, le DOMParser et OAuth avec réponses réelles, le Keychain, IndexedDB dans les WebViews, la caméra, le microphone, le partage et la barre d’accessoires iOS restent à vérifier sur appareil.
+
+France IDE est exclu de cette préversion Tauri. Le tracé SVG d’épinglage hérité signalé dans l’audit reste inchangé. Les changements locaux de `legacy-files.js` et les scripts de travail ne font pas partie du commit. La documentation OpenAPI est accessible à [France Student OpenAPI](https://api.francestudent.ai/v3/api-docs).
+
+## Relevé initial du 18 novembre 2026
+
 Légende de la colonne « État » :
 - **Lu** : le fichier a été lu dans cette session, les constats sont vérifiés.
 - **À auditer** : présent d'après l'arborescence ou `index.html`, **pas encore lu**. Aucun constat n'est affirmé.

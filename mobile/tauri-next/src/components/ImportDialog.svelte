@@ -1,18 +1,11 @@
-<!-- Import d'une conversation ChatGPT partagée publiquement. Même balisage et mêmes classes que conversation-import.js
-     (feuille conversation-import.css) ; la validation, le POST et l'enregistrement sont dans le service et le moteur. -->
 <script lang="ts">
-  import "../../conversation-import.css";
-  import { tick } from "svelte";
   import type { ChatStore } from "../lib/stores/chat.svelte.ts";
 
-  interface Props {
-    chat: ChatStore;
-  }
-
-  let { chat }: Props = $props();
+  let { chat }: { chat: ChatStore } = $props();
 
   let dialog: HTMLDialogElement | undefined = $state();
-  let linkInput: HTMLInputElement | undefined = $state();
+  let title: HTMLHeadingElement | undefined = $state();
+  let opener: HTMLElement | null = null;
   let link = $state("");
   let agentId = $state<number | null>(null);
 
@@ -25,17 +18,20 @@
     if (info && !el.open) {
       link = "";
       agentId = info.selectedId;
+      opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
       el.showModal();
-      void tick().then(() => linkInput?.focus());
+      title?.focus({ preventScroll: true });
     } else if (!info && el.open) {
       el.close();
+      const target = opener?.getClientRects().length && !opener.closest("[inert]") ? opener : document.querySelector<HTMLElement>("#menu-toggle");
+      target?.focus({ preventScroll: true });
+      opener = null;
     }
   });
 
-  function submit(event: Event) {
+  function submit(event: SubmitEvent) {
     event.preventDefault();
-    if (chat.importing) return;
-    chat.submitImport(link, agentId ?? -1);
+    if (!chat.importing) chat.submitImport(link, agentId ?? -1);
   }
 
   function onCancel(event: Event) {
@@ -44,24 +40,65 @@
   }
 </script>
 
-<dialog class="project-editor conversation-import-dialog" aria-label="Importer une conversation" bind:this={dialog} oncancel={onCancel}>
-  <form class="conversation-import-body" novalidate onsubmit={submit}>
-    <h2>Importer une conversation</h2>
-    <p class="settings-hint">Colle le lien d’une conversation ChatGPT partagée publiquement. Elle sera importée dans ton compte avec le modèle choisi.</p>
-    <label>Lien de partage
-      <input class="settings-input" type="text" placeholder="https://chatgpt.com/share/…" autocomplete="off" spellcheck="false" inputmode="url" maxlength="2048" bind:value={link} bind:this={linkInput} disabled={chat.importing}>
-    </label>
-    <label>Modèle
-      <select class="settings-input" bind:value={agentId} disabled={chat.importing || (info?.models.length ?? 0) === 0}>
-        {#each info?.models ?? [] as model (model.id)}
-          <option value={model.id}>{model.label}</option>
-        {/each}
-      </select>
-    </label>
-    <p class="settings-hint conversation-import-status" class:is-error={status.error} role="status">{status.text}</p>
-    <div class="conversation-import-actions">
-      <button type="button" class="settings-btn" disabled={chat.importing} onclick={() => chat.closeImport()}>Fermer</button>
-      <button type="submit" class="settings-btn primary" disabled={chat.importing || (info?.models.length ?? 0) === 0}>Importer</button>
+<dialog class="import-dialog" aria-labelledby="import-title" bind:this={dialog} oncancel={onCancel}>
+  <form novalidate onsubmit={submit} aria-busy={chat.importing}>
+    <!-- svelte-ignore a11y_autofocus (focaliser le titre plutôt qu'ouvrir automatiquement le clavier) -->
+    <h2 id="import-title" tabindex="-1" autofocus bind:this={title}>Importer une conversation</h2>
+    <p class="hint">Colle le lien public d’une conversation ChatGPT et choisis le modèle à utiliser.</p>
+    <label for="import-link">Lien de partage</label>
+    <input id="import-link" type="url" placeholder="https://chatgpt.com/share/…" autocomplete="off" autocapitalize="off" spellcheck="false" inputmode="url" maxlength="2048" bind:value={link} disabled={chat.importing} aria-describedby="import-status">
+    <label for="import-model">Modèle</label>
+    <select id="import-model" bind:value={agentId} disabled={chat.importing || !info?.models.length}>
+      {#each info?.models ?? [] as model (model.id)}
+        <option value={model.id}>{model.label}</option>
+      {:else}
+        <option value={null}>Aucun modèle disponible</option>
+      {/each}
+    </select>
+    <p id="import-status" class="hint" class:error={status.error} role="status">{status.text}</p>
+    <div class="actions">
+      <button type="button" class="settings-btn" disabled={chat.importing} onclick={() => chat.closeImport()}>Annuler</button>
+      <button type="submit" class="settings-btn primary" disabled={chat.importing || !info?.models.length}>{chat.importing ? "Import en cours…" : "Importer"}</button>
     </div>
   </form>
 </dialog>
+
+<style>
+  .import-dialog {
+    position: fixed;
+    inset: 0;
+    box-sizing: border-box;
+    margin: auto;
+    width: min(30rem, calc(100% - max(16px, env(safe-area-inset-left, 0px)) - max(16px, env(safe-area-inset-right, 0px))));
+    max-width: none;
+    max-height: calc(var(--ios-viewport-height, 100dvh) - max(12px, var(--fs-safe-top, 0px)) - max(12px, var(--fs-safe-bottom, 0px)));
+    overflow: auto;
+    overscroll-behavior: contain;
+    padding: clamp(14px, 4vw, 24px);
+    border: 1px solid var(--border, #3a3a3f);
+    border-radius: 20px;
+    background: var(--surface, #212124);
+    color: var(--text, #fafafa);
+    box-shadow: 0 16px 48px #0007;
+  }
+  :global(.ios-viewport) .import-dialog {
+    top: calc(var(--ios-viewport-top, 0px) + max(12px, var(--fs-safe-top)));
+    bottom: auto;
+    margin-block: 0;
+  }
+  .import-dialog::backdrop { background: #0009; }
+  form { display: grid; gap: 10px; min-width: 0; }
+  h2 { margin: 0; font-size: 1.25rem; line-height: 1.3; }
+  h2:focus { outline: none; }
+  .hint { margin: 0; color: var(--muted, #a6a6ae); overflow-wrap: anywhere; }
+  #import-status:empty { display: none; }
+  .error { color: var(--danger, #ff8b8b); }
+  input, select {
+    box-sizing: border-box; width: 100%; min-width: 0; min-height: 44px; padding: 8px 12px;
+    font: inherit; font-size: 16px; color: inherit; background: var(--bg, #161617);
+    border: 1px solid var(--border, #3a3a3f); border-radius: 12px;
+  }
+  input:focus-visible, select:focus-visible { outline: 2px solid var(--accent, #88aaff); outline-offset: 2px; }
+  .actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-top: 4px; }
+  .actions button { min-height: 44px; }
+</style>

@@ -1,50 +1,48 @@
 <!-- Un message du chat : mêmes classes que l'ancienne interface (assistant.js), donc mêmes feuilles de style. -->
 <script lang="ts">
   import ChatSources from "./ChatSources.svelte";
+  import MessageContent from "./MessageContent.svelte";
+  import type { PreviewFile } from "../lib/services/file-preview.ts";
+  import { generatedImageFile } from "../lib/services/file-preview.ts";
   import type { ChatStore } from "../lib/stores/chat.svelte.ts";
   import { attachmentIcon } from "../lib/services/chat-view.ts";
-  import { fileIconSvg, renderMarkdown } from "../lib/services/markdown.ts";
-  import type { ChatMessage } from "../lib/types/chat.ts";
+  import { fileIconSvg } from "../lib/services/markdown.ts";
+  import type { ChatImage, ChatMessage } from "../lib/types/chat.ts";
   import { copyText } from "../lib/utils/clipboard.ts";
   import { icon } from "../lib/utils/icons.ts";
 
   interface Props {
     message: ChatMessage;
     chat: ChatStore;
+    openPreview?: (file: PreviewFile) => void;
   }
 
-  let { message, chat }: Props = $props();
+  let { message, chat, openPreview }: Props = $props();
 
   let copied = $state(false);
-  /** Source affichable de chaque image générée (null = indisponible, absent = en cours de chargement). */
-  let imageSources = $state.raw<Record<number, string | null>>({});
+
+  /** Une image remplacée lors d'une régénération ne réutilise pas la source de l'ancienne. */
+  let imageSources = $state.raw<Record<string, string | null>>({});
   const requested = new Set<string>();
-
-  const html = $derived.by(() => {
-    // Les formules ne sont rendues qu'une fois KaTeX chargé : on dépend de ce drapeau pour redessiner.
-    void chat.katexReady;
-    return message.role === "assistant" ? renderMarkdown(message.content) : "";
-  });
-
   const hasImages = $derived((message.images?.length ?? 0) > 0);
   const text = $derived(message.content.trim());
 
+  function imageKey(image: ChatImage) {
+    return [message.serverMessageId ?? message.content, image.index, image.id ?? image.url ?? ""].join(":");
+  }
+
   $effect(() => {
     const engine = chat.engine;
-    const images = message.images ?? [];
     if (!engine) return;
-    for (const image of images) {
-      const key = message.index + ":" + image.index + ":" + (image.id ?? image.url ?? "");
+    for (const image of message.images ?? []) {
+      const key = imageKey(image);
       if (requested.has(key)) continue;
       requested.add(key);
-      engine
-        .image(message.index, image.index)
-        .then(src => {
-          imageSources = { ...imageSources, [image.index]: src };
-        })
-        .catch(() => {
-          imageSources = { ...imageSources, [image.index]: null };
-        });
+      void engine.image(message.index, image.index).then(src => {
+        imageSources = { ...imageSources, [key]: src };
+      }).catch(() => {
+        imageSources = { ...imageSources, [key]: null };
+      });
     }
   });
 
@@ -128,10 +126,16 @@
     {#if hasImages}
       <div class="generated-images">
         {#each message.images ?? [] as image (image.index)}
-          {@const src = imageSources[image.index]}
+          {@const src = imageSources[imageKey(image)]}
           <figure class="generated-image" class:loading={src === undefined} class:failed={src === null}>
             {#if src}
-              <img {src} alt="Illustration générée par l'IA" decoding="async">
+              {#if openPreview}
+                <button type="button" class="image-open" aria-label="Agrandir l’image générée" onclick={() => openPreview?.(generatedImageFile(src))}>
+                  <img {src} alt="Illustration générée par l’IA" decoding="async">
+                </button>
+              {:else}
+                <img {src} alt="Illustration générée par l’IA" decoding="async">
+              {/if}
               <button type="button" class="generated-image-download" title="Télécharger l'image" aria-label="Télécharger l'image" onclick={() => void chat.engine?.downloadImage(src)}>
                 <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11"/><path d="M7 10l5 5 5-5"/><path d="M5 20h14"/></svg>
               </button>
@@ -144,7 +148,9 @@
     {/if}
     {#if text !== "" || !hasImages}
       <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-      <div class="bubble" onclick={onBubbleClick}>{@html html}</div>
+      <div class="bubble" onclick={onBubbleClick}>
+        <MessageContent content={message.content} katexReady={chat.katexReady} {openPreview} />
+      </div>
     {/if}
     <div class="message-actions">
       <button type="button" class="msg-action icon-only" title="Copier" aria-label="Copier" onclick={copyMessage}>{#if copied}<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5L20 7"/></svg>{:else}{@html icon("copy")}{/if}</button>
@@ -154,3 +160,7 @@
     </div>
   </div>
 {/if}
+
+<style>
+  .image-open { display: block; background: transparent; padding: 0; border: 0; max-width: 100%; cursor: zoom-in; }
+</style>

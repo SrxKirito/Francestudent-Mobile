@@ -132,7 +132,7 @@ test("l'ancien rendu contient bien les six groupes (le jeu de cas n'est pas triv
 });
 
 test("logos des fournisseurs : module TypeScript identique à logos.js", () => {
-  assert.deepEqual({ ...PROVIDER_LOGOS }, { ...legacy.logos });
+  assert.deepEqual({ ...PROVIDER_LOGOS }, Object.fromEntries(Object.entries(legacy.logos).map(([provider, html]) => [provider, html.replace(`src="logo/`, `src="/legacy/logo/`)])));
 });
 
 test("icônes : mêmes tracés et même balisage que icon() de l'ancienne interface", () => {
@@ -159,19 +159,13 @@ test("agentLabel : identique (parenthèse finale retirée, nom entièrement entr
   assert.equal(agentLabel(null), "");
 });
 
-test("providerMark : logo connu, sinon initiale nettoyée, sinon « ? » — identique", () => {
-  const cases = [
-    { name: "GPT", provider: "OpenAI" },
-    { name: "Truc", provider: "Anthropic" },
-    { name: "Maison", provider: "" },
-    { name: "<b>x", provider: "" },
-    { name: "", provider: "" },
-    { name: "Autre", provider: "Inconnu" },
-    null
-  ];
-  for (const agent of cases) {
-    assert.equal(providerMark(agent, PROVIDER_LOGOS), legacy.evaluate(`providerMark(${JSON.stringify(agent)})`), JSON.stringify(agent));
-  }
+test("providerMark : Claude, modèles Anthropic sans fournisseur et icône neutre", () => {
+  for (const model of [
+    { name: "Claude", provider: "anthropic" }, { name: "Sonnet 4.6", provider: "" },
+    { name: "Opus", provider: "Claude" }, { name: "Haiku", provider: "" }
+  ]) assert.ok(providerMark(model, PROVIDER_LOGOS).includes("/legacy/logo/claude.png"));
+  assert.equal(providerMark({ name: "GPT-5", provider: "OpenAI" }, PROVIDER_LOGOS), legacy.logos.OpenAI);
+  assert.match(providerMark({ name: "Autre", provider: "Inconnu" }, PROVIDER_LOGOS), /^<svg /);
 });
 
 test("modèle d'une discussion : catalogue d'abord, sinon nom/fournisseur gardés, sinon aucun", () => {

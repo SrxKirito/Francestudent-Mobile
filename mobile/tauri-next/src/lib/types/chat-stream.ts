@@ -33,7 +33,7 @@ export type StreamEvent =
   | { name: "message_saved"; data: Record<string, unknown> }
   | { name: "web_search"; data: Record<string, unknown> };
 
-export type SseHandler = (name: string, payload: string, eventId: string) => void;
+export type SseHandler = (name: string, payload: string, eventId: string, explicitId: boolean) => void;
 
 export interface SseParser {
   feed(chunk: string): void;

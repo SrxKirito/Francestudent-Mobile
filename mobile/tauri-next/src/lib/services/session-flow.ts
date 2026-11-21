@@ -124,7 +124,7 @@ export function createSessionFlow(deps: SessionFlowDeps): SessionFlow {
     session = next;
     persist({
       deviceId,
-      ...(changed ? { webSearchMode: "open" as const, customInstructionsManaged: false, fileInstrSynced: false } : {})
+      ...(changed ? { profile: null, webSearchMode: "open" as const, customInstructionsManaged: false, fileInstrSynced: false } : {})
     });
   }
 

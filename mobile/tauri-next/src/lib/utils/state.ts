@@ -5,7 +5,13 @@ export const DEFAULT_AGENT_ID = -1002;
 
 const WEB_MODES: readonly WebSearchMode[] = ["open", "filtered", "disabled"];
 const STUDY_MODES: readonly StudyMode[] = ["fiches", "quiz", "cartes"];
-const IMAGE_MODELS: readonly ImageModel[] = ["gpt-image-2.5-sunburst", "gpt-image-2.5-flare", "gpt-image-2"];
+export const IMAGE_MODELS: readonly ImageModel[] = [
+  "gpt-image-2.6-sunburst",
+  "gpt-image-2.6-flare",
+  "gpt-image-2.5-sunburst",
+  "gpt-image-2.5-flare",
+  "gpt-image-2"
+];
 const COLUMNS: readonly LibraryColumns[] = [1, 2, 3, 4];
 
 function pick<T>(allowed: readonly T[], value: unknown): T | undefined {
@@ -54,7 +60,11 @@ export function serializeState(state: StoredState, conversationsInIndexedDb: boo
 }
 
 /** Réglages modifiables sans toucher aux conversations ; `fileInstrSynced` est écrit par le legacy mais jamais relu. */
-export type StatePatch = Partial<Omit<StoredState, "session" | "conversations">> & { fileInstrSynced?: boolean };
+export type StatePatch = Partial<Omit<StoredState, "session" | "conversations">> & {
+  fileInstrSynced?: boolean;
+  /** Repère « outil image déjà synchronisé avec le serveur » : `null` force une nouvelle synchro au prochain envoi. */
+  imageToolSynced?: string | null;
+};
 
 /**
  * Fusionne un correctif dans le JSON brut déjà stocké : les clés inconnues et les conversations
@@ -90,10 +100,14 @@ export function readStoredConversations<T = unknown>(raw: string | null): T[] {
 }
 
 /** Remplace les conversations du JSON brut en gardant tous les autres réglages ; la session est retirée. */
-export function setStoredConversations(raw: string | null, conversations: readonly unknown[]): string {
-  const next: Record<string, unknown> = { ...parseObject(raw), conversations };
+export function setStoredConversations(raw: string | null, conversations: readonly unknown[], fallback = false): string {
+  const next: Record<string, unknown> = { ...parseObject(raw), conversations, conversationsFallback: fallback || undefined };
   delete next.session;
   return JSON.stringify(next);
+}
+
+export function hasStoredConversationFallback(raw: string | null): boolean {
+  return parseObject(raw).conversationsFallback === true;
 }
 
 /** Vide la copie localStorage des conversations (à faire seulement une fois IndexedDB validé). */

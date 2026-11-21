@@ -1,14 +1,7 @@
-/* Chat Svelte : uniquement ce que l'ancienne interface ne fournit pas déjà (elle reste chargée par legacy.ts).
-   Chargé seulement en mode `?ui=svelte&chat=svelte`. */
-
-/* La surcouche recouvre l'iframe historique, qui reste vivante dessous (moteur). */
+/* Mise en page du chat Svelte et styles complémentaires. */
 main.main:has(> .chat-pane) { position: relative; }
 .chat-pane { position: absolute; inset: 0; z-index: 5; }
 .chat-pane-hidden { visibility: hidden; pointer-events: none; }
-
-/* Fichiers générés (PPTX, PDF, téléchargements) : pas encore portés, l'ancienne interface les affiche dans son propre chat. */
-.chat-pane .message-downloads,
-.chat-pane .file-card { display: none; }
 
 .chat-pane .generated-image-error { padding: 14px 16px; color: var(--muted, #8b8fa3); font-size: .9rem; }
 
@@ -37,3 +30,44 @@ main.main:has(> .chat-pane) { position: relative; }
 /* Statut de téléversement d'une pièce jointe (reprend tauri-files.css de l'ancienne interface). */
 .tauri-upload-status { font-size: 11px; color: var(--muted, #999); white-space: nowrap; }
 .tauri-upload-status button { border: 0; color: inherit; background: transparent; text-decoration: underline; cursor: pointer; }
+
+
+.chatgpt-symbol {
+  -webkit-mask-image: url("/legacy/logo/chatgpt.png");
+  mask-image: url("/legacy/logo/chatgpt.png");
+}
+
+@media (max-width: 768px) {
+  .app > .sidebar:not(.open) { pointer-events: none; }
+}
+
+/* La coque utilise la hauteur visible. Les zones sûres ne sont appliquées qu’aux bords accessibles. */
+:root {
+  --fs-safe-top: max(0px, calc(env(safe-area-inset-top, 0px) - var(--ios-viewport-top, 0px)));
+  --fs-safe-bottom: env(safe-area-inset-bottom, 0px);
+}
+:root.ios-keyboard-open { --fs-safe-bottom: 0px; }
+:root.ios-viewport .app { bottom: auto; height: var(--ios-viewport-height, 100dvh); }
+:root.ios-viewport .app > .sidebar {
+  padding-top: max(12px, var(--fs-safe-top));
+  padding-bottom: max(12px, var(--fs-safe-bottom));
+  padding-left: max(12px, env(safe-area-inset-left, 0px));
+}
+:root.ios-viewport .chat-pane > .topbar {
+  flex-shrink: 0;
+  padding-top: max(8px, var(--fs-safe-top));
+  padding-right: max(10px, env(safe-area-inset-right, 0px));
+  padding-left: max(10px, env(safe-area-inset-left, 0px));
+}
+.chat-pane > .chat-area, .chat-pane .messages { min-height: 0; }
+.chat-pane .messages { overscroll-behavior-y: contain; }
+:root.ios-keyboard-open .chat-pane > .composer {
+  position: relative;
+  inset: auto;
+  margin-bottom: 0;
+  padding-bottom: 0;
+}
+:root.ios-keyboard-open .app { overscroll-behavior: none; }
+@media (min-width: 769px) {
+  :root.ios-viewport .app > .sidebar { height: 100%; top: auto; }
+}

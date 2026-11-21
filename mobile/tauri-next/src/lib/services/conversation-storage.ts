@@ -1,5 +1,5 @@
 import type { Conversation } from "../types/conversation.ts";
-import { STORE_KEY, clearStoredConversations, readStoredConversations, setStoredConversations } from "../utils/state.ts";
+import { STORE_KEY, clearStoredConversations, hasStoredConversationFallback, readStoredConversations, setStoredConversations } from "../utils/state.ts";
 
 // Équivalent TypeScript de `initializeConversationStorage` / `saveStore` (mobile/www/js/core.js) pour les discussions.
 // Même base (`francestudent-conversations`, version 1), même object store (`state`), même clé (`conversations`) :
@@ -61,6 +61,28 @@ function runTransaction<T>(database: IDBDatabase, mode: IDBTransactionMode, oper
   });
 }
 
+function revision(row: Conversation): number {
+  const pending = row?.pendingResponse as unknown as { startedAt?: unknown } | undefined;
+  const started = typeof pending?.startedAt === "number" ? pending.startedAt : 0;
+  return Math.max(row?.updatedAt || 0, started);
+}
+
+function reconcileFallback(saved: Conversation[], fallback: Conversation[]): Conversation[] {
+  let merged = saved;
+  const positions = new Map(saved.flatMap((row, index) => typeof row?.id === "string" ? [[row.id, index] as const] : []));
+  for (const row of fallback) {
+    if (typeof row?.id !== "string") continue;
+    const index = positions.get(row.id);
+    if (index !== undefined && revision(row) <= revision(merged[index])) continue;
+    if (merged === saved) merged = saved.slice();
+    if (index === undefined) {
+      positions.set(row.id, merged.length);
+      merged.push(row);
+    } else merged[index] = row;
+  }
+  return merged;
+}
+
 export function createConversationStorage(deps: ConversationStorageDeps): ConversationStorage {
   const now = deps.now ?? Date.now;
   const warnUser = deps.warn ?? ((message: string) => console.error(message));
@@ -77,18 +99,19 @@ export function createConversationStorage(deps: ConversationStorageDeps): Conver
 
   async function load(): Promise<LoadedConversations> {
     // Le JSON stocké n'est pas validé élément par élément (comme dans l'ancienne interface) : le type est posé à la lecture.
-    const legacy = readStoredConversations(deps.localStorage.getItem(STORE_KEY)) as Conversation[];
+    const raw = deps.localStorage.getItem(STORE_KEY);
+    const legacy = readStoredConversations<Conversation>(raw);
+    let conversations = legacy;
     try {
       if (!deps.indexedDB) throw new Error("IndexedDB absent");
       database = await openDatabase(deps.indexedDB);
       const saved: unknown = await runTransaction(database, "readonly", store => store.get(RECORD_KEY));
-      let conversations: Conversation[];
       if (Array.isArray(saved)) {
-        conversations = saved as Conversation[];
-      } else {
-        // Première ouverture : on copie d'abord les discussions de localStorage dans IndexedDB.
-        await runTransaction(database, "readwrite", store => store.put(legacy, RECORD_KEY));
-        conversations = legacy;
+        // Une copie d’avant la migration peut contenir des discussions supprimées depuis dans IndexedDB.
+        conversations = hasStoredConversationFallback(raw) ? reconcileFallback(saved, legacy) : saved;
+      }
+      if (conversations !== saved) {
+        await runTransaction(database, "readwrite", store => store.put(conversations, RECORD_KEY));
       }
       try {
         // La copie de localStorage n'est vidée qu'une fois la transaction validée.
@@ -101,7 +124,7 @@ export function createConversationStorage(deps: ConversationStorageDeps): Conver
       database?.close();
       database = null;
       warn(MSG_STORAGE_UNAVAILABLE);
-      return { conversations: legacy, persistent: false };
+      return { conversations, persistent: false };
     }
   }
 
@@ -109,7 +132,7 @@ export function createConversationStorage(deps: ConversationStorageDeps): Conver
     if (!database) {
       // Repli : écriture synchrone dans localStorage, comme l'ancienne interface sans IndexedDB.
       try {
-        deps.localStorage.setItem(STORE_KEY, setStoredConversations(deps.localStorage.getItem(STORE_KEY), conversations));
+        deps.localStorage.setItem(STORE_KEY, setStoredConversations(deps.localStorage.getItem(STORE_KEY), conversations, true));
       } catch {
         warn(MSG_SETTINGS_FAILED);
       }

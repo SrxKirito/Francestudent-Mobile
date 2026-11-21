@@ -6,16 +6,22 @@
   import ChatSources from "./ChatSources.svelte";
   import logo from "../../../www/image.png";
   import { liveStatus, liveVisible } from "../lib/services/chat-view.ts";
+  import type { PreviewFile } from "../lib/services/file-preview.ts";
+  import { studyLoading } from "../lib/services/study-content.ts";
   import { renderMarkdown } from "../lib/services/markdown.ts";
   import type { ChatStore } from "../lib/stores/chat.svelte.ts";
   import { PROVIDER_LOGOS } from "../lib/data/provider-logos.ts";
   import { agentLabel, providerMark } from "../lib/utils/agents.ts";
 
+  import type { SkillsStore } from "../lib/stores/skills.svelte.ts";
+
   interface Props {
+    skills?: SkillsStore;
     chat: ChatStore;
+    openPreview?: (file: PreviewFile) => void;
   }
 
-  let { chat }: Props = $props();
+  let { chat, skills, openPreview }: Props = $props();
 
   let messagesEl: HTMLElement | undefined = $state();
   let modelOpen = $state(false);
@@ -31,7 +37,7 @@
   const hasMessages = $derived(snap.messages.length > 0);
   const liveHtml = $derived.by(() => {
     void chat.katexReady;
-    return live.text ? renderMarkdown(live.text, true) : "";
+    return live.text ? renderMarkdown(live.text, true, { study: studyLoading }) : "";
   });
   const providers = $derived.by(() => {
     const groups = new Map<string, typeof agents>();
@@ -90,8 +96,10 @@
   });
 
   function chooseModel(id: number | string) {
+    if (!agents.some(agent => agent.id === id && agent.available)) return;
     modelOpen = false;
     chat.engine?.setAgent(id);
+    document.getElementById("model-button")?.focus();
   }
 
   function onDocumentClick(event: MouseEvent) {
@@ -123,9 +131,9 @@
           <div class="menu-label">{provider}</div>
           {#each list as agent (agent.id)}
             {@const selected = agent.id === snap.composer.agentId}
-            <button type="button" class="model-option" role="option" aria-selected={selected ? "true" : "false"} data-id={String(agent.id)} onclick={() => chooseModel(agent.id)}>
+            <button type="button" class="model-option" role="option" aria-selected={selected ? "true" : "false"} aria-disabled={!agent.available} disabled={!agent.available} data-id={String(agent.id)} onclick={() => chooseModel(agent.id)}>
               <span class="model-logo" aria-hidden="true">{@html providerMark(agent, PROVIDER_LOGOS)}</span>
-              <span class="model-option-text"><span class="model-option-name">{agentLabel(agent)}</span></span>
+              <span class="model-option-text"><span class="model-option-name">{agentLabel(agent)}</span>{#if !agent.available}<span class="model-option-name">Indisponible</span>{/if}</span>
               {#if selected}<span class="model-check" aria-hidden="true"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5L20 7"/></svg></span>{/if}
             </button>
           {/each}
@@ -151,8 +159,8 @@
         <p class="empty-help">Pose une question, demande une explication ou fais relire un texte.</p>
       </div>
       <div id="thread" class="thread" aria-live="polite">
-        {#each snap.messages as message (message.index)}
-          <ChatMessage {message} {chat} />
+        {#each snap.messages as message (String(snap.id) + ":" + message.index)}
+          <ChatMessage {message} {chat} {openPreview} />
         {/each}
         {#if showLive}
           <div class="message assistant message-enter">
@@ -202,5 +210,5 @@
     <button id="scroll-bottom" class="scroll-bottom" class:hidden={!showScroll} type="button" aria-label="Aller en bas" title="Aller en bas" onclick={() => toBottom(true)}><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14"/><path d="M6 13l6 6 6-6"/></svg></button>
   </div>
 
-  <ChatComposer {chat} />
+  <ChatComposer {chat} {skills} />
 </div>

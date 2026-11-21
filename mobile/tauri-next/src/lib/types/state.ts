@@ -6,7 +6,12 @@ export type Theme = "system" | "light" | "dark";
 export type WebSearchMode = "open" | "filtered" | "disabled";
 export type StudyMode = "" | "fiches" | "quiz" | "cartes";
 export type LibraryColumns = 1 | 2 | 3 | 4;
-export type ImageModel = "gpt-image-2.5-sunburst" | "gpt-image-2.5-flare" | "gpt-image-2";
+export type ImageModel =
+  | "gpt-image-2.6-sunburst"
+  | "gpt-image-2.6-flare"
+  | "gpt-image-2.5-sunburst"
+  | "gpt-image-2.5-flare"
+  | "gpt-image-2";
 
 export interface StoredState {
   session: string;

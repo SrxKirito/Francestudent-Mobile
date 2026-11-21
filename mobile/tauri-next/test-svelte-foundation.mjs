@@ -115,6 +115,14 @@ await test("valeurs invalides rejetées, valeurs valides conservées", () => {
   assert.deepEqual(valid.conversations, [{ id: "c1" }]);
 });
 
+await test("les cinq modèles d'image du moteur historique sont relus tels quels", () => {
+  const models = ["gpt-image-2.6-sunburst", "gpt-image-2.6-flare", "gpt-image-2.5-sunburst", "gpt-image-2.5-flare", "gpt-image-2"];
+  for (const imageModel of models) {
+    assert.equal(parseStoredState(JSON.stringify({ imageModel }), makeId).imageModel, imageModel, imageModel);
+  }
+  assert.equal(parseStoredState(JSON.stringify({ imageModel: "gpt-image-3" }), makeId).imageModel, "gpt-image-2.5-flare");
+});
+
 await test("defaultAgentId sert d'agentId quand agentId manque", () => {
   const state = parseStoredState(JSON.stringify({ defaultAgentId: 55 }), makeId);
   assert.equal(state.defaultAgentId, 55);

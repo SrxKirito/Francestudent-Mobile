@@ -84,7 +84,7 @@ export interface ChatState {
   draft: { seq: number; text: string };
 }
 
-export type ChatOptionName = "webSearch" | "imageMode" | "studyMode";
+export type ChatOptionName = "webSearch" | "imageMode" | "studyMode" | "powerpointMode" | "imageModel";
 
 export interface PreviewTarget {
   messageIndex?: number;

@@ -47,7 +47,7 @@
       title: conversation.title,
       updatedAt: conversation.updatedAt,
       pinned: conversation.pinned === true,
-      projectId: conversation.projectId || null,
+      projectId: conversation.projectId ?? null,
       agentId: conversation.agentId,
       agentName: conversation.agentName,
       agentProvider: conversation.agentProvider
@@ -67,7 +67,7 @@
       status: status ? status.textContent || "" : "",
       rows: Array.from(panel.querySelectorAll(".archived-chat-row")).map(row => {
         const title = row.querySelector("span");
- const first = row.querySelector("button");
+        const first = row.querySelector("button");
         return { id: row.dataset.chatId || "", title: title ? title.textContent || "" : "", busy: Boolean(first && first.disabled) };
       }),
       moreHidden: !more || more.hidden,
@@ -84,7 +84,7 @@
       status: status && !status.hidden ? status.textContent || "" : "",
       results: results && !results.hidden
         ? Array.from(results.querySelectorAll(".remote-chat-search-result")).map(button => button.textContent || "")
- : []
+        : []
     };
   }
 
@@ -108,7 +108,7 @@
       avatar: store.avatar || profile.avatar || "",
       settingsOpen: document.body.classList.contains("settings-open"),
       theme: store.theme || "system",
-      agents: agents.map(agent => ({ id: agent.id, name: agent.name, provider: agent.provider }))
+      agents: agents.map(agent => ({ id: agent.id, name: agent.name, provider: agent.provider, available: agent.available !== false }))
     });
   }
 
@@ -201,7 +201,7 @@
     patch("syncConversation", original => async function (conversation, method, suffix) {
       const ok = await original.apply(this, arguments);
       if (ok === false && typeof showToast === "function") {
- const what = suffix === "/pins" ? "L'\u00E9pinglage" : method === "DELETE" ? "La suppression" : "Le renommage";
+        const what = suffix === "/pins" ? "L'\u00E9pinglage" : method === "DELETE" ? "La suppression" : "Le renommage";
         showToast(what + " n'est pas synchronis\u00E9 avec le serveur.", true);
       }
       return ok;
@@ -260,6 +260,11 @@
     if (button) button.click();
   }
 
+  function originalConversationId(id) {
+    return store.conversations.find(row => row.id === id)?.id ??
+      store.conversations.find(row => typeof row.id === "number" && String(row.id) === id)?.id ?? id;
+  }
+
   function run(task) {
     Promise.resolve().then(task).catch(error => console.error("Coque Svelte : action impossible", error));
   }
@@ -298,13 +303,13 @@
     setLayout,
     act,
     closeMenus: () => closeMenus(),
-    openConversation: id => run(() => openConversation(id)),
-    togglePin: id => run(() => togglePin(id)),
-    renameConversation: id => run(() => renameConversation(id)),
-    deleteConversation: id => run(() => deleteConversation(id)),
+    openConversation: id => run(() => openConversation(originalConversationId(id))),
+    togglePin: id => run(() => togglePin(originalConversationId(id))),
+    renameConversation: id => run(() => renameConversation(originalConversationId(id))),
+    deleteConversation: id => run(() => deleteConversation(originalConversationId(id))),
     // Appelle directement la fonction historique : l'entrée « Archiver » de l'ancien menu lit `menuConversationId`,
     // que seul l'ancien menu renseigne.
-    archiveConversation: id => run(() => archiveConversation(id)),
+    archiveConversation: id => run(() => archiveConversation(originalConversationId(id))),
     search,
     composition,
     toggleArchive: () => {

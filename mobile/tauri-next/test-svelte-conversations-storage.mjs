@@ -79,6 +79,22 @@ await test("IndexedDB déjà rempli : il prime sur localStorage", async () => {
   assert.deepEqual(JSON.parse(second.localStorage.getItem(STORE_KEY)).conversations, []);
 });
 
+await test("le repli écrit pendant une panne est réconcilié au retour d’IndexedDB", async () => {
+  const { indexedDB, localStorage, storage } = setup();
+  await storage.load();
+  storage.save([conv("existante", { updatedAt: 2 })]);
+  await storage.flush();
+  storage.close();
+  indexedDB.state.fail.open = true;
+  const fallback = createConversationStorage({ indexedDB, localStorage, warn() {} });
+  await fallback.load();
+  fallback.save([conv("existante", { updatedAt: 3 }), conv("nouvelle")]);
+  indexedDB.state.fail.open = false;
+  const loaded = await storage.load();
+  assert.deepEqual(loaded.conversations.map(row => [row.id, row.updatedAt]), [["existante", 3], ["nouvelle", 1]]);
+  assert.deepEqual(JSON.parse(localStorage.getItem(STORE_KEY)).conversations, []);
+});
+
 await test("aucune discussion nulle part : liste vide, base initialisée avec []", async () => {
   const { indexedDB, storage } = setup();
   const loaded = await storage.load();

@@ -41,13 +41,15 @@ export function createSseParser(onEvent: SseHandler): SseParser {
   let name = "";
   let data: string[] = [];
   let eventId = "";
+  let explicitId = false;
 
   function dispatch(): void {
     const payload = data.join("\n");
     const eventName = name;
     name = "";
     data = [];
-    if (payload) onEvent(eventName, payload, eventId);
+    if (payload) onEvent(eventName, payload, eventId, explicitId);
+    explicitId = false;
   }
 
   function handleLine(line: string): void {
@@ -60,7 +62,10 @@ export function createSseParser(onEvent: SseHandler): SseParser {
     const field = index < 0 ? line : line.slice(0, index);
     let value = index < 0 ? "" : line.slice(index + 1);
     if (value.startsWith(" ")) value = value.slice(1);
-    if (field === "id" && !value.includes("\0")) eventId = value;
+    if (field === "id" && !value.includes("\0")) {
+      eventId = value;
+      explicitId = true;
+    }
     if (field === "event") name = value;
     else if (field === "data") data.push(value);
   }
@@ -339,7 +344,9 @@ export async function processChatStream(options: ProcessChatStreamOptions): Prom
     throw error;
   }
 
-  let output = resume && conversation.pendingResponse?.lastEventId ? conversation.pendingResponse.output || "" : "";
+  const checkpoint = resume ? conversation.pendingResponse?.lastEventId : undefined;
+  let output = checkpoint ? conversation.pendingResponse?.output || "" : "";
+  let cursor = /^\d+$/.test(checkpoint || "") ? BigInt(checkpoint as string) : null;
   if (output) onDelta(output);
   let checkpointAt = 0;
   // `as` : ces variables sont modifiées dans le rappel de l'analyseur, que TypeScript ne suit pas.
@@ -381,8 +388,15 @@ export async function processChatStream(options: ProcessChatStreamOptions): Prom
     if (streamLog[streamLog.length - 1] !== entry) streamLog.push(entry);
   };
 
-  const parser = createSseParser((name, payload, eventId) => {
+  const parser = createSseParser((name, payload, eventId, explicitId) => {
     if (payload === "[DONE]") { completed = true; return; }
+    // Certains serveurs incluent l'événement du curseur dans le flux repris.
+    // L'ignorer évite de répéter un fragment de texte déjà enregistré.
+    if (cursor !== null && explicitId && /^\d+$/.test(eventId)) {
+      const sequence = BigInt(eventId);
+      if (sequence <= cursor) return;
+      cursor = null;
+    }
     let data: Loose;
     try {
       data = JSON.parse(payload);
@@ -437,6 +451,12 @@ export async function processChatStream(options: ProcessChatStreamOptions): Prom
       case "response.failed":
       case "error":
         streamError = data;
+        break;
+      case "cancelled":
+      case "canceled":
+      case "response.cancelled":
+      case "response.canceled":
+        completed = true;
         break;
       case "response.completed":
         completed = true;

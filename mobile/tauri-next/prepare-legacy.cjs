@@ -1,5 +1,6 @@
 "use strict";
 // Keep the existing visual baseline without modifying the Capacitor source.
+require("./prepare-document-assets.cjs");
 const fs = require("node:fs");
 const path = require("node:path");
 const source = path.resolve(__dirname, "../www");
@@ -45,10 +46,16 @@ index = index.replace(appScript, appScript + '\n  <script src="js/tauri-session.
 index = index.replace(appScript, appScript + '\n  <script src="js/tauri-resume-on-foreground.js"></script>');
 index = index.replace(appScript, appScript + '\n  <script src="js/tauri-api-key-settings.js"></script>');
 index = index.replace(appScript, appScript + '\n  <script src="js/tauri-data-import.js"></script>');
+// Choix de l'interface (classique / Svelte 5 bêta) dans Paramètres > Général.
+index = index.replace(appScript, appScript + '\n  <script src="js/tauri-interface-settings.js"></script>');
 // Pont inerte vers la coque Svelte (?ui=svelte) : il ne fait rien tant que la page parente ne l'a pas activé.
 index = index.replace(appScript, appScript + '\n  <script src="js/tauri-svelte-engine.js"></script>');
 // Pont du chat Svelte (?ui=svelte&chat=svelte) : inerte lui aussi tant que le parent ne l'a pas attaché.
 index = index.replace('<script src="js/tauri-svelte-engine.js"></script>', '<script src="js/tauri-svelte-engine.js"></script>\n  <script src="js/tauri-svelte-chat-engine.js"></script>');
+// Pont des réglages locaux (Paramètres Svelte) : sans état, il n'expose que `window.__fsSettings`.
+index = index.replace('<script src="js/tauri-svelte-chat-engine.js"></script>', '<script src="js/tauri-svelte-chat-engine.js"></script>\n  <script src="js/tauri-svelte-settings-engine.js"></script>');
+index = index.replace('<script src="js/tauri-svelte-settings-engine.js"></script>', '<script src="js/tauri-svelte-settings-engine.js"></script>\n  <script src="js/tauri-svelte-workspace-engine.js"></script>');
+fs.copyFileSync(path.join(__dirname, "svelte-workspace-engine.js"), path.join(destination, "js/tauri-svelte-workspace-engine.js"));
 fs.writeFileSync(indexPath, index);
 fs.copyFileSync(path.join(__dirname, "legacy-bridge.js"), path.join(destination, "js/tauri-bridge.js"));
 fs.copyFileSync(path.join(__dirname, "files-store.js"), path.join(destination, "js/tauri-files-store.js"));
@@ -63,8 +70,10 @@ fs.copyFileSync(path.join(__dirname, "resume-on-foreground.js"), path.join(desti
 fs.copyFileSync(path.join(__dirname, "api-key-settings.js"), path.join(destination, "js/tauri-api-key-settings.js"));
 fs.copyFileSync(path.join(__dirname, "legacy-speech.js"), path.join(destination, "js/tauri-speech.js"));
 fs.copyFileSync(path.join(__dirname, "legacy-data-import.js"), path.join(destination, "js/tauri-data-import.js"));
+fs.copyFileSync(path.join(__dirname, "interface-settings.js"), path.join(destination, "js/tauri-interface-settings.js"));
 fs.copyFileSync(path.join(__dirname, "svelte-engine.js"), path.join(destination, "js/tauri-svelte-engine.js"));
 fs.copyFileSync(path.join(__dirname, "svelte-chat-engine.js"), path.join(destination, "js/tauri-svelte-chat-engine.js"));
+fs.copyFileSync(path.join(__dirname, "svelte-settings-engine.js"), path.join(destination, "js/tauri-svelte-settings-engine.js"));
 fs.copyFileSync(path.join(__dirname, "legacy-save.js"), path.join(destination, "js/tauri-save.js"));
 fs.copyFileSync(path.join(__dirname, "project-shares.js"), path.join(destination, "js/tauri-project-shares.js"));
 fs.copyFileSync(path.join(__dirname, "project-shares.css"), path.join(destination, "tauri-project-shares.css"));
@@ -100,7 +109,14 @@ composerSource = composerSource.replace(imageModelsStart, '"gpt-image-2.6-sunbur
 // Skill imposé par « /nom » : la consigne est ajoutée au message envoyé, le texte affiché reste inchangé.
 const fallbackText = 'if (!sentText && uploads.length) sentText = uploads.some(file => file.kind === "image") ? "Décris cette image." : "Analyse ce fichier.";';
 if (!composerSource.includes(fallbackText)) throw new Error("Construction du message envoyé introuvable");
-composerSource = composerSource.replace(fallbackText, fallbackText + '\n  if (typeof tauriSkillPrefix === "function") sentText = tauriSkillPrefix(text) + sentText;');
+const sendMessageSignature = "async function sendMessage()";
+if (!composerSource.includes(sendMessageSignature)) throw new Error("Envoi historique introuvable");
+composerSource = composerSource.replace(sendMessageSignature, "async function sendMessage(skillPrefix)");
+composerSource = composerSource.replace(fallbackText, fallbackText + '\n  if (typeof skillPrefix === "string") sentText = skillPrefix + sentText; else if (typeof tauriSkillPrefix === "function") sentText = tauriSkillPrefix(text) + sentText;');
+const powerpointCondition = "  const powerpoint = (typeof detectsPowerPointRequest";
+if (!composerSource.includes(powerpointCondition)) throw new Error("Commande PowerPoint introuvable.");
+composerSource = composerSource.replace(powerpointCondition,
+  "  const powerpoint = store.powerpointMode === true || (typeof detectsPowerPointRequest");
 fs.writeFileSync(composerPath, composerSource.replace(attachmentFields, "data: String(file.data || '').startsWith('blob:') ? '' : file.data, remoteId: file.remoteId, remoteKind: file.remoteKind, previewId: file.previewId || null"));
 const conversationsPath = path.join(destination, "js/conversations.js");
 let conversations = fs.readFileSync(conversationsPath, "utf8");

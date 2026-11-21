@@ -17,7 +17,7 @@
   "use strict";
 
   const STUDY = ["fiches", "quiz", "cartes"];
-  const OPTIONS = ["webSearch", "imageMode", "studyMode"];
+  const OPTIONS = ["webSearch", "imageMode", "studyMode", "powerpointMode", "imageModel"];
   const PATCHED = ["renderMessages", "updateSendButton", "renderAttachments", "renderToggles", "renderModels", "saveStore"];
 
   let host = null;
@@ -165,7 +165,7 @@
   }
 
   // ---------- actions ----------
-  function send(text) {
+  function send(text, skillPrefix) {
     const box = promptBox();
     if (!box) return false;
     const conversation = currentConv();
@@ -177,7 +177,7 @@
     // sendMessage() est asynchrone mais sa partie initiale (contrôles, vidage du champ et des pièces jointes) est synchrone.
     let started;
     try {
-      started = sendMessage();
+      started = sendMessage(skillPrefix);
     } catch (error) {
       console.error("sendMessage", error);
       return false;
@@ -230,6 +230,17 @@
     } else if (name === "imageMode") {
       store.imageMode = value === true;
       if (store.imageMode) store.powerpointMode = false;
+    } else if (name === "powerpointMode") {
+      store.powerpointMode = value === true;
+      if (store.powerpointMode) {
+        store.imageMode = false;
+        store.studyMode = "";
+      }
+    } else if (name === "imageModel") {
+      if (typeof value !== "string" || !Object.hasOwn(IMAGE_MODELS, value)) return;
+      store.imageModel = value;
+      store.imageToolSynced = null;
+      if (typeof renderImageModel === "function") renderImageModel();
     } else {
       const mode = value == null ? "" : String(value);
       if (mode && !STUDY.includes(mode)) return;

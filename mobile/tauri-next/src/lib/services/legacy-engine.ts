@@ -7,7 +7,7 @@ import type { Theme } from "../types/state.ts";
 // Tant que le chat reste dans l'iframe, l'état (discussions, projet, compte) y est écrit et la coque Svelte le lit ici ;
 // elle ne l'écrit jamais elle-même. Les valeurs voyagent en JSON pour ne garder aucune référence vers l'iframe.
 
-export type EngineAgent = Pick<Agent, "id" | "name" | "provider">;
+export type EngineAgent = Pick<Agent, "id" | "name" | "provider" | "available"> & Partial<Pick<Agent, "model" | "isDefault">>;
 
 /** Une ligne du panneau « Conversations archivées » (identifiant serveur, pas celui de l'appareil). */
 export interface ArchivedRow {
@@ -76,7 +76,7 @@ export interface EngineLayout {
   collapsed: boolean;
 }
 
-export interface LegacyEngine {
+export interface ShellEngine {
   attach(host: EngineHost): void;
   detach(): void;
   snapshot(): EngineSnapshot;
@@ -102,6 +102,8 @@ export interface LegacyEngine {
   /** Ouvre le résultat de recherche du serveur de rang `index`. */
   openRemote(index: number): void;
 }
+
+export type LegacyEngine = ShellEngine;
 
 /** Forme brute exposée par svelte-engine.js. */
 interface RawEngine {
@@ -140,9 +142,15 @@ function text(value: unknown): string {
   return typeof value === "string" ? value : "";
 }
 
+function bridgeId(value: unknown): string | null {
+  if (typeof value === "string") return value || null;
+  return typeof value === "number" && Number.isSafeInteger(value) ? String(value) : null;
+}
+
 function toConversation(raw: Record<string, unknown>): Conversation | null {
-  if (typeof raw.id !== "string") return null;
-  const conversation: Conversation = { id: raw.id, projectId: typeof raw.projectId === "string" ? raw.projectId : null };
+  const id = bridgeId(raw.id);
+  if (id === null) return null;
+  const conversation: Conversation = { id, projectId: bridgeId(raw.projectId) };
   if (typeof raw.title === "string") conversation.title = raw.title;
   if (typeof raw.updatedAt === "number") conversation.updatedAt = raw.updatedAt;
   if (raw.pinned === true) conversation.pinned = true;
@@ -154,7 +162,8 @@ function toConversation(raw: Record<string, unknown>): Conversation | null {
 
 function toAgent(raw: unknown): EngineAgent | null {
   if (!isRecord(raw) || typeof raw.id !== "number") return null;
-  return { id: raw.id, name: text(raw.name), provider: text(raw.provider) };
+  // Un pont plus ancien n'envoie pas « available » : le modèle est alors considéré disponible (comportement d'avant).
+  return { id: raw.id, name: text(raw.name), provider: text(raw.provider), available: raw.available !== false };
 }
 
 function toTheme(value: unknown): Theme {
@@ -207,9 +216,9 @@ export function parseSnapshot(json: string): EngineSnapshot {
     conversations,
     archive: toArchive(raw.archive),
     remoteSearch: toRemoteSearch(raw.remoteSearch),
-    currentId: typeof raw.currentId === "string" ? raw.currentId : null,
+    currentId: bridgeId(raw.currentId),
     project,
-    projectId: project && typeof raw.projectId === "string" ? raw.projectId : null,
+    projectId: project ? bridgeId(raw.projectId) : null,
     projectStatus: text(raw.projectStatus),
     userName: text(raw.userName) || "Mon compte",
     avatar: text(raw.avatar),
@@ -222,7 +231,7 @@ export function parseSnapshot(json: string): EngineSnapshot {
 export function parseIds(json: string): Set<string> {
   const raw: unknown = JSON.parse(json);
   if (!Array.isArray(raw)) throw new Error("Résultat de recherche du moteur historique invalide");
-  return new Set(raw.filter((id): id is string => typeof id === "string"));
+  return new Set(raw.map(bridgeId).filter((id): id is string => id !== null));
 }
 
 function isRawEngine(value: unknown): value is RawEngine {

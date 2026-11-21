@@ -40,27 +40,94 @@ const FAKE_BACKEND = String.raw`(() => {
   if (window.top !== window) return;
   const callbacks = new Map();
   let nextCallback = 1;
+  const speechListeners = new Map();
   const U = n => "00000000-0000-4000-8000-" + String(n).padStart(12, "0");
   const ago = hours => new Date(Date.now() - hours * 3600e3).toISOString();
   const chat = (n, title, hours, extra) => Object.assign({ id: U(n), title, projectId: null, isPinned: false, lastMessageAt: ago(hours), createdAt: ago(hours), agent: { id: 1 } }, extra || {});
   const backend = window.__backend = {
     session: "session-de-test", calls: [], invokes: [], fail: {}, cancelled: [], released: false, streamPlan: null, uploads: new Map(), uploadHold: false, uploadFail: 0,
+    prefs: { gptReasoning: "medium", customInstructions: "Réponds en français.", webSearchMode: "open" },
+    web: { filterType: "allowlist", allowedDomains: [], blockedDomains: [] },
     chats: [chat(1, "Maths", 1), chat(2, "Histoire", 2), chat(5, "Physique", 3)],
     archived: [chat(3, "Vieille discussion", 90)],
-    remote: [chat(4, "Géographie du serveur", 200)]
+    remote: [chat(4, "Géographie du serveur", 200)],
+    usage: { chatBudget: { usedPercent: 75.4, remainingPercent: 24.6, resetAt: new Date(Date.now() + 5 * 3600e3).toISOString() } },
+    skills: [{ id: "skill-1", name: "Résumé", description: "Synthétiser un texte", enabled: true }],
+    mcp: [{ id: "mcp-1", server_label: "Démo", auth_type: "oauth", enabled: true, available_tools: [] }],
+    files: [{ id: "file-1", filename: "notes-frst.txt", bytes: 17, created_at: 1700000000 }],
+    projects: [{ id: U(81), name: "Projet de test", customInstructions: "Répondre brièvement." }],
+    shares: [],
+    apiKey: false,
+    sessions: [
+      { id: "s-iphone", since: ago(48), os: "iOS 19", location: "Paris, France", lastActiveAt: ago(1) },
+      { id: "s-web", since: ago(240), os: "Windows 11", location: "Lyon, France", lastActiveAt: ago(30) }
+    ]
   };
   function route(method, path, body) {
     const url = new URL(path, "http://x");
     const p = url.pathname;
     backend.calls.push({ method, path: p + url.search, body: body || null });
     for (const [prefix, status] of Object.entries(backend.fail)) if ((method + " " + p).startsWith(prefix)) return [status, { error: "panne simulée" }];
+    if (method === "GET" && p === "/chats/agents") return [200, [
+      { id: 1, name: "GPT Test", model: "gpt-test", modelProvider: "OpenAI", isDefault: true },
+      { id: 2, name: "Sonnet 4.6", model: "claude-sonnet", modelProvider: "anthropic" }
+    ]];
     if (method === "GET" && p === "/chats") return [200, { chats: backend.chats }];
     if (method === "GET" && p === "/chats/archived") return [200, { chats: backend.archived, hasMore: false }];
     if (method === "GET" && p === "/chats/search") {
       const q = (url.searchParams.get("query") || "").toLowerCase();
       return [200, { chats: backend.remote.filter(c => c.title.toLowerCase().includes(q)), hasMore: false }];
     }
+    if (p === "/skills" && method === "GET") return [200, { data: backend.skills, has_more: false }];
+    if (p === "/skills/skill-1" && method === "POST") { Object.assign(backend.skills[0], JSON.parse(body)); return [200, {}]; }
+    if (p === "/mcp/servers" && method === "GET") return [200, { data: backend.mcp }];
+    if (p === "/mcp/servers" && method === "POST") {
+      const row = { id: "mcp-2", ...JSON.parse(body) };
+      backend.mcp.push(row); return [200, row];
+    }
+    if (p === "/mcp/servers/mcp-1/discover" && method === "POST") {
+      backend.mcp[0].available_tools = [{ name: "outil-test", description: "Description simulée" }];
+      return [200, {}];
+    }
+    if (p === "/mcp/servers/mcp-1/oauth/start" && method === "POST") return [200, { authorization_url: "https://example.org/oauth", state: "test-state" }];
+    if (p === "/mcp/servers/oauth/complete" && method === "POST") {
+      backend.mcp[0].has_authorization = true; return [200, {}];
+    }
+    if (p === "/user/@me/api-key") {
+      if (method === "POST") { backend.apiKey = true; return [200, { key: "fixture-key-only" }]; }
+      if (method === "DELETE") { backend.apiKey = false; return [200, {}]; }
+      return [200, { maskedKey: backend.apiKey ? "fixture-•••" : null, budget: { remainingUsd: 5 } }];
+    }
+    if (p === "/filesv2/usage" && method === "GET") return [200, { usedBytes: 10000, maxBytes: 20000, remainingBytes: 10000, filesBytes: 8000, skillsBytes: 2000 }];
+    if (p === "/filesv2" && method === "GET") return [200, { data: backend.files, has_more: false }];
+    if (p === "/filesv2/file-1/content" && method === "GET") return [200, "Y29udGVudSBGUlNU"];
+    if (p === "/filesv2/file-1" && method === "DELETE") { backend.files = []; return [200, { deleted: true }]; }
+    if (p === "/projects" && method === "GET") return [200, backend.projects];
+    if (p === "/projects/shared" && method === "GET") return [200, []];
+    if (p === "/projects/" + U(81) && method === "GET") return [200, backend.projects[0]];
+    if (p === "/projects/" + U(81) && method === "PATCH") { Object.assign(backend.projects[0], JSON.parse(body)); return [200, backend.projects[0]]; }
+    if (p === "/projects/" + U(81) + "/shares" && method === "GET") return [200, backend.shares];
+    if (p === "/projects/" + U(81) + "/shares" && method === "POST") { backend.shares.push({ ...JSON.parse(body), userId: 18, permission: "View" }); return [200, {}]; }
+    if (p === "/projects/" + U(81) + "/chats" && method === "GET") return [200, { chats: backend.chats.filter(row => row.projectId === U(81)) }];
+    if (p.startsWith("/projects/" + U(81) + "/chats/") && ["PUT", "DELETE"].includes(method)) {
+      const row = backend.chats.find(row => row.id === p.split("/").at(-1));
+      if (row) row.projectId = method === "PUT" ? U(81) : null;
+      return [row ? 200 : 404, row ?? {}];
+    }
     if (method === "GET" && p === "/user/me") return [200, { name: "Test", email: "test@example.org" }];
+    if (method === "GET" && p === "/user/usage") return [200, backend.usage];
+    if (method === "GET" && p === "/user/tokenusage") {
+      const today = new Date().toLocaleDateString("sv-SE", { timeZone: "Europe/Paris" });
+      return [200, { totalTokenCount: 1234, last7DaysTokenUsage: [{ date: today, inputTokens: 300, outputTokens: 100, reasoningTokens: 0, totalTokens: 400 }] }];
+    }
+    if (method === "GET" && p === "/user/sessions") return [200, backend.sessions];
+    if (method === "DELETE" && p === "/user/sessions") { backend.sessions = []; return [200, {}]; }
+    const ended = p.match(/^\/user\/sessions\/([^/]+)$/);
+    if (method === "DELETE" && ended) { backend.sessions = backend.sessions.filter(s => s.id !== decodeURIComponent(ended[1])); return [200, {}]; }
+    if (method === "GET" && p === "/user/instructions") return [200, backend.prefs];
+    if (method === "PATCH" && p === "/user/instructions") { Object.assign(backend.prefs, JSON.parse(body)); return [200, backend.prefs]; }
+    if (method === "GET" && p === "/user/web-search-domains") return [200, backend.web];
+    if (method === "PUT" && p === "/user/web-search-domains") { backend.web = JSON.parse(body); return [200, backend.web]; }
     if (method === "POST" && (p === "/files/upload" || p === "/filesv2")) return [200, { id: "fichier-" + backend.calls.length }];
     if (method === "POST" && /^\/chats\/[^/]+\/stream\/cancel$/.test(p)) { backend.released = true; return [200, {}]; }
     const m = p.match(/^\/chats\/([^/]+)(\/.*)?$/);
@@ -123,16 +190,25 @@ const FAKE_BACKEND = String.raw`(() => {
         case "session_delete": backend.session = null; return null;
         case "legacy_cancel": backend.cancelled.push(args.id); return null;
         case "legacy_exchange": return { accessToken: "jeton-de-test", expiresIn: 3600 };
-        case "speech_supported": return false;
+        case "speech_supported": return true;
+        case "plugin:stt|is_available": return { available: true };
+        case "plugin:stt|check_permission": return { speechRecognition: "granted", microphone: "granted" };
+        case "plugin:stt|register_listener": speechListeners.set(args.event, args.handler.id); return null;
+        case "plugin:stt|remove_listener": speechListeners.delete(args.event); return null;
+        case "plugin:stt|start_listening":
+          setTimeout(() => callbacks.get(speechListeners.get("result"))?.({ index: 0, message: { transcript: "suite dictée" } }), 15);
+          return null;
+        case "plugin:stt|stop_listening": return null;
         case "upload_begin": {
           // Comme Rust : annonce « ready », puis attend upload_finish avant de répondre {id}.
           const channel = callbacks.get(args.onEvent.id);
-          const entry = { chunks: 0, bytes: 0, name: args.name, done: false, cancelled: false };
+          const entry = { chunks: 0, bytes: 0, name: args.name, kind: args.kind, done: false, cancelled: false };
           backend.uploads.set(args.id, entry);
           if (backend.uploadFail > 0) { backend.uploadFail -= 1; throw new Error("HTTP 500"); }
           setTimeout(() => channel?.({ index: 0, message: { kind: "ready" } }), 5);
           while ((!entry.done || backend.uploadHold) && !entry.cancelled) await new Promise(resolve => setTimeout(resolve, 10));
           if (entry.cancelled) throw new Error("Transfert annulé.");
+          if (entry.kind === "skill") backend.skills.push({ id: "imported", name: "Skill importé", enabled: true });
           return { id: "fichier-" + args.id.slice(0, 8) };
         }
         case "upload_chunk": {
@@ -309,12 +385,16 @@ async function main() {
   await cdp.send("Runtime.enable");
   await cdp.send("Page.addScriptToEvaluateOnNewDocument", { source: FAKE_BACKEND });
   await cdp.send("Emulation.setDeviceMetricsOverride", { width: 1280, height: 800, deviceScaleFactor: 1, mobile: false });
+  if (!process.env.FS_PREVIOUS_HYBRID) {
+    await nativePhase(baseUrl, pageErrors);
+    return;
+  }
   // FS_CHAT_ONLY=1 : n'exécute que la phase chat (itération rapide) ; la vérification complète les enchaîne toutes.
   if (process.env.FS_CHAT_ONLY) {
     await chatPhase(baseUrl, pageErrors);
     return;
   }
-  await cdp.send("Page.navigate", { url: baseUrl + "/?ui=svelte" });
+  await cdp.send("Page.navigate", { url: baseUrl + "/?ui=svelte&chat=legacy" });
 
   // 1. Démarrage ---------------------------------------------------------------------------------------------------
   await check("démarrage : la coque Svelte affiche sa propre barre latérale dans la page parente", async () => {
@@ -538,12 +618,108 @@ async function freshChat() {
   await waitFor(`!document.querySelector("#thread > .message")`, "fil vide");
 }
 
+async function nativePhase(baseUrl, pageErrors) {
+  const q = selector => "document.querySelector(" + JSON.stringify(selector) + ")";
+  const has = selector => "!!" + q(selector);
+  const contains = (selector, value) => q(selector) + "?.textContent.includes(" + JSON.stringify(value) + ")";
+  async function input(selector, value) {
+    await ev("(() => { const el = " + q(selector) + "; el.focus(); el.select(); })()");
+    await cdp.send("Input.insertText", { text: value });
+  }
+  async function escape() {
+    const args = { key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 };
+    await cdp.send("Input.dispatchKeyEvent", { type: "keyDown", ...args });
+    await cdp.send("Input.dispatchKeyEvent", { type: "keyUp", ...args });
+  }
+  await cdp.send("Page.navigate", { url: baseUrl + "/" });
+  await check("coque native par défaut et historique", async () => {
+    await waitFor('document.querySelectorAll("#history .history-item").length >= 3 && !document.querySelector(".chat-pane")?.classList.contains("chat-pane-hidden")', "coque native prête", { timeout: 30000 });
+    assert.equal(await ev(has("iframe")), false);
+  });
+  await check("Claude affiche une ressource locale et OpenAI garde sa marque", async () => {
+    await click("Catalogue", q("#model-button"));
+    const claude = '#model-menu [data-id="2"] img';
+    await waitFor(q(claude) + "?.naturalWidth > 0", "logo Claude chargé");
+    assert.ok((await ev(q(claude) + '.getAttribute("src")')).endsWith("/legacy/logo/claude.png"));
+    assert.equal(await ev(has('#model-menu [data-id="1"] .chatgpt-symbol')), true);
+    await escape();
+  });
+  await check("import : thème, validation sans requête et fermeture", async () => {
+    await click("Importer", q("#conversation-import-open"));
+    await waitFor(has("dialog.import-dialog[open]"), "dialogue ouvert");
+    assert.equal(await ev("document.activeElement.id"), "import-title");
+    assert.notEqual(await ev("getComputedStyle(" + q("dialog.import-dialog") + ").backgroundColor"), "rgb(255, 255, 255)");
+    await input("#import-link", "https://example.org/faux");
+    await click("Valider le lien", q("dialog.import-dialog button[type=submit]"));
+    await waitFor(q("#import-status") + "?.textContent.length > 0", "lien rejeté");
+    assert.equal(await ev('window.__backend.calls.some(row => row.path.startsWith("/conversation-imports"))'), false);
+    await click("Annuler", q('dialog.import-dialog button[type="button"]'));
+    await waitFor("!" + has("dialog.import-dialog[open]"), "fermeture");
+  });
+  await check("slash : ouverture, filtre, annulation, sélection et envoi", async () => {
+    await input("#prompt", "un / au milieu");
+    assert.equal(await ev(has("#skill-menu")), false);
+    await input("#prompt", "/");
+    await waitFor(contains("#skill-menu", "/resume"), "skill du catalogue simulé");
+    await input("#prompt", "/inconnu");
+    await waitFor(contains("#skill-menu", "Aucun skill"), "aucun résultat");
+    await escape();
+    assert.equal(await ev(has("#skill-menu")), false);
+    await input("#prompt", "/res");
+    await waitFor(has("#skill-choice-0"), "suggestion filtrée");
+    await click("Sélection du skill", q("#skill-choice-0"));
+    await waitFor(q("#prompt") + '.value === "/resume "', "commande insérée");
+    await cdp.send("Input.insertText", { text: "Synthétise." });
+    await setPlan({ events: [delta("Réponse de test", 44), done("Réponse de test", 44)] });
+    await click("Envoyer", q("#send"));
+    await waitFor(contains("#thread", "Réponse de test"), "réponse du flux");
+    assert.match((await streamPosts()).at(-1).body, /Skill imposé.*skill-1/);
+  });
+  await check("petite hauteur : compositeur et dialogue dans la fenêtre", async () => {
+    await cdp.send("Emulation.setDeviceMetricsOverride", { width: 390, height: 370, deviceScaleFactor: 1, mobile: false });
+    await waitFor('(() => { const r = document.querySelector("#composer").getBoundingClientRect(); return r.bottom <= innerHeight + 1 && r.left >= 0 && r.right <= innerWidth + 1; })()', "compositeur contenu");
+    await click("Ouvrir le tiroir", q("#menu-toggle"));
+    await waitFor(`(() => {
+      const button = document.querySelector("#sidebar.open #conversation-import-open");
+      if (!button) return false;
+      const rect = button.getBoundingClientRect();
+      return button.contains(document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2));
+    })()`, "tiroir ouvert et animation terminée");
+    await click("Importer", q("#conversation-import-open"));
+    await waitFor(has("dialog.import-dialog[open]"), "modale compacte");
+    assert.equal(await ev(q("dialog.import-dialog") + ".scrollWidth <= " + q("dialog.import-dialog") + ".clientWidth + 1"), true);
+    await escape();
+  });
+  await check("secours hybride : montage et raccordement du pont historique", async () => {
+    await cdp.send("Emulation.setDeviceMetricsOverride", { width: 1280, height: 800, deviceScaleFactor: 1, mobile: false });
+    await cdp.send("Page.navigate", { url: baseUrl + "/?ui=svelte&chat=legacy" });
+    await waitFor(has("main iframe"), "iframe de secours montée");
+    await waitFor(`(() => {
+      const el = document.querySelector("main iframe");
+      const frame = el?.contentWindow;
+      return Boolean(frame?.document.getElementById("fs-engine-style"));
+    })()`, "pont installé dans l’iframe");
+    await waitFor('document.querySelectorAll("#history .history-item").length >= 3', "historique de secours synchronisé", { timeout: 15000 }).catch(async error => {
+      const details = await inFrame(`({ ready: document.readyState, hasTransport: !!parent.__franceStudentTransport, appHidden: document.getElementById("app")?.classList.contains("hidden"), count: document.querySelectorAll("#history .history-item").length })`);
+      throw new Error(error.message + " " + JSON.stringify({ details, pageErrors }));
+    });
+    assert.equal(await inFrame('!!document.getElementById("fs-engine-style")'), true);
+    await click("Rechercher dans le secours", q("#search-input"));
+    await cdp.send("Input.insertText", { text: "Maths" });
+    await waitFor("document.querySelectorAll('#history .history-item').length === 1", "historique hybride filtré");
+    assert.equal(await inFrame('document.getElementById("search-input").value'), "Maths");
+  });
+  await check("aucune exception JavaScript non gérée", async () => assert.deepEqual(pageErrors, []));
+}
+
 async function chatPhase(baseUrl, pageErrors) {
   const consoleErrors = [];
   cdp.on("Runtime.consoleAPICalled", p => { if (p.type === "error" || p.type === "warning") consoleErrors.push(p.type + ": " + p.args.map(a => a.value ?? a.description ?? "").join(" ").slice(0, 300)); });
   await cdp.send("Emulation.setDeviceMetricsOverride", { width: 1280, height: 800, deviceScaleFactor: 1, mobile: false });
   await cdp.send("Page.navigate", { url: baseUrl + "/?ui=svelte&chat=svelte" });
-  await waitFor(`!!${PANE} && document.querySelectorAll("#history .history-item").length >= 3`, "chat Svelte monté", { timeout: 40000 });
+  // La page recharge avec le cache local de la phase précédente (« Algèbre », renommée avant) : on attend la synchro
+  // avec le faux serveur neuf (titre « Maths ») et non le simple nombre de lignes, sinon la suite clique trop tôt.
+  await waitFor(`!!${PANE} && !!(${historyItem("Maths")}) && document.querySelectorAll("#history .history-item").length >= 3`, "chat Svelte monté et liste synchronisée avec le serveur", { timeout: 40000 });
 
   await check("chat : la surcouche Svelte recouvre exactement l'iframe legacy, qui reste vivante mais inerte", async () => {
     await waitFor(`!${PANE}.classList.contains("chat-pane-hidden")`, "surcouche visible");
@@ -660,11 +836,11 @@ async function chatPhase(baseUrl, pageErrors) {
     assert.equal(await ev(`document.querySelector("#thread .generated-image img").naturalWidth`), 32);
   });
 
-  const attachFiles = async files => {
+  const attachFiles = async (files, selector = "#file-input") => {
     await cdp.send("DOM.enable");
     const root = await cdp.send("DOM.getDocument", { depth: 1 });
-    const input = await cdp.send("DOM.querySelector", { nodeId: root.root.nodeId, selector: "#file-input" });
-    assert.ok(input.nodeId, "champ #file-input introuvable dans la page parente");
+    const input = await cdp.send("DOM.querySelector", { nodeId: root.root.nodeId, selector });
+    assert.ok(input.nodeId, "champ " + selector + " introuvable dans la page parente");
     await cdp.send("DOM.setFileInputFiles", { nodeId: input.nodeId, files });
   };
 
@@ -759,23 +935,515 @@ async function chatPhase(baseUrl, pageErrors) {
     await waitFor(`!document.querySelector('dialog[aria-label="Accès à la conversation"][open]')`, "dialogue de partage fermé");
   });
 
-  await check("chat : l'ouverture des Paramètres (iframe) masque la surcouche et rend l'iframe interactive ; la fermeture la ramène", async () => {
-    await waitFor(`!${PANE}.classList.contains("chat-pane-hidden")`, "surcouche visible avant");
+  const settingsOpenNow = `!!document.getElementById("settings-modal") && document.body.classList.contains("settings-open")`;
+  const settingsClosedNow = `!document.getElementById("settings-modal") && !document.body.classList.contains("settings-open")`;
+  const pressEscape = async () => {
+    await cdp.send("Input.dispatchKeyEvent", { type: "keyDown", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 });
+    await cdp.send("Input.dispatchKeyEvent", { type: "keyUp", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 });
+  };
+  const openSvelteSettings = async () => {
     await click("Paramètres", `document.getElementById("user-button")`);
-    await waitFor(`${PANE}.classList.contains("chat-pane-hidden")`, "surcouche masquée pendant les réglages", { timeout: 8000 });
-    assert.equal(await ev(`document.querySelector("main.main iframe").inert`), false, "l'iframe doit être interactive pour les réglages");
-    await inFrame(`closeSettings()`);
-    await waitFor(`!${PANE}.classList.contains("chat-pane-hidden")`, "surcouche de retour après fermeture", { timeout: 8000 });
-    assert.equal(await ev(`document.querySelector("main.main iframe").inert`), true, "iframe de nouveau inerte");
+    await waitFor(settingsOpenNow, "dialogue Paramètres (Svelte) ouvert", { timeout: 8000 });
+  };
+  const closeSvelteSettings = async () => {
+    await pressEscape();
+    await waitFor(settingsClosedNow, "dialogue Paramètres (Svelte) fermé");
+  };
+  const generalReady = `!!document.getElementById("personalization-fields") && !document.getElementById("personalization-fields").disabled`;
+  const patchBodies = () => ev(`window.__backend.calls.filter(c => c.method === "PATCH" && c.path === "/user/instructions").map(c => JSON.parse(c.body))`);
+
+  await check("réglages : « Paramètres » ouvre le dialogue Svelte sur Général et charge les préférences ; Échap le ferme et rend le focus", async () => {
+    await waitFor(`!${PANE}.classList.contains("chat-pane-hidden")`, "surcouche visible avant");
+    const before = (await calls()).length;
+    await openSvelteSettings();
+    assert.equal(await ev(`document.getElementById("tab-general").getAttribute("aria-selected")`), "true", "l'onglet Général est sélectionné");
+    try {
+      await waitFor(`document.getElementById("custom-instructions").value.startsWith("Réponds en français.")`, "instructions personnalisées chargées depuis le serveur", { timeout: 8000 });
+    } catch (error) {
+      const state = await ev(`JSON.stringify({ status: document.getElementById("personalization-status")?.textContent, value: document.getElementById("custom-instructions")?.value, disabled: document.getElementById("personalization-fields")?.disabled, retryHidden: document.getElementById("personalization-retry")?.hidden })`);
+      throw new Error(error.message + " — état du dialogue : " + state);
+    }
+    assert.ok((await calls()).slice(before).includes("GET /user/instructions"), "GET /user/instructions attendu : " + JSON.stringify((await calls()).slice(before)));
+    assert.equal(await inFrame(`document.body.classList.contains("settings-open")`), false, "la fenêtre de réglages classique ne doit pas s'ouvrir");
+    assert.equal(await ev(`${PANE}.classList.contains("chat-pane-hidden")`), false, "la surcouche de chat reste en place");
+    await closeSvelteSettings();
+    assert.equal(await ev(`document.activeElement && document.activeElement.id`), "user-button", "le focus revient sur le bouton Paramètres");
   });
 
-  await check("chat : sans sous-drapeau (?ui=svelte seul, ou chat=legacy), aucune surcouche — le chat legacy reste le défaut", async () => {
-    for (const query of ["?ui=svelte", "?ui=svelte&chat=legacy"]) {
+  const select = selector => `document.querySelector(${JSON.stringify(selector)})`;
+  const buttonWith = (parent, label) => `[...document.querySelectorAll(${JSON.stringify(parent + " button")})].find(b => b.textContent.trim() === ${JSON.stringify(label)})`;
+  const contains = (parent, label) => select(parent) + `?.textContent.includes(${JSON.stringify(label)})`;
+  const clickButton = (parent, label) => click(label, buttonWith(parent, label));
+  async function setField(selector, value) {
+    await ev(`(() => { const input = ${select(selector)}; input.focus(); input.select(); })()`);
+    await cdp.send("Input.insertText", { text: value });
+  }
+
+  await check("skills : activation et import Markdown dans le panneau Svelte", async () => {
+    await openSvelteSettings();
+    await click("Skills", select("#tab-skills"));
+    await waitFor(contains("#panel-skills", "Résumé"), "skill du compte chargé");
+    assert.equal(await inFrame(`document.body.classList.contains("settings-open")`), false);
+    const toggle = select("#panel-skills [role=switch]");
+    await click("Désactiver Résumé", toggle);
+    await waitFor(`window.__backend.skills[0].enabled === false && !${toggle}.disabled`, "skill désactivé");
+    await click("Activer Résumé", toggle);
+    await waitFor(`window.__backend.skills[0].enabled === true && !${toggle}.disabled`, "skill activé");
+    const file = path.join(temp, "modele.md");
+    fs.writeFileSync(file, "# Résumé");
+    await attachFiles([file], '#panel-skills input[type="file"]');
+    await waitFor(contains("#panel-skills", "Skill importé"), "skill importé");
+    assert.equal(await ev(`[...window.__backend.uploads.values()].find(row => row.kind === "skill")?.name`), "SKILL.md");
+    await closeSvelteSettings();
+  });
+
+  await check("skills : le raccourci / transmet la consigne et garde la saisie dans la bulle", async () => {
+    await freshChat();
+    await setField("#prompt", "/");
+    await waitFor(contains("#skill-menu", "/resume"), "menu de skills");
+    await click("Choisir le skill", select("#skill-menu button"));
+    await waitFor(`document.getElementById("prompt").value === "/resume "`, "commande insérée");
+    await cdp.send("Input.insertText", { text: "Synthétise le texte." });
+    const before = (await streamPosts()).length;
+    await setPlan({ events: [delta("Résumé de test", 44), done("Résumé de test", 44)] });
+    await sendMessage();
+    await waitFor(`window.__backend.calls.filter(c => c.method === "POST" && c.path.startsWith("/chats/stream")).length > ${before}`, "requête chat");
+    await settled("skill");
+    assert.match((await streamPosts()).at(-1).body, /Skill imposé.*skill-1/);
+    assert.equal((await thread()).find(row => row.role === "user")?.text, "/resume Synthétise le texte.");
+  });
+
+  await check("dictée : le composeur Svelte ajoute un résultat natif simulé au brouillon et permet l’arrêt", async () => {
+    await setField("#prompt", "Début");
+    await click("Dicter", select("#mic"));
+    await waitFor(select("#prompt") + '.value === "Début suite dictée"', "texte dicté");
+    assert.equal(await ev(select("#mic") + '.getAttribute("aria-pressed")'), "true");
+    await click("Arrêter la dictée", select("#mic"));
+    await waitFor(`window.__backend.invokes.includes("plugin:stt|stop_listening") && ${select("#mic")}.getAttribute("aria-pressed") === "false"`, "arrêt transmis au pont natif");
+    await ev(`(() => { const prompt = ${select("#prompt")}; prompt.value = ""; prompt.dispatchEvent(new Event("input", { bubbles: true })); })()`);
+  });
+
+  await check("MCP : découverte des outils, connexion OAuth et ajout dans l’assistant Svelte", async () => {
+    await openSvelteSettings();
+    await click("MCP", select("#tab-mcp"));
+    await waitFor(select('[data-mcp-id="mcp-1"]') + " !== null", "serveur MCP chargé");
+    await clickButton("#panel-mcp", "Actualiser les outils");
+    await waitFor(contains("#panel-mcp", "outil-test"), "outils découverts");
+    await clickButton("#panel-mcp", "Connecter mon compte");
+    await waitFor(select('#panel-mcp a[href="https://example.org/oauth"]') + " !== null", "lien OAuth");
+    await setField('#panel-mcp article input[type="password"]', "code-de-test");
+    await clickButton("#panel-mcp", "Terminer la connexion");
+    await waitFor(contains("#panel-mcp", "Authentifié"), "OAuth terminé");
+    await clickButton("#panel-mcp", "Ajouter MCP");
+    await waitFor(select("#panel-mcp dialog[open]") + " !== null", "assistant ouvert");
+    await setField("#panel-mcp dialog input:not([type])", "exemple");
+    await setField('#panel-mcp dialog input[type="url"]', "https://example.org/mcp");
+    await clickButton("#panel-mcp dialog", "Continuer");
+    await waitFor(select("#panel-mcp dialog select") + " !== null", "choix de l’authentification");
+    await clickButton("#panel-mcp dialog", "Continuer");
+    await clickButton("#panel-mcp dialog", "Ajouter le serveur");
+    await waitFor(select('[data-mcp-id="mcp-2"]') + " !== null", "serveur ajouté");
+    await closeSvelteSettings();
+  });
+
+  await check("Files V2 : quota, bibliothèque, miniature de texte et suppression", async () => {
+    const openStorage = async () => {
+      await openSvelteSettings();
+      await click("Stockage", select("#tab-storage"));
+      await waitFor(select("#panel-storage progress") + "?.value === 50", "quota Files V2 affiché");
+      await clickButton("#panel-storage", "Gérer les fichiers");
+      await waitFor(contains("#panel-storage", "notes-frst.txt"), "fichier listé dans Stockage");
+    };
+    await openStorage();
+    await closeSvelteSettings();
+    await inFrame(`libraryWrite({ id: "local-test", owner: libraryOwner(), name: "bilan.md", kind: "other", direction: "generated", created: Date.now(), projectId: "", code: "Bilan généré" })`);
+    await click("Bibliothèque", select("#library-open"));
+    await waitFor(contains("#svelte-library", "notes-frst.txt"), "fichier listé dans Bibliothèque");
+    await waitFor(contains("#svelte-library", "bilan.md"), "fichier généré listé dans la même bibliothèque");
+    await waitFor(`[...document.querySelectorAll("#svelte-library .library-thumbnail pre")].some(e => e.textContent.includes("contenu FRST"))`, "miniature du texte FRST");
+    await pressEscape();
+    await waitFor(select("#svelte-library") + " === null", "bibliothèque fermée");
+    await openStorage();
+    dialogPlan.push({ accept: true });
+    await clickButton("#panel-storage", "Supprimer");
+    await waitFor(`window.__backend.files.length === 0 && !(${contains("#panel-storage", "notes-frst.txt")})`, "fichier supprimé");
+    await closeSvelteSettings();
+  });
+
+  const streamSource = fs.readFileSync(path.join(here, "..", "www", "js", "stream.js"), "utf8");
+  const filesTag = /const FILE_INSTR_TAG = "([^"]+)";/.exec(streamSource)[1];
+  const filesRest = JSON.parse('"' + /const FILE_INSTR = FILE_INSTR_TAG \+ "((?:[^"\\]|\\.)*)";/.exec(streamSource)[1] + '"');
+  const FILES_BLOCK = filesTag + filesRest;
+
+  await check("réglages : modifier la réflexion et les instructions les enregistre (PATCH /user/instructions)", async () => {
+    await openSvelteSettings();
+    await waitFor(generalReady + ` && document.getElementById("custom-instructions").value.startsWith("Réponds en français.")`, "préférences chargées", { timeout: 8000 });
+    await click("Niveau de réflexion", `document.getElementById("gpt-reasoning-button")`);
+    await click("Élevé", `document.querySelector('[data-reasoning="high"]')`);
+    assert.equal(await ev(`document.getElementById("gpt-reasoning").value`), "high", "le niveau Élevé est retenu");
+    await ev(`(() => { const t = document.getElementById("custom-instructions"); t.focus(); t.select(); return true; })()`);
+    await cdp.send("Input.insertText", { text: "Réponds en anglais." });
+    assert.equal(await ev(`document.getElementById("custom-instructions").value`), "Réponds en anglais.");
+    await click("Enregistrer", `document.getElementById("personalization-save")`);
+    await waitFor(`document.getElementById("personalization-status").textContent.trim() === "Préférences enregistrées sur ton compte."`, "message de confirmation", { timeout: 8000 });
+    const bodies = await patchBodies();
+    assert.ok(bodies.some(body => body.gptReasoning === "high" && body.customInstructions === "Réponds en anglais.\n\n" + FILES_BLOCK), "PATCH avec la réflexion et les instructions : " + JSON.stringify(bodies));
+    const prefs = await ev(`window.__backend.prefs`);
+    assert.equal(prefs.gptReasoning, "high", "le faux serveur a reçu la réflexion");
+    assert.equal(prefs.customInstructions, "Réponds en anglais.\n\n" + FILES_BLOCK, "le faux serveur a reçu les instructions");
+    assert.equal(prefs.webSearchMode, "open", "le mode web n'est pas modifié par cet enregistrement");
+    await closeSvelteSettings();
+  });
+
+  await check("réglages : échec de chargement des préférences — message, bouton Réessayer, champs inactifs puis actifs", async () => {
+    await ev(`window.__backend.fail = { "GET /user/instructions": 500 }`);
+    try {
+      await openSvelteSettings();
+      await waitFor(`document.getElementById("personalization-status").textContent.includes("Impossible de charger les préférences")`, "message d'échec de chargement", { timeout: 8000 });
+      assert.equal(await ev(`document.getElementById("personalization-retry").hidden`), false, "le bouton Réessayer est visible");
+      assert.equal(await ev(`document.getElementById("personalization-fields").disabled`), true, "les champs restent inactifs après un échec");
+    } finally {
+      await ev(`window.__backend.fail = {}`);
+    }
+    await click("Réessayer", `document.getElementById("personalization-retry")`);
+    await waitFor(generalReady + ` && document.getElementById("personalization-retry").hidden`, "champs actifs après réessai", { timeout: 8000 });
+    assert.equal(await ev(`document.getElementById("custom-instructions").value`), "Réponds en anglais.", "les préférences enregistrées sont rechargées");
+    await closeSvelteSettings();
+  });
+
+  await check("réglages : la consigne de création de fichiers est masquée dans le champ, conservée à l'enregistrement et comptée dans la limite", async () => {
+    await ev(`window.__backend.prefs.customInstructions = ${JSON.stringify("Réponds en français.\n\n" + FILES_BLOCK)}`);
+    await openSvelteSettings();
+    await waitFor(generalReady + ` && document.getElementById("custom-instructions").value === "Réponds en français."`, "champ sans la consigne de fichiers", { timeout: 8000 });
+    await ev(`(() => { const t = document.getElementById("custom-instructions"); t.focus(); t.select(); return true; })()`);
+    await cdp.send("Input.insertText", { text: "Réponds en espagnol." });
+    await click("Enregistrer", `document.getElementById("personalization-save")`);
+    await waitFor(`document.getElementById("personalization-status").textContent.trim() === "Préférences enregistrées sur ton compte."`, "message de confirmation", { timeout: 8000 });
+    assert.equal(await ev(`window.__backend.prefs.customInstructions`), "Réponds en espagnol.\n\n" + FILES_BLOCK, "le serveur reçoit le texte et la consigne de fichiers");
+    const sent = (await patchBodies()).length;
+    await ev(`(() => { const t = document.getElementById("custom-instructions"); t.value = "x".repeat(9990); t.dispatchEvent(new Event("input", { bubbles: true })); return t.value.length; })()`);
+    await click("Enregistrer", `document.getElementById("personalization-save")`);
+    await waitFor(`/consigne de création de fichiers/.test(document.getElementById("personalization-status").textContent)`, "refus local : la consigne de fichiers compte dans la limite", { timeout: 8000 });
+    assert.equal((await patchBodies()).length, sent, "aucune requête pour un texte trop long");
+    await ev(`window.__backend.prefs.customInstructions = "Réponds en anglais."`);
+    await closeSvelteSettings();
+  });
+
+  await check("réglages : Recherche web — mode « filtré » et sites autorisés (PUT /user/web-search-domains puis PATCH webSearchMode)", async () => {
+    await openSvelteSettings();
+    await waitFor(`!!document.getElementById("web-settings-open") && !document.getElementById("web-settings-open").disabled`, "bouton Recherche web actif", { timeout: 8000 });
+    assert.equal(await ev(`document.getElementById("web-settings-summary").textContent.trim()`), "Sans restriction", "résumé initial");
+    await click("Recherche web", `document.getElementById("web-settings-open")`);
+    await waitFor(`document.getElementById("web-settings-dialog").open`, "sous-dialogue Recherche web ouvert", { timeout: 8000 });
+    await waitFor(`!document.getElementById("web-settings-fields").disabled`, "filtres web chargés (champs actifs)", { timeout: 8000 });
+    await ev(`(() => { const s = document.getElementById("web-search-mode"); s.value = "filtered"; s.dispatchEvent(new Event("change", { bubbles: true })); return s.value; })()`);
+    await waitFor(`!document.getElementById("web-domain-options").hidden`, "options de filtre visibles en mode filtré");
+    await ev(`(() => { const f = document.getElementById("web-filter-type"); f.value = "allowlist"; f.dispatchEvent(new Event("change", { bubbles: true })); const t = document.getElementById("web-allowed-domains"); t.value = "wikipedia.org\\nfrancestudent.org"; t.dispatchEvent(new Event("input", { bubbles: true })); return true; })()`);
+    await click("Enregistrer (recherche web)", `document.getElementById("web-settings-save")`);
+    await waitFor(`!document.getElementById("web-settings-dialog").open`, "sous-dialogue fermé après enregistrement", { timeout: 8000 });
+    const sent = await ev(`window.__backend.calls.filter(c => (c.method === "PUT" && c.path === "/user/web-search-domains") || (c.method === "PATCH" && c.path === "/user/instructions")).map(c => c.method + " " + c.body)`);
+    const put = sent.findIndex(item => item.startsWith("PUT ") && item.includes("wikipedia.org") && item.includes("francestudent.org"));
+    const patch = sent.findIndex(item => item.startsWith("PATCH ") && item.includes('"webSearchMode":"filtered"'));
+    assert.ok(put >= 0, "PUT des domaines attendu : " + JSON.stringify(sent));
+    assert.ok(patch > put, "PATCH du mode après le PUT des domaines : " + JSON.stringify(sent));
+    assert.deepEqual(await ev(`window.__backend.web.allowedDomains`), ["wikipedia.org", "francestudent.org"]);
+    assert.equal(await ev(`window.__backend.prefs.webSearchMode`), "filtered");
+    assert.equal(await ev(`document.getElementById("web-settings-summary").textContent.trim()`), "Sites filtrés", "résumé mis à jour");
+    await closeSvelteSettings();
+  });
+
+  await check("réglages : Recherche web — enregistrement bloqué tant que les filtres ne sont pas chargés, possible après « Réessayer »", async () => {
+    const writes = () => ev(`window.__backend.calls.filter(c => (c.method === "PUT" && c.path === "/user/web-search-domains") || (c.method === "PATCH" && c.path === "/user/instructions")).length`);
+    const before = await writes();
+    await ev(`window.__backend.fail = { "GET /user/web-search-domains": 500 }`);
+    try {
+      await openSvelteSettings();
+      await waitFor(`!!document.getElementById("web-settings-open") && !document.getElementById("web-settings-open").disabled`, "bouton Recherche web actif", { timeout: 8000 });
+      await click("Recherche web", `document.getElementById("web-settings-open")`);
+      await waitFor(`document.getElementById("web-settings-dialog").open`, "sous-dialogue ouvert", { timeout: 8000 });
+      await waitFor(`!document.getElementById("web-settings-retry").hidden`, "bouton Réessayer après l'échec de chargement", { timeout: 8000 });
+      assert.equal(await ev(`document.getElementById("web-settings-fields").disabled`), true, "champs bloqués");
+      assert.equal(await ev(`document.getElementById("web-settings-save").disabled`), true, "bouton Enregistrer bloqué");
+      await click("Enregistrer (bloqué)", `document.getElementById("web-settings-save")`);
+      await sleep(300);
+      assert.equal(await writes(), before, "aucune écriture tant que les filtres ne sont pas chargés");
+    } finally {
+      await ev(`window.__backend.fail = {}`);
+    }
+    await click("Réessayer", `document.getElementById("web-settings-retry")`);
+    await waitFor(`!document.getElementById("web-settings-fields").disabled && !document.getElementById("web-settings-save").disabled`, "champs et bouton actifs après « Réessayer »", { timeout: 8000 });
+    await click("Annuler", `document.getElementById("web-settings-cancel")`);
+    await waitFor(`!document.getElementById("web-settings-dialog").open`, "sous-dialogue fermé", { timeout: 8000 });
+    assert.equal(await writes(), before, "annuler n'écrit rien");
+    await closeSvelteSettings();
+  });
+
+  const countGets = prefix => `window.__backend.calls.filter(c => c.method === "GET" && c.path.startsWith(${JSON.stringify(prefix)})).length`;
+  const sessionDeletes = () => ev(`window.__backend.calls.filter(c => c.method === "DELETE" && c.path.startsWith("/user/sessions")).map(c => c.path)`);
+  const storedAvatar = `(() => { try { return String(JSON.parse(localStorage.getItem("fs-chat-state")).avatar || ""); } catch { return ""; } })()`;
+  const shellUp = `!!document.querySelector("aside#sidebar") && document.querySelectorAll("#history .history-item").length >= 3`;
+  const openAccountTab = async () => {
+    await openSvelteSettings();
+    await click("Compte", `document.getElementById("tab-account")`);
+    await waitFor(`!!document.getElementById("panel-account") && !document.getElementById("panel-general")`, "panneau Compte (Svelte)", { timeout: 8000 });
+  };
+
+  await check("clé API : génération confirmée, effacement à la fermeture et révocation", async () => {
+    await openAccountTab();
+    await waitFor(`document.querySelectorAll("#sessions-list li").length === 2 && document.querySelectorAll("#activity-content .activity-cell").length === 343`, "compte stabilisé");
+    dialogPlan.push({ accept: true });
+    await clickButton("#account-api-key", "Générer une clé");
+    await waitFor(contains("#account-api-key code", "fixture-key-only"), "clé générée");
+    await closeSvelteSettings();
+    await openAccountTab();
+    await waitFor(`document.querySelectorAll("#activity-content .activity-cell").length === 343`, "compte rouvert");
+    assert.equal(await ev(`document.body.textContent.includes("fixture-key-only")`), false);
+    await clickButton("#account-api-key", "Consulter");
+    await waitFor(contains("#account-api-key", "fixture-•••"), "clé masquée");
+    dialogPlan.push({ accept: true });
+    await clickButton("#account-api-key", "Révoquer");
+    await waitFor(contains("#account-api-key", "révoquée"), "révocation confirmée");
+    await closeSvelteSettings();
+  });
+
+  await check("compte : l'onglet Compte est natif — profil, quota, activité et sessions chargés depuis le serveur", async () => {
+    await openSvelteSettings();
+    const before = (await calls()).length;
+    await click("Compte", `document.getElementById("tab-account")`);
+    await waitFor(`!!document.getElementById("panel-account") && !document.getElementById("panel-general")`, "panneau Compte (Svelte)", { timeout: 8000 });
+    assert.equal(await inFrame(`document.body.classList.contains("settings-open")`), false, "la fenêtre classique ne s'ouvre pas");
+    assert.equal(await ev(`document.getElementById("tab-account").getAttribute("aria-selected")`), "true", "onglet Compte sélectionné");
+    await waitFor(`document.getElementById("profile-name").textContent.trim() === "Test"`, "nom du profil (GET /user/me)", { timeout: 8000 });
+    assert.equal(await ev(`document.getElementById("profile-email").textContent.trim()`), "test@example.org");
+    await waitFor(`document.querySelector("#quota-box .quota-row-head strong")?.textContent.trim() === "75 %"`, "quota affiché", { timeout: 8000 });
+    assert.equal(await ev(`document.querySelector("#quota-box .quota-bar span").getAttribute("class")`), "warn");
+    assert.match(await ev(`document.querySelector("#quota-box .quota-note").textContent`), /25 % restant · Réinitialisation/);
+    await waitFor(`!document.getElementById("activity-content").hidden && document.querySelectorAll("#activity-content .activity-cell").length === 343`, "calendrier d'activité (343 cases)", { timeout: 8000 });
+    assert.equal(await ev(`document.getElementById("activity-share").disabled`), false, "Partager actif");
+    assert.match(await ev(`[...document.querySelectorAll("#activity-content .activity-cell")].at(-1).getAttribute("aria-label")`), /400 tokens/);
+    await waitFor(`document.querySelectorAll("#sessions-list li").length === 2`, "deux sessions listées", { timeout: 8000 });
+    const seen = (await calls()).slice(before);
+    for (const wanted of ["GET /user/me", "GET /user/usage", "GET /user/tokenusage?tokenUsageDays=343", "GET /user/sessions"]) assert.ok(seen.includes(wanted), wanted + " attendu : " + JSON.stringify(seen));
+  });
+
+  await check("compte : actualiser le quota et l'activité refait les requêtes ; une case du calendrier affiche son libellé", async () => {
+    const quotaBefore = await ev(countGets("/user/usage"));
+    const activityBefore = await ev(countGets("/user/tokenusage"));
+    await ev(`(() => { window.__backend.usage.chatBudget.usedPercent = 95; window.__backend.usage.chatBudget.remainingPercent = 5; return true; })()`);
+    await click("Actualiser le quota", `document.getElementById("quota-refresh")`);
+    await waitFor(`document.querySelector("#quota-box .quota-row-head strong")?.textContent.trim() === "95 %"`, "quota actualisé", { timeout: 8000 });
+    assert.equal(await ev(`document.querySelector("#quota-box .quota-bar span").getAttribute("class")`), "danger");
+    assert.equal(await ev(countGets("/user/usage")), quotaBefore + 1, "une requête de quota");
+    await click("Actualiser l'activité", `document.getElementById("activity-refresh")`);
+    await waitFor(`${countGets("/user/tokenusage")} === ${activityBefore + 1}`, "requête d'activité", { timeout: 8000 });
+    await waitFor(`document.querySelectorAll("#activity-content .activity-cell").length === 343`, "calendrier toujours affiché", { timeout: 8000 });
+    await click("case du jour", `[...document.querySelectorAll("#activity-content .activity-cell")].at(-1)`);
+    await waitFor(`/400 tokens/.test(document.getElementById("activity-status").textContent)`, "libellé de la case sélectionnée", { timeout: 8000 });
+  });
+
+  await check("compte : terminer une session — confirmation en ligne (Annuler sans requête), puis DELETE /user/sessions/{id}", async () => {
+    await click("Terminer s-web", `document.querySelector('[data-session-end="s-web"]')`);
+    await waitFor(`!!document.getElementById("sessions-confirm")`, "confirmation en ligne", { timeout: 8000 });
+    assert.deepEqual(await sessionDeletes(), [], "aucune requête avant la confirmation");
+    await click("Annuler", `document.getElementById("sessions-confirm-cancel")`);
+    await waitFor(`!document.getElementById("sessions-confirm")`, "confirmation refermée", { timeout: 8000 });
+    assert.deepEqual(await sessionDeletes(), [], "Annuler n'envoie rien");
+    await click("Terminer s-web", `document.querySelector('[data-session-end="s-web"]')`);
+    await waitFor(`!!document.getElementById("sessions-confirm")`, "confirmation en ligne (2e fois)", { timeout: 8000 });
+    await click("Confirmer", `document.getElementById("sessions-confirm-yes")`);
+    await waitFor(`document.querySelectorAll("#sessions-list li").length === 1`, "une seule session restante", { timeout: 8000 });
+    assert.deepEqual(await sessionDeletes(), ["/user/sessions/s-web"]);
+    assert.deepEqual(await ev(`window.__backend.sessions.map(s => s.id)`), ["s-iphone"]);
+    assert.equal(await ev(`!!document.getElementById("panel-account")`), true, "l'utilisateur reste dans les Paramètres");
+  });
+
+  await check("compte : changer puis retirer la photo de profil (fichier réel, redimensionné, écrit dans l'état local)", async () => {
+    const picture = path.join(temp, "avatar.png");
+    fs.writeFileSync(picture, makePng(32));
+    assert.equal(await ev(`document.getElementById("avatar-remove").hidden`), true, "pas de photo personnalisée au départ");
+    await attachFiles([picture], "#avatar-input");
+    await waitFor(`document.getElementById("profile-avatar").src.startsWith("data:image/")`, "aperçu de la nouvelle photo", { timeout: 10000 });
+    await waitFor(`${storedAvatar}.startsWith("data:image/")`, "photo écrite dans fs-chat-state", { timeout: 8000 });
+    assert.equal(await ev(`document.getElementById("avatar-remove").hidden`), false, "bouton Retirer visible");
+    await click("Retirer", `document.getElementById("avatar-remove")`);
+    await waitFor(`document.getElementById("avatar-remove").hidden === true && ${storedAvatar} === ""`, "photo retirée", { timeout: 8000 });
+    assert.equal(await ev(`document.getElementById("profile-avatar").src.startsWith("data:image/")`), false, "retour à l'image par défaut");
+  });
+
+  await check("compte : « Terminer toutes les sessions » demande confirmation, envoie DELETE /user/sessions puis ramène à l'écran de connexion", async () => {
+    await click("Tout terminer", `document.getElementById("sessions-end-all")`);
+    await waitFor(`!!document.getElementById("sessions-confirm")`, "confirmation en ligne", { timeout: 8000 });
+    assert.match(await ev(`document.getElementById("sessions-confirm-text").textContent`), /toutes les sessions/);
+    assert.ok(!(await sessionDeletes()).includes("/user/sessions"), "aucune requête avant la confirmation");
+    await click("Confirmer", `document.getElementById("sessions-confirm-yes")`);
+    await waitFor(`!!document.getElementById("login-screen")`, "écran de connexion après la fin de toutes les sessions", { timeout: 10000 });
+    assert.ok((await sessionDeletes()).includes("/user/sessions"), "DELETE /user/sessions envoyé");
+    assert.ok((await ev(`window.__backend.invokes`)).includes("session_delete"), "la session sécurisée de l'appareil est supprimée");
+    assert.equal(await ev(`!document.getElementById("settings-modal")`), true, "le dialogue Paramètres est fermé");
+  });
+
+  await check("compte : « Se déconnecter » supprime la session sécurisée, vide le profil local et affiche l'écran de connexion", async () => {
+    await cdp.send("Page.navigate", { url: baseUrl + "/" });
+    await waitFor(shellUp, "coque Svelte après rechargement", { timeout: 40000 });
+    await openAccountTab();
+    await waitFor(`document.getElementById("profile-name").textContent.trim() === "Test"`, "profil chargé", { timeout: 8000 });
+    await waitFor(`document.querySelectorAll("#activity-content .activity-cell").length === 343 && document.querySelectorAll("#sessions-list li").length === 2`, "chargement complet du compte", { timeout: 8000 });
+    await click("Se déconnecter", `document.getElementById("logout")`);
+    await waitFor(`!!document.getElementById("login-screen")`, "écran de connexion après la déconnexion", { timeout: 10000 });
+    assert.ok((await ev(`window.__backend.invokes`)).includes("session_delete"), "session_delete invoqué");
+    assert.equal(await ev(`(() => { try { const s = JSON.parse(localStorage.getItem("fs-chat-state")); return s.profile === null && !s.session; } catch { return false; } })()`), true, "profil et session locaux vidés");
+    await cdp.send("Page.navigate", { url: baseUrl + "/" });
+    await waitFor(shellUp, "coque Svelte après reconnexion simulée", { timeout: 40000 });
+  });
+
+  await check("réglages : le thème choisi dans le dialogue Svelte s'applique et s'écrit dans l'état local (pont du moteur historique)", async () => {
+    await openSvelteSettings();
+    const initial = await ev(`(document.querySelector("[data-theme-choice][aria-checked='true']") || {}).dataset?.themeChoice || null`);
+    assert.ok(initial, "un thème est coché à l'ouverture");
+    const other = initial === "dark" ? "light" : "dark";
+    await click("Thème " + other, `document.querySelector('[data-theme-choice="${other}"]')`);
+    await waitFor(`document.documentElement.getAttribute("data-theme") === "${other}"`, "thème appliqué au document", { timeout: 8000 });
+    await waitFor(`(() => { try { return JSON.parse(localStorage.getItem("fs-chat-state")).theme === "${other}"; } catch { return false; } })()`, "thème écrit dans fs-chat-state", { timeout: 8000 });
+    await click("Thème " + initial, `document.querySelector('[data-theme-choice="${initial}"]')`);
+    await waitFor(`(() => { try { return JSON.parse(localStorage.getItem("fs-chat-state")).theme === "${initial}"; } catch { return false; } })()`, "thème d'origine rétabli", { timeout: 8000 });
+    await closeSvelteSettings();
+  });
+
+  await check("réglages : choisir l'interface classique depuis le dialogue Svelte recharge en interface classique seule", async () => {
+    await openSvelteSettings();
+    await click("Interface classique", `document.querySelector('[data-ui-choice="legacy"]')`);
+    await waitFor(`!document.querySelector("aside#sidebar") && !!document.querySelector("iframe")`, "interface classique seule après le choix", { timeout: 40000 });
+    assert.equal(await ev(`JSON.stringify([localStorage.getItem("fs-ui"), localStorage.getItem("fs-chat"), location.search])`), JSON.stringify(["legacy", null, ""]), "fs-ui = legacy, fs-chat retiré, adresse sans ?ui");
+    await ev(`(localStorage.removeItem("fs-ui"), localStorage.removeItem("fs-chat"), true)`);
+  });
+
+  await check("chat : par défaut (sans paramètre) Svelte 5 et son chat ; ?ui=svelte&chat=legacy garde le chat historique ; ?ui=legacy ne monte pas la coque", async () => {
+    await cdp.send("Page.navigate", { url: baseUrl + "/" });
+    await waitFor(`!!document.querySelector("aside#sidebar") && !!document.querySelector(".chat-pane") && document.querySelectorAll("#history .history-item").length >= 3`, "coque et chat Svelte par défaut", { timeout: 40000 });
+    for (const query of ["?ui=svelte&chat=legacy", "?chat=legacy"]) {
       await cdp.send("Page.navigate", { url: baseUrl + "/" + query });
       await waitFor(`!!document.querySelector("aside#sidebar") && document.querySelectorAll("#history .history-item").length >= 3`, "coque Svelte " + query, { timeout: 40000 });
       assert.equal(await ev(`!!document.querySelector(".chat-pane")`), false, "aucune surcouche pour " + query);
       assert.equal(await ev(`document.querySelector("main.main iframe").inert`), false, "iframe interactive pour " + query);
     }
+    await cdp.send("Page.navigate", { url: baseUrl + "/?ui=legacy" });
+    await waitFor(`!document.querySelector("aside#sidebar") && !!document.querySelector("iframe")`, "interface classique seule (?ui=legacy)", { timeout: 40000 });
+    assert.equal(await ev(`!!document.querySelector(".chat-pane")`), false, "aucune surcouche en interface classique");
+  });
+
+  await check("réglages : choix de l'interface dans Paramètres > Général — Svelte → classique → Svelte → nouveau chat → retour classique", async () => {
+    const pollUntil = async (expression, label, timeout = 40000) => {
+      const end = Date.now() + timeout;
+      let last = null;
+      while (Date.now() < end) {
+        try { if (await ev(expression)) return; } catch (error) { last = error; }
+        await new Promise(resolve => setTimeout(resolve, 200));
+      }
+      throw new Error("Délai dépassé : " + label + (last ? " (" + last.message + ")" : ""));
+    };
+    const shellReady = `!!document.querySelector("aside#sidebar") && document.querySelectorAll("#history .history-item").length >= 3`;
+    const legacyOnly = `!document.querySelector("aside#sidebar") && !!document.querySelector("iframe")`;
+    const sectionReady = `(() => { try { const w = document.querySelector("iframe")?.contentWindow; return !!w && !!w.document.querySelector("[data-ui-choice]"); } catch { return false; } })()`;
+    const openGeneral = async () => {
+      await pollUntil(sectionReady, "section Interface présente dans les Paramètres");
+      await inFrame(`openSettings(); document.getElementById("tab-general").click();`);
+    };
+    const pressed = () => inFrame(`[...document.querySelectorAll("[data-ui-choice]")].filter(b => b.getAttribute("aria-checked") === "true").map(b => b.dataset.uiChoice).join(",")`);
+    const choose = selector => inFrame(`document.querySelector(${JSON.stringify(selector)}).click()`);
+    const stored = () => ev(`JSON.stringify([localStorage.getItem("fs-ui"), localStorage.getItem("fs-chat"), location.search])`);
+
+    await cdp.send("Page.navigate", { url: baseUrl + "/" });
+    await pollUntil(shellReady + ` && !!${PANE}`, "coque et chat Svelte par défaut (aucun paramètre)");
+    await openGeneral();
+    assert.equal(await pressed(), "svelte", "par défaut, « Interface Svelte 5 (bêta) » est cochée");
+    assert.equal(await inFrame(`document.querySelector("[data-ui-chat]").hidden`), false, "l'option du nouveau chat est proposée avec Svelte");
+    assert.equal(await inFrame(`document.querySelector("[data-ui-chat]").getAttribute("aria-checked")`), "true", "le nouveau chat est actif par défaut");
+
+    await choose(`[data-ui-choice="legacy"]`);
+    await pollUntil(legacyOnly, "retour à l'interface classique (plus de coque Svelte)");
+    assert.equal(await stored(), JSON.stringify(["legacy", null, ""]), "fs-ui = legacy, fs-chat retiré, adresse sans ?ui");
+    await openGeneral();
+    assert.equal(await pressed(), "legacy", "« Interface classique » est cochée");
+    assert.equal(await inFrame(`document.querySelector("[data-ui-chat]").hidden`), true, "pas d'option de chat en interface classique");
+
+    await cdp.send("Page.navigate", { url: baseUrl + "/" });
+    await pollUntil(legacyOnly, "le choix classique survit à un rechargement");
+    await openGeneral();
+
+    await choose(`[data-ui-choice="svelte"]`);
+    await pollUntil(shellReady + ` && !!${PANE}`, "coque et nouveau chat après choix de Svelte");
+    assert.equal(await stored(), JSON.stringify(["svelte", "svelte", ""]));
+    await openGeneral();
+    assert.equal(await pressed(), "svelte");
+
+    await choose(`[data-ui-chat]`);
+    await pollUntil(shellReady + ` && !${PANE}`, "chat historique dans la coque Svelte après désactivation du nouveau chat");
+    assert.equal(await stored(), JSON.stringify(["svelte", "legacy", ""]));
+    await openGeneral();
+    assert.equal(await inFrame(`document.querySelector("[data-ui-chat]").getAttribute("aria-checked")`), "false");
+
+    await choose(`[data-ui-chat]`);
+    await pollUntil(`!!${PANE}`, "nouveau chat Svelte de nouveau monté");
+    assert.equal(await stored(), JSON.stringify(["svelte", "svelte", ""]));
+
+    await openGeneral();
+    await choose(`[data-ui-choice="legacy"]`);
+    await pollUntil(legacyOnly, "retour classique depuis le nouveau chat");
+    assert.equal(await stored(), JSON.stringify(["legacy", null, ""]), "fs-ui = legacy, fs-chat retiré");
+    assert.equal(await ev(`!!document.querySelector(".chat-pane")`), false);
+    await ev(`(localStorage.removeItem("fs-ui"), localStorage.removeItem("fs-chat"), true)`);
+  });
+
+  await check("préférences : thème, colonnes de la bibliothèque, agent par défaut et modèle d'image survivent aux bascules Svelte ⇄ classique", async () => {
+    const marker = { theme: "dark", libraryColumns: 4, defaultAgentId: 2, imageModel: "gpt-image-2" };
+    const saved = () => ev(`(() => { try { const s = JSON.parse(localStorage.getItem("fs-chat-state")); return JSON.stringify({ theme: s.theme, libraryColumns: s.libraryColumns, defaultAgentId: s.defaultAgentId, imageModel: s.imageModel }); } catch { return "illisible"; } })()`);
+    const legacyOnly = `!document.querySelector("aside#sidebar") && !!document.querySelector("iframe")`;
+    await cdp.send("Page.navigate", { url: baseUrl + "/" });
+    await waitFor(shellUp + ` && !!${PANE}`, "coque et chat Svelte par défaut", { timeout: 40000 });
+    await inFrame(`(store.theme = "dark", store.libraryColumns = 4, store.defaultAgentId = 2, store.imageModel = "gpt-image-2", saveStore(), true)`);
+    assert.equal(await saved(), JSON.stringify(marker), "préférences écrites avant la bascule");
+
+    await openSvelteSettings();
+    await click("Interface classique", `document.querySelector('[data-ui-choice="legacy"]')`);
+    await waitFor(legacyOnly, "interface classique seule", { timeout: 40000 });
+    assert.equal(await saved(), JSON.stringify(marker), "préférences conservées après Svelte → classique");
+
+    await waitFor(`(() => { try { const w = document.querySelector("iframe")?.contentWindow; return !!w && !!w.document.querySelector("[data-ui-choice]"); } catch { return false; } })()`, "section Interface des Paramètres classiques", { timeout: 40000 });
+    await inFrame(`openSettings(); document.getElementById("tab-general").click(); document.querySelector('[data-ui-choice="svelte"]').click();`);
+    await waitFor(shellUp + ` && !!${PANE}`, "coque et chat Svelte après retour", { timeout: 40000 });
+    assert.equal(await saved(), JSON.stringify(marker), "préférences conservées après classique → Svelte");
+
+    await openSvelteSettings();
+    assert.equal(await ev(`document.querySelector("[data-theme-choice][aria-checked='true']")?.dataset.themeChoice`), "dark", "le thème sombre est coché dans le dialogue Svelte");
+    assert.equal(await ev(`document.documentElement.getAttribute("data-theme")`), "dark", "thème appliqué au document");
+    await closeSvelteSettings();
+    await ev(`(localStorage.removeItem("fs-ui"), localStorage.removeItem("fs-chat"), true)`);
+    await inFrame(`(store.theme = "system", store.libraryColumns = 3, store.defaultAgentId = null, store.imageModel = "gpt-image-2.5-flare", saveStore(), true)`);
+  });
+
+  await check("projets : édition, partage, ouverture et rattachement d’une discussion depuis la coque Svelte", async () => {
+    await click("Projets", select("#projects-open"));
+    await waitFor(contains("#svelte-projects", "Projet de test"), "liste des projets");
+    await click("Modifier le projet", select('#svelte-projects button[aria-label="Modifier Projet de test"]'));
+    await waitFor(select("#svelte-projects textarea") + " !== null", "éditeur affiché");
+    await setField("#svelte-projects textarea", "Instructions migrées.");
+    await clickButton("#svelte-projects", "Gérer les accès");
+    await waitFor(select('#svelte-projects input[type="email"]') + " && !" + buttonWith("#svelte-projects", "Partager") + ".disabled", "partage prêt");
+    await setField('#svelte-projects input[type="email"]', "test@example.org");
+    await clickButton("#svelte-projects", "Partager");
+    await waitFor(contains("#svelte-projects", "test@example.org"), "accès partagé");
+    await clickButton("#svelte-projects", "Enregistrer");
+    await waitFor(`window.__backend.projects[0].customInstructions === "Instructions migrées." && ${buttonWith("#svelte-projects", "Projet de test")}`, "instructions enregistrées");
+    await clickButton("#svelte-projects", "Projet de test");
+    await waitFor(`!document.getElementById("svelte-projects") && document.getElementById("project-context-name").textContent === "Projet de test"`, "contexte projet activé");
+    await click("Quitter le projet", select("#project-leave"));
+    await waitFor(select("#project-context") + ".hidden", "retour hors projet");
+    await openMenuFor("Maths");
+    await click("Déplacer vers un projet", select("#conv-project"));
+    await waitFor(select("#svelte-projects select option:nth-child(2)") + " !== null", "destination chargée");
+    await ev(`(() => { const field = document.querySelector("#svelte-projects select"); field.selectedIndex = 1; field.dispatchEvent(new Event("change", { bubbles: true })); })()`);
+    await clickButton("#svelte-projects", "Déplacer");
+    await waitFor(`!document.getElementById("svelte-projects") && !!window.__backend.chats.find(row => row.title === "Maths")?.projectId`, "discussion rattachée");
   });
 
   await check("chat : aucune exception JavaScript non gérée pendant toute la phase chat", async () => {

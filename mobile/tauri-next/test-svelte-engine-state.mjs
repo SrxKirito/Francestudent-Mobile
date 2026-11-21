@@ -98,4 +98,21 @@ test("liaison : un moteur incomplet (ancien script de pont) est refusé, pas à 
   assert.equal(connectLegacyEngine(null), null);
 });
 
+test("agents : « available » est transmis ; absent (ancien pont) = disponible ; seul « false » rend indisponible", () => {
+  const snapshot = parseSnapshot(JSON.stringify({
+    ...base,
+    agents: [
+      { id: 1, name: "A", provider: "OpenAI", available: true },
+      { id: 2, name: "B", provider: "Google", available: false },
+      { id: 3, name: "C", provider: "" },
+      { id: "x", name: "invalide" }
+    ]
+  }));
+  assert.deepEqual(snapshot.agents, [
+    { id: 1, name: "A", provider: "OpenAI", available: true },
+    { id: 2, name: "B", provider: "Google", available: false },
+    { id: 3, name: "C", provider: "", available: true }
+  ]);
+});
+
 console.log(`test-svelte-engine-state : ${count} tests réussis`);

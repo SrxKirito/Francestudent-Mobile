@@ -6,7 +6,7 @@ import type { Conversation } from "../types/conversation.ts";
 
 const PROVIDER_NAMES: ReadonlyArray<readonly [RegExp, string]> = [
   [/openai|gpt|chatgpt/, "OpenAI"],
-  [/anthropic|claude/, "Anthropic"],
+  [/anthropic|claude|\b(?:sonnet|opus|haiku)\b/, "Anthropic"],
   [/google|gemini|gemma|vertex/, "Google"],
   [/mistral|mixtral|codestral/, "Mistral"],
   [/llama|meta/, "Meta"],
@@ -32,13 +32,11 @@ export function agentLabel(agent: AgentLike | null): string {
   return clean || String(agent.name);
 }
 
-/** Pastille HTML du fournisseur : logo connu, sinon initiale. `logos` correspond à `window.PROVIDER_LOGOS`. */
+/** Logos locaux et marque générique pour les modèles sans fournisseur reconnu. */
 export function providerMark(agent: AgentLike | null, logos: Readonly<Record<string, string>>): string {
-  const provider = agent ? agent.provider : "";
-  if (provider && logos[provider]) return logos[provider];
-  const source = agent ? provider || agent.name : "";
-  const letter = source ? source.charAt(0).toUpperCase().replace(/[<>&"']/g, "") : "";
-  return '<span class="model-logo-letter">' + (letter || "?") + "</span>";
+  const provider = agent ? providerLabel(agent.provider, agent.name) : "";
+  if (Object.hasOwn(logos, provider)) return logos[provider];
+  return '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="3"/><path d="M10 2v4m4-4v4m-4 12v4m4-4v4M2 10h4m-4 4h4m12-4h4m-4 4h4"/></svg>';
 }
 
 /** Modèle d'une discussion : celui du catalogue s'il existe encore, sinon ce que la discussion en a gardé. */

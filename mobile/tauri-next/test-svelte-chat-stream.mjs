@@ -420,6 +420,17 @@ for (const scenario of SCENARIOS) {
   });
 }
 
+await test("reprise : le delta déjà enregistré est ignoré et le terminal sans id reste traité", async () => {
+  const result = await runModern({
+    resume: true,
+    conv: { chatId: "reprise", pendingResponse: { output: "Début ", lastEventId: "12" } },
+    text: delta("Début ", 12) + delta("suite", 13) + done()
+  }, 1);
+  assert.equal(result.error, null);
+  assert.equal(result.output, "Début suite");
+  assert.deepEqual(result.deltas, ["Début ", "Début suite"]);
+});
+
 await test("flux — le jeu de scénarios exerce vraiment les branches (pas de test creux)", async () => {
   const by = async name => runModern(SCENARIOS.find(s => s.name.startsWith(name)), 0);
   assert.equal((await by("texte simple")).output, "Bonjour é 😀");

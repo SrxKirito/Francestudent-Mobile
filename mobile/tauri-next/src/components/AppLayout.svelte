@@ -1,81 +1,300 @@
 <script lang="ts">
-  import { onDestroy } from "svelte";
+  import { onMount } from "svelte";
   import logo from "../../../www/image.png";
   import ConversationMenu from "./ConversationMenu.svelte";
-  import LegacyFrame from "./LegacyFrame.svelte";
   import Sidebar from "./Sidebar.svelte";
+  import LegacyFrame from "./LegacyFrame.svelte";
+  import { connectLegacyEngine } from "../lib/services/legacy-engine.ts";
+  import Startup from "./Startup.svelte";
   import ChatPane from "./ChatPane.svelte";
   import ConfirmDialog from "./ConfirmDialog.svelte";
+  import RenameDialog from "./RenameDialog.svelte";
   import ImportDialog from "./ImportDialog.svelte";
-  import PinDialog from "./PinDialog.svelte";
   import SharesDialog from "./SharesDialog.svelte";
   import ToastHost from "./ToastHost.svelte";
-  import { connectChatEngine } from "../lib/services/chat-engine.ts";
+  import ProjectsDialog from "./ProjectsDialog.svelte";
+  import LibraryDialog from "./LibraryDialog.svelte";
+  import PreviewDialog from "./PreviewDialog.svelte";
+  import SettingsDialog from "./SettingsDialog.svelte";
+  import { createRuntimeApiClient } from "../lib/services/api-runtime.ts";
+  import { createStorageAccount } from "../lib/services/account-local.ts";
+  import { loadProfile, profileName } from "../lib/services/account.ts";
+  import { readAvatarImage } from "../lib/services/avatar-image.ts";
+  import { saveBytes, saveResponse } from "../lib/services/file-saver.ts";
+  import type { TokenProvider } from "../lib/services/auth.ts";
+  import type { PreviewFile } from "../lib/services/file-preview.ts";
+  import type { EngineAgent } from "../lib/services/legacy-engine.ts";
+  import { createConversationStorage } from "../lib/services/conversation-storage.ts";
+  import { createGeneralSettingsService } from "../lib/services/general-settings.ts";
+  import { createStorageSettings } from "../lib/services/local-settings.ts";
+  import type { LocalSettingsGateway } from "../lib/services/local-settings.ts";
+  import { createNativeChatEngine } from "../lib/services/native-chat.ts";
+  import { createNativeRequest } from "../lib/services/native-chat-network.ts";
+  import { createNativeConversations } from "../lib/services/native-conversations.ts";
+  import { createNativeFiles } from "../lib/services/native-files.ts";
+  import { createNativeShell, loadAgentCatalog } from "../lib/services/native-shell.ts";
+  import { createNativeWorkspaceEngine } from "../lib/services/native-workspace.ts";
+  import { createPreviewStorage } from "../lib/services/preview-storage.ts";
+  import { uploadFile } from "../lib/services/transport.ts";
+  import { AccountStore } from "../lib/stores/account.svelte.ts";
   import { ChatStore } from "../lib/stores/chat.svelte.ts";
-  import { connectLegacyEngine } from "../lib/services/legacy-engine.ts";
+  import { SettingsStore } from "../lib/stores/settings.svelte.ts";
   import { ShellStore } from "../lib/stores/shell.svelte.ts";
+  import { SkillsStore } from "../lib/stores/skills.svelte.ts";
+  import { errorMessage } from "../lib/utils/errors.ts";
+  import { applyInterface } from "../lib/utils/interface-choice.ts";
+  import { parseStoredState, STORE_KEY } from "../lib/utils/state.ts";
   import { applyTheme } from "../lib/utils/theme.ts";
 
   interface Props {
-    /** Magasin de la coque ; créé ici par défaut (les tests en fournissent un déjà rempli). */
     store?: ShellStore;
-    /** Chat Svelte (?chat=svelte) : la zone de conversation est dessinée ici ; l'iframe reste le moteur (auth, transport, persistance). */
-    chatMode?: boolean;
+    legacyChat?: boolean;
+    tokens?: TokenProvider;
+    onlogout?: () => Promise<unknown>;
   }
 
   let {
-    chatMode = false,
+    tokens,
+    onlogout,
+    legacyChat = false,
     store = new ShellStore({
       width: typeof window === "undefined" ? 390 : window.innerWidth,
       onTheme: theme => applyTheme(theme, document.documentElement)
     })
   }: Props = $props();
 
-  // « image.png » est l'avatar par défaut de l'ancienne interface : ici, le même logo, fourni par le bundle.
-  const avatarSrc = $derived(store.avatar === "" || store.avatar === "image.png" ? logo : store.avatar);
-
-  // Chat Svelte : créé une seule fois ; sans pont de chat dans l'iframe, la surcouche reste absente (le chat historique sert).
   // svelte-ignore state_referenced_locally
-  const chat = chatMode ? new ChatStore(store) : null;
+  const chat = new ChatStore(store);
+  const avatarSrc = $derived(store.avatar && store.avatar !== "image.png" ? store.avatar : logo);
+  let projects = $state.raw<{ editId?: string; target?: { id: string; projectId: string | null } } | null>(null);
+  let libraryOpen = $state(false);
+  let settings = $state.raw<SettingsStore | null>(null);
+  let preview = $state.raw<PreviewFile | null>(null);
+  let renameRequest = $state.raw<{ initial: string; resolve: (title: string | null) => void } | null>(null);
+
+  function answerRename(title: string | null) {
+    const request = renameRequest;
+    renameRequest = null;
+    request?.resolve(title);
+  }
+
+  function askRename(initial: string): Promise<string | null> {
+    answerRename(null);
+    return new Promise(resolve => { renameRequest = { initial, resolve }; });
+  }
+
+  function openPreview(file: PreviewFile) {
+    preview = file;
+  }
 
   function onFrame(frameWindow: Window | null) {
     const engine = connectLegacyEngine(frameWindow);
     if (engine) store.connect(engine);
     else store.markUnavailable();
-    const chatEngine = chat ? connectChatEngine(frameWindow) : null;
-    if (chat && chatEngine) chat.connect(frameWindow, chatEngine);
+  }
+
+  $effect(() => {
+    if (legacyChat) store.engine?.setLayout(store.layout);
+  });
+
+  $effect(() => {
+    if (legacyChat) store.syncSearch(store.conversations.query);
+  });
+
+  onMount(() => {
+    if (legacyChat) return () => store.disconnect();
+    if (!tokens) return;
+    const sessionTokens = tokens;
+    const storage = window.localStorage;
+    const cached = parseStoredState(storage.getItem(STORE_KEY), () => "");
+    const lifetime = new AbortController();
+    const signal = lifetime.signal;
+    const api = createRuntimeApiClient(sessionTokens);
+    const request = createNativeRequest(sessionTokens);
+    const local = createStorageSettings(storage);
+    const accountLocal = createStorageAccount(storage);
+    let owner = accountLocal.read().profile.email;
+    let ready = false;
+    let agents: EngineAgent[] = [];
+    const historyStorage = createConversationStorage({
+      indexedDB: window.indexedDB, localStorage: storage, warn: text => chat.toast(text, true)
+    });
+    const repository = createNativeConversations({ api, owner: () => owner, cachedOwner: owner, storage: historyStorage });
+    const files = createNativeFiles(request);
+    const previewStorage = createPreviewStorage(window.indexedDB);
+    const engine = createNativeChatEngine({
+      api, tokens: sessionTokens, repository, local, agents: () => agents, files, previewStorage, openPreview,
+      noteUploaded: data => workspace.noteUploaded(data)
+    });
+    const workspace = createNativeWorkspaceEngine({
+      api, repository, local, files, previewStorage, openPreview,
+      deviceOwner: cached.deviceId ? "device:" + cached.deviceId : undefined,
+      resume: id => engine.resume(id), cancelPending: id => engine.cancelPending(id), busy: () => engine.busy(),
+      openChat: id => store.open(id)
+    });
+    const syncSettings = () => {
+      engine.settingsChanged();
+      store.refresh();
+    };
+    const localGateway: LocalSettingsGateway = {
+      ...local,
+      busy: () => engine.busy(),
+      update(patch) {
+        local.update(patch);
+        syncSettings();
+      }
+    };
+    const account = onlogout ? new AccountStore({
+      api,
+      local: {
+        ...accountLocal,
+        saveProfile(profile) {
+          accountLocal.saveProfile(profile);
+          if (!owner && profile.email) {
+            owner = profile.email;
+            syncSettings();
+            syncHistory();
+          } else store.refresh();
+        },
+        // SessionFlow est l’unique responsable du trousseau et des données d’authentification.
+        signOut: async () => { await onlogout?.(); }
+      },
+      signedOut: async () => {},
+      saver: saveBytes,
+      share: typeof navigator.share === "function" ? data => navigator.share(data) : null,
+      readAvatar: readAvatarImage,
+      now: () => new Date(),
+      toast: (text, error) => chat.toast(text, error),
+      avatarChanged: () => store.refresh()
+    }) : undefined;
+    const skills = new SkillsStore(api, async (file, abort) => {
+      const token = await sessionTokens.getAccessToken();
+      if (abort.aborted) throw new DOMException("Import annulé.", "AbortError");
+      const source = /\.md$/i.test(file.name) && file.name !== "SKILL.md" ? new File([file], "SKILL.md", { type: file.type }) : file;
+      return uploadFile(source, token, abort, () => {}, "skill");
+    });
+    settings = new SettingsStore({
+      api, workspace, service: createGeneralSettingsService(api), local: localGateway, account, skills,
+      agents: () => store.agents,
+      interfaceHost: {
+        state: () => ({ ui: "svelte", chat: true }),
+        apply: choice => applyInterface(choice, storage, window.location.href),
+        reload: href => { void historyStorage.flush().finally(() => window.location.replace(href)); }
+      },
+      openClassic: () => chat.toast("Cet écran est indisponible dans la session actuelle.", true)
+    });
+    const shellEngine = createNativeShell({
+      api, request, repository, ready: () => ready, busy: () => engine.busy(), agents: () => agents,
+      profile() {
+        const account = accountLocal.read();
+        return { label: profileName(account.profile), avatar: account.avatar };
+      },
+      theme: () => local.read().theme,
+      refreshAgent: () => engine.settingsChanged(),
+      confirm: text => chat.confirm(text),
+      rename: askRename,
+      notify: (text, error) => chat.toast(text, error),
+      saveResponse
+    });
+
+    store.connect(shellEngine);
+    chat.connect(engine);
+
+    function syncHistory() {
+      if (!signal.aborted && ready && owner) void repository.sync().catch(() => {});
+    }
+    const foreground = () => { if (!document.hidden) syncHistory(); };
+    document.addEventListener("visibilitychange", foreground);
+    window.addEventListener("online", syncHistory);
+
+    void loadAgentCatalog(api, signal).then(result => {
+      if (signal.aborted) return;
+      agents = result;
+      syncSettings();
+    });
+    void (async () => {
+      try {
+        const profile = await loadProfile(api, signal);
+        if (signal.aborted) return;
+        if (profile.email) {
+          owner = profile.email;
+          try { accountLocal.saveProfile(profile); } catch { /* Le compte reste connu en mémoire. */ }
+        }
+      } catch {
+        // Même session que lors du dernier accès, si un profil existe encore sur l’appareil.
+      }
+      if (signal.aborted) return;
+      try { await repository.load(); }
+      catch (error) { if (!signal.aborted) chat.toast("Historique local indisponible : " + errorMessage(error), true); }
+      if (signal.aborted) return;
+      ready = true;
+      syncSettings();
+      syncHistory();
+    })();
+
+    return () => {
+      lifetime.abort();
+      document.removeEventListener("visibilitychange", foreground);
+      window.removeEventListener("online", syncHistory);
+      settings?.close();
+      skills.dispose();
+      answerRename(null);
+      chat.disconnect();
+      store.disconnect();
+      workspace.dispose();
+      repository.dispose();
+      previewStorage.close();
+    };
+  });
+
+  function openProjects(edit = false) {
+    if (!settings?.workspace || !settings.api) return;
+    const editId = edit ? store.conversations.projectId ?? undefined : undefined;
+    store.closeMenus();
+    if (!store.wide) store.drawerOpen = false;
+    projects = { editId };
+  }
+
+  function moveConversation() {
+    const menu = store.menu;
+    const target = menu ? settings?.workspace?.chatTarget(menu.id) : null;
+    store.closeMenus();
+    if (!target) { chat.toast("Seules les discussions synchronisées peuvent être déplacées.", true); return; }
+    if (!store.wide) store.drawerOpen = false;
+    projects = { target };
+  }
+
+  function openLibrary() {
+    if (!settings?.workspace || !settings.api) return;
+    store.closeMenus();
+    if (!store.wide) store.drawerOpen = false;
+    libraryOpen = true;
+  }
+
+  function openSettings() {
+    if (!settings) return;
+    store.closeMenus();
+    if (!store.wide) store.drawerOpen = false;
+    settings.show("general");
   }
 
   function shareMenuConversation() {
     const id = store.menu?.id;
     store.closeMenus();
-    if (id && chat) chat.openShares(id);
+    if (id) chat.openShares(id);
   }
 
   function importConversation() {
     if (store.drawerOpen) store.overlayClick();
-    chat?.openImport();
+    chat.openImport();
   }
 
-  // La mise en page (barre fixe ou non, repliée ou non) est communiquée à l'ancienne interface, qui en dépend pour
-  // masquer son propre bouton « Afficher la barre latérale » et sa propre barre.
-  $effect(() => {
-    store.engine?.setLayout(store.layout);
-  });
-
-  // La recherche (saisie ou Échap) est recopiée dans l'ancien champ : recherche sur le serveur et filtre historique suivent.
   $effect(() => {
     store.syncSearch(store.conversations.query);
-  });
-
-  onDestroy(() => {
-    chat?.disconnect();
-    store.disconnect();
   });
 </script>
 
 <svelte:window onresize={() => store.resize(window.innerWidth)} />
-<!-- Les clics dans l'iframe n'arrivent pas ici : le pont les signale (hôte.closeMenus). -->
 <svelte:document onclick={() => store.closeMenus()} />
 
 <div class="app" class:sidebar-collapsed={store.collapsed} class:booting={!store.ready}>
@@ -95,7 +314,7 @@
       projectStatus={store.projectStatus}
       userName={store.userName}
       {avatarSrc}
-      settingsOpen={store.settingsOpen}
+      settingsOpen={store.settingsOpen || (settings?.open ?? false)}
       groups={store.conversations.groups(Date.now())}
       currentId={store.conversations.currentId}
       menuId={store.menu?.id ?? null}
@@ -105,13 +324,13 @@
       onsearch={() => store.searched()}
       onhistoryscroll={() => store.historyScrolled()}
       onnewchat={() => store.newChat()}
-      onprojects={() => store.projects()}
-      onlibrary={() => store.library()}
-      onprojectsettings={() => store.projectSettings()}
+      onprojects={() => legacyChat ? store.projects() : openProjects()}
+      onlibrary={() => legacyChat ? store.library() : openLibrary()}
+      onprojectsettings={() => legacyChat ? store.projectSettings() : openProjects(true)}
       onleaveproject={() => store.leaveProject()}
-      onsettings={() => store.settings()}
+      onsettings={() => legacyChat ? store.settings() : openSettings()}
       oncollapse={() => store.collapse()}
-      onimport={chat ? importConversation : undefined}
+      onimport={legacyChat ? undefined : importConversation}
     />
     <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
     <div id="overlay" class="overlay" class:hidden={!store.drawerOpen} onclick={() => store.overlayClick()}></div>
@@ -124,23 +343,38 @@
       onrename={() => store.menuAction("renameConversation")}
       onarchive={() => store.menuAction("archiveConversation")}
       ondelete={() => store.menuAction("deleteConversation")}
-      onshare={chat ? shareMenuConversation : undefined}
+      onshare={legacyChat ? undefined : shareMenuConversation}
+      onproject={settings?.workspace ? moveConversation : undefined}
     />
   {/if}
   <main class="main">
-    <LegacyFrame onframe={onFrame} inert={chat?.visible ?? false} />
-    {#if chat}
-      <ChatPane {chat} />
+    {#if legacyChat}
+      <LegacyFrame onframe={onFrame} />
+    {:else}
+      {#if !store.ready}<Startup />{/if}
+      <ChatPane {chat} {openPreview} skills={settings?.skillsPanel} />
       <ToastHost {chat} />
       <ConfirmDialog {chat} />
-      <PinDialog {chat} />
       <ImportDialog {chat} />
       <SharesDialog {chat} />
     {/if}
   </main>
+  {#if projects && settings?.workspace && settings.api}
+    <ProjectsDialog engine={settings.workspace} api={settings.api} editId={projects.editId} target={projects.target} onclose={() => { projects = null; }} />
+  {/if}
+  {#if libraryOpen && settings?.workspace && settings.api}
+    <LibraryDialog engine={settings.workspace} api={settings.api} onclose={() => { libraryOpen = false; }} ontoast={(text, error) => chat.toast(text, error)} />
+  {/if}
+  {#if settings}
+    <SettingsDialog store={settings} showChatToggle={false} />
+  {/if}
+  {#if renameRequest}
+    <RenameDialog initial={renameRequest.initial} onanswer={answerRename} />
+  {/if}
+  <PreviewDialog file={preview} onclose={() => { preview = null; }} />
 </div>
 
 <style>
-  /* Tant que l'ancienne interface n'est pas prête, la barre reste invisible mais garde sa place (pas de saut de mise en page). */
+  /* La barre garde sa place pendant la lecture de l’historique local. */
   .booting :global(#sidebar) { visibility: hidden; }
 </style>

@@ -24,11 +24,12 @@ export class ConversationsStore {
   currentId = $state<string | null>(null);
   menuId = $state<string | null>(null);
   loaded = $state(false);
+  #searchRevision = $state(0);
   /** Faux si IndexedDB est indisponible (discussions lues dans localStorage). */
   persistent = $state(false);
 
   readonly visible = $derived.by(() => {
-    const ids = this.#search && this.query.trim() ? this.#search(this.query) : null;
+    const ids = this.#search && this.query.trim() ? this.searchMatches() : null;
     return visibleConversations(this.items, {
       projectId: this.projectId,
       query: this.query,
@@ -56,6 +57,15 @@ export class ConversationsStore {
   replace(conversations: Conversation[]): void {
     if (!sameConversations(this.items, conversations)) this.items = conversations;
     this.loaded = true;
+  }
+
+  private searchMatches() {
+    void this.#searchRevision;
+    return this.#search?.(this.query) ?? null;
+  }
+
+  refreshSearch(): void {
+    if (this.query.trim()) this.#searchRevision++;
   }
 
   groups(now: number): HistoryGroup[] {

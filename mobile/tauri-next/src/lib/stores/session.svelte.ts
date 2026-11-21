@@ -1,5 +1,6 @@
 import { submitCookie, submitPassword } from "../services/login-actions.ts";
 import type { LoginBusy } from "../services/login-actions.ts";
+import type { TokenProvider } from "../services/auth.ts";
 import type { SessionFlow } from "../services/session-flow.ts";
 import { errorMessage } from "../utils/errors.ts";
 
@@ -18,6 +19,11 @@ export class SessionStore {
 
   constructor(flow: SessionFlow) {
     this.#flow = flow;
+  }
+
+  /** Jetons d'accès de la session, pour les écrans qui appellent l'API directement (réglages, fichiers…). */
+  get tokens(): TokenProvider {
+    return this.#flow.tokens;
   }
 
   async start(): Promise<void> {
@@ -42,5 +48,12 @@ export class SessionStore {
     const done = await submitCookie(this.#flow, this, raw);
     if (done) this.screen = "app";
     return done;
+  }
+
+  /** Efface la session (trousseau, jetons, profil) puis revient à l'écran de connexion ; en cas d'échec, l'erreur est relancée. */
+  async logout(): Promise<void> {
+    await this.#flow.logout();
+    this.error = "";
+    this.screen = "login";
   }
 }

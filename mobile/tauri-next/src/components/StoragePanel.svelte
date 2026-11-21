@@ -1,0 +1,107 @@
+<script lang="ts">
+  import { onMount } from "svelte";
+  import { errorMessage } from "../lib/utils/errors.ts";
+  import { FILE_KINDS, FILE_SORTS, formatBytes } from "../lib/services/workspace-engine.ts";
+  import type { FileUsage, RemoteFile, WorkspaceEngine } from "../lib/services/workspace-engine.ts";
+
+  let { engine }: { engine: WorkspaceEngine } = $props();
+  let usage = $state.raw<FileUsage | null>(null);
+  let files = $state.raw<RemoteFile[]>([]);
+  let hasMore = $state(false);
+  let busy = $state(false);
+  let detail = $state(false);
+  let query = $state("");
+  let kind = $state("*");
+  let sort = $state("date-desc");
+  let message = $state("");
+  let live = true;
+  const rows = $derived(engine.arrange(files, { query, kind, sort }));
+  const percent = $derived(usage && usage.maxBytes > 0 ? Math.min(100, Math.round(100 * usage.usedBytes / usage.maxBytes)) : null);
+
+  onMount(() => {
+    const unsubscribe = engine.watchFiles(sync);
+    void run(() => readUsage(false));
+    return () => { live = false; unsubscribe(); };
+  });
+
+  function sync() {
+    files = engine.files();
+    hasMore = engine.moreFiles();
+  }
+
+  async function readUsage(force: boolean) {
+    const data = await engine.usage(force);
+    if (live) usage = data;
+  }
+
+  async function run(work: () => Promise<unknown>) {
+    if (busy) return;
+    busy = true;
+    message = "";
+    try {
+      await work();
+      if (live) sync();
+    } catch (error) {
+      if (live) message = errorMessage(error);
+    } finally {
+      if (live) busy = false;
+    }
+  }
+
+  function showFiles() {
+    detail = true;
+    void run(() => engine.loadFiles());
+  }
+
+  function remove(file: RemoteFile) {
+    if (!window.confirm("Supprimer définitivement « " + (file.filename || file.id) + " » ?")) return;
+    void run(async () => {
+      await engine.removeFile(file.id);
+      try { await readUsage(false); }
+      catch { if (live) message = "Fichier supprimé. Le quota n’a pas pu être actualisé."; }
+    });
+  }
+</script>
+
+<div id="panel-storage" class="settings-panel" role="tabpanel" aria-labelledby="tab-storage">
+  <h3 class="settings-section-title">Stockage FRST</h3>
+  {#if !detail}
+    {#if usage}
+      <p>{formatBytes(usage.usedBytes)} utilisés sur {formatBytes(usage.maxBytes)}</p>
+      {#if percent !== null}<progress max="100" value={percent} aria-label="Stockage utilisé">{percent} %</progress>{/if}
+      {#if usage.remainingBytes !== undefined}<p>{formatBytes(usage.remainingBytes)} restants</p>{/if}
+      <p>Fichiers · {formatBytes(usage.filesBytes)}</p>
+      <p>Skills · {formatBytes(usage.skillsBytes)}</p>
+    {/if}
+    <div class="settings-item-actions">
+      <button type="button" class="settings-btn" disabled={busy} onclick={showFiles}>Gérer les fichiers</button>
+      <button type="button" class="settings-btn" disabled={busy} onclick={() => void run(() => readUsage(true))}>Actualiser le quota</button>
+    </div>
+  {:else}
+    <div class="settings-item-actions">
+      <button type="button" class="settings-btn" disabled={busy} onclick={() => { detail = false; message = ""; }}>Retour au quota</button>
+      <button type="button" class="settings-btn" disabled={busy} onclick={() => void run(() => engine.refreshFiles())}>Actualiser les fichiers</button>
+    </div>
+    <div class="library-filters">
+      <input type="search" class="settings-input" aria-label="Rechercher un fichier" placeholder="Rechercher un fichier" bind:value={query}>
+      <select class="settings-input" aria-label="Type de fichier" bind:value={kind}>{#each FILE_KINDS as [value, label]}<option {value}>{label}</option>{/each}</select>
+      <select class="settings-input" aria-label="Trier les fichiers" bind:value={sort}>{#each FILE_SORTS as [value, label]}<option {value}>{label}</option>{/each}</select>
+    </div>
+    {#each rows as file (file.id)}
+      <div class="settings-item">
+        <div class="settings-item-head"><strong>{file.filename || file.id}</strong><span>{formatBytes(file.bytes)}</span></div>
+        <button type="button" class="settings-btn small danger" disabled={busy} onclick={() => remove(file)}>Supprimer</button>
+      </div>
+    {:else}
+      {#if !busy && !message}<p class="settings-hint">Aucun fichier dans cette liste.</p>{/if}
+    {/each}
+    {#if hasMore}<button type="button" class="settings-btn" disabled={busy} onclick={() => void run(() => engine.loadMore())}>Charger plus</button>{/if}
+  {/if}
+  {#if busy}<p role="status" class="settings-hint">Chargement…</p>{/if}
+  {#if message}<p role="alert" class="settings-error">{message}</p>{/if}
+</div>
+
+<style>
+  progress { width: 100%; accent-color: var(--accent); }
+  strong { overflow-wrap: anywhere; }
+</style>

@@ -2,9 +2,7 @@
 // Aucune dépendance : le HTML produit est identique à celui de l'original (test-svelte-markdown.mjs le vérifie sur un
 // corpus, avec et sans KaTeX). Tout texte est échappé avant d'être mis en forme ; seules les balises générées ici sortent.
 //
-// NON porté (étape suivante, rendus interactifs) : `renderStudyBlock` (quiz, cartes), `makePowerPoint`, téléchargement
-// des fichiers générés. Ils s'enclenchent par les options `study` et `powerPointFileName` ; sans elles, les blocs sont
-// affichés comme du code, ce que fait aussi l'original quand ces fonctions sont absentes.
+// Les contenus interactifs utilisent les blocs analysés ici et sont rendus par Svelte.
 
 /** Sous-ensemble de KaTeX utilisé (window.katex, chargé depuis /legacy/katex/katex.min.js). */
 export interface KatexLike {
@@ -119,7 +117,7 @@ export function guessFileName(code: string, lang?: string | null): string {
   return name || "fichier." + ext;
 }
 
-function renderCodeBlockInner(code: string, lang: string): string {
+export function renderCodeBlockInner(code: string, lang: string): string {
   const label = lang ? escapeHtml(lang) : "code";
   return "<div class=\"code-block\"><div class=\"code-header\"><span class=\"code-lang\">" + label +
     "</span><button type=\"button\" class=\"code-copy\">Copier</button></div><pre><code>" +
@@ -301,6 +299,47 @@ function globalKatex(): KatexLike | null {
   return holder.window?.katex ?? null;
 }
 
+
+export type MarkdownBlock =
+  | { type: "text"; content: string }
+  | { type: "code"; language: string; content: string; open: boolean; index: number };
+
+export function parseMarkdownBlocks(source: unknown): MarkdownBlock[] {
+  const blocks: MarkdownBlock[] = [];
+  const lines = String(source).replace(/\r\n?/g, "\n").split("\n");
+  let text: string[] = [];
+  let code: { fence: string; language: string; lines: string[] } | null = null;
+  let index = 0;
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (code) {
+      if (trimmed.length >= code.fence.length && trimmed === code.fence[0].repeat(trimmed.length)) {
+        blocks.push({ type: "code", language: code.language, content: code.lines.join("\n"), open: false, index: index++ });
+        code = null;
+      } else {
+        code.lines.push(line);
+      }
+      continue;
+    }
+    const fence = /^\s*(`{3,}|~{3,})\s*([\w#+.-]*)/.exec(line);
+    if (fence) {
+      if (text.length) blocks.push({ type: "text", content: text.join("\n") });
+      text = [];
+      code = { fence: fence[1], language: fence[2], lines: [] };
+    } else {
+      text.push(line);
+    }
+  }
+  if (code) blocks.push({ type: "code", language: code.language, content: code.lines.join("\n"), open: true, index });
+  if (text.length) blocks.push({ type: "text", content: text.join("\n") });
+  return blocks;
+}
+
+/** Convertit un fragment de texte Markdown (sans bloc de code) en HTML sûr. */
+export function renderMarkdownText(source: string): string {
+  return renderTextWithMath(source, globalKatex());
+}
+
 /**
  * Convertit du Markdown en HTML sûr. `streaming` : réponse encore en cours d'écriture (pas de cartes de téléchargement).
  */
@@ -311,32 +350,12 @@ export function renderMarkdown(source: unknown, streaming = false, options: Mark
     powerPointFileName: options.powerPointFileName
   };
   const downloads: Download[] = [];
-  const lines = String(source).replace(/\r\n?/g, "\n").split("\n");
   let html = "";
-  let text: string[] = [];
-  let code: { fence: string; lang: string; lines: string[] } | null = null;
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (code) {
-      if (trimmed.length >= code.fence.length && trimmed === code.fence[0].repeat(trimmed.length)) {
-        html += renderCodeBlock(code.lines.join("\n"), code.lang, false, downloads, context);
-        code = null;
-      } else {
- code.lines.push(line);
-      }
-      continue;
-    }
-    const fence = /^\s*(`{3,}|~{3,})\s*([\w#+.-]*)/.exec(line);
-    if (fence) {
-      html += renderTextWithMath(text.join("\n"), context.katex);
-      text = [];
-      code = { fence: fence[1], lang: fence[2], lines: [] };
-    } else {
-      text.push(line);
-    }
+  for (const block of parseMarkdownBlocks(source)) {
+    html += block.type === "text"
+      ? renderTextWithMath(block.content, context.katex)
+      : renderCodeBlock(block.content, block.language, block.open, downloads, context);
   }
-  if (code) html += renderCodeBlock(code.lines.join("\n"), code.lang, true, downloads, context);
-  html += renderTextWithMath(text.join("\n"), context.katex);
   if (!streaming && downloads.length) html += '<div class="message-downloads" role="group" aria-label="Fichiers à télécharger">' + downloads.map(file => fileCardHtml(file.name, file.index)).join("") + "</div>";
   return html;
 }

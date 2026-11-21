@@ -1,4 +1,4 @@
-import type { ArchiveState, EngineAgent, EngineHost, EngineLayout, EngineSnapshot, LegacyEngine, RemoteSearchState } from "../services/legacy-engine.ts";
+import type { ArchiveState, EngineAgent, EngineHost, EngineLayout, EngineSnapshot, RemoteSearchState, ShellEngine } from "../services/legacy-engine.ts";
 import { NO_ARCHIVE, NO_REMOTE_SEARCH } from "../services/legacy-engine.ts";
 import { PROVIDER_LOGOS } from "../data/provider-logos.ts";
 import type { Conversation } from "../types/conversation.ts";
@@ -31,8 +31,7 @@ function sameProject(a: SidebarProject | null, b: SidebarProject | null): boolea
 }
 
 /**
- * État de la coque (barre latérale, tiroir, menu) tel que l'écran l'affiche. Les données viennent de l'ancienne
- * interface via `LegacyEngine` ; la coque ne les écrit jamais, elle demande au moteur d'agir.
+ * État de la coque (barre latérale, tiroir, menu). Le moteur fournit l’historique et exécute les actions.
  */
 export class ShellStore {
   // Initialisé comme champ (et non dans le constructeur) : `menuPinned` ci-dessous le lit. Le rappel n'est appelé
@@ -65,7 +64,7 @@ export class ShellStore {
   readonly layout = $derived<EngineLayout>({ sidebarVisible: this.wide && !this.collapsed, collapsed: this.collapsed });
   readonly menuPinned = $derived(this.menu !== null && this.conversations.items.some(item => item.id === this.menu?.id && item.pinned === true));
 
-  #engine = $state.raw<LegacyEngine | null>(null);
+  #engine = $state.raw<ShellEngine | null>(null);
   readonly #onTheme: ((theme: Theme) => void) | undefined;
 
   /** Ce que le moteur historique appelle. Fonctions fléchées : le moteur les invoque sans les lier. */
@@ -89,11 +88,11 @@ export class ShellStore {
   }
 
   /** Moteur relié (réactif : la mise en page est renvoyée à chaque nouveau moteur). */
-  get engine(): LegacyEngine | null {
+  get engine(): ShellEngine | null {
     return this.#engine;
   }
 
-  connect(engine: LegacyEngine): void {
+  connect(engine: ShellEngine): void {
     this.disconnect();
     this.unavailable = false;
     this.#engine = engine;
@@ -135,6 +134,7 @@ export class ShellStore {
   apply(snapshot: EngineSnapshot): void {
     this.ready = snapshot.ready;
     this.conversations.replace(snapshot.conversations);
+    this.conversations.refreshSearch();
     this.conversations.currentId = snapshot.currentId;
     this.conversations.projectId = snapshot.projectId;
     if (!sameProject(this.project, snapshot.project)) this.project = snapshot.project;
@@ -231,7 +231,9 @@ export class ShellStore {
   menuAction(action: MenuAction): void {
     const id = this.menu?.id;
     this.menu = null;
-    if (id) this.#engine?.[action](id);
+    const engine = this.#engine;
+    if (!id || !engine) return;
+    engine[action](id);
   }
 
   open(id: string): void {

@@ -1,9 +1,9 @@
 // Généré depuis mobile/www/logos.js (window.PROVIDER_LOGOS) ; test-svelte-history.mjs vérifie qu'il en reste identique.
 // Les chemins d'images (logo/…) sont relatifs à la page : l'affichage Svelte doit servir /logo/ à la racine ou les préfixer.
 export const PROVIDER_LOGOS: Readonly<Record<string, string>> = {
-  Anthropic: "<img src=\"logo/claude.png\" alt=\"Claude\" class=\"provider-img\" draggable=\"false\">",
+  Anthropic: "<img src=\"/legacy/logo/claude.png\" alt=\"Claude\" class=\"provider-img\" draggable=\"false\">",
   OpenAI: "<span class=\"provider-symbol chatgpt-symbol\" role=\"img\" aria-label=\"OpenAI\"></span>",
-  Google: "<img src=\"logo/gemini.png\" alt=\"Gemini\" class=\"provider-img\" draggable=\"false\">",
+  Google: "<img src=\"/legacy/logo/gemini.png\" alt=\"Gemini\" class=\"provider-img\" draggable=\"false\">",
   Mistral: "<svg viewBox=\"0 0 24 24\" width=\"18\" height=\"18\"><path fill=\"#FFD800\" d=\"M2 3h4v4H2zM18 3h4v4h-4z\"/><path fill=\"#FFAF00\" d=\"M2 7h8v4H2zM14 7h8v4h-8z\"/><path fill=\"#FF8205\" d=\"M2 11h20v4H2z\"/><path fill=\"#FA500F\" d=\"M2 15h4v4H2zM10 15h4v4h-4zM18 15h4v4h-4z\"/><path fill=\"#E10500\" d=\"M0 19h8v3H0zM16 19h8v3h-8z\"/></svg>",
   Meta: "<svg viewBox=\"0 0 24 24\" width=\"18\" height=\"18\" fill=\"none\" stroke=\"#0081FB\" stroke-width=\"2.4\" stroke-linecap=\"round\"><path d=\"M3 15c0-4 2-8 4.5-8 3.5 0 6 10 9.5 10 2 0 4-2 4-5s-1.5-5-3.5-5C13 7 10 17 6.5 17 4.5 17 3 16.5 3 15z\"/></svg>",
   xAI: "<svg viewBox=\"0 0 24 24\" width=\"18\" height=\"18\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2.2\" stroke-linecap=\"round\"><path d=\"M4 4l16 16M20 4L4 20\"/></svg>",

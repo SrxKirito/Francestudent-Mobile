@@ -10,13 +10,13 @@ conversationMatches = function(conversation, query) {
   return !conversation.serverArchived && previousConversationMatches(conversation, query);
 };
 
-sendMessage = async function() {
+sendMessage = async function(skillPrefix) {
   const conversation = currentConversation();
   if (!busy && conversation?.serverArchived) {
     showToast("Cette conversation est archivée. Restaure-la avant d’envoyer un message.", true);
     return;
   }
-  return previousSendMessage();
+  return previousSendMessage(skillPrefix);
 };
 
 function archivedChatId(id) {

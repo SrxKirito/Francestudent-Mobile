@@ -78,7 +78,9 @@ try {
   ];
   for (const [name, options] of cases) {
     await test(`même balisage que l'ancien renderHistory — ${name}`, () => {
-      const expected = tokens(legacy.render(dataset, options).html);
+      // Le pictogramme Svelte remplace les lettres et le point d’interrogation du legacy.
+      const fallback = providerMark({ name: "", provider: "" }, PROVIDER_LOGOS);
+      const expected = tokens(legacy.render(dataset, options).html.replace(/<span class="model-logo-letter">[^<]*<\/span>/g, fallback));
       const actual = tokens(modern(dataset, options));
       assert.deepEqual(actual, expected);
       if (name === "liste simple") assert.ok(expected.length > 20, "le cas ne doit pas être vide par accident");

@@ -1,0 +1,169 @@
+<script lang="ts">
+  import { onMount } from "svelte";
+  import type { ApiClient } from "../lib/services/api-client.ts";
+  import type { LibraryRecord, PendingResponse, RemoteFile, WorkspaceEngine } from "../lib/services/workspace-engine.ts";
+  import { FILE_KINDS, FILE_SORTS, formatBytes } from "../lib/services/workspace-engine.ts";
+  import { errorMessage } from "../lib/utils/errors.ts";
+  import LibraryThumbnail from "./LibraryThumbnail.svelte";
+
+  let { engine, api, onclose, ontoast }: {
+    engine: WorkspaceEngine; api: ApiClient; onclose: () => void; ontoast: (message: string, error: boolean) => void;
+  } = $props();
+  let dialog: HTMLDialogElement;
+  let files = $state.raw<RemoteFile[]>([]);
+  let localFiles = $state.raw<LibraryRecord[]>([]);
+  let projects = $state.raw<{ id: string; name: string }[]>([]);
+  let pending = $state.raw<PendingResponse[]>([]);
+  let hasMore = $state(false);
+  let busy = $state(false);
+  let fileMessage = $state("");
+  let localMessage = $state("");
+  let actionMessage = $state("");
+  let source = $state("all");
+  let project = $state("*");
+  let query = $state("");
+  let kind = $state("*");
+  let sort = $state("date-desc");
+  let inView = true;
+  const lifetime = new AbortController();
+
+  const remote = $derived((source === "all" || source === "remote") && project === "*" ? engine.arrange(files, { query, kind, sort }).map(file => ({
+    key: "remote:" + file.id, id: file.id, name: file.filename || "Fichier enregistré", note: formatBytes(file.bytes),
+    local: false, date: file.created_at ?? 0, bytes: file.bytes, projectId: ""
+  })) : []);
+  const local = $derived(localFiles.filter(file => source !== "remote" && (source === "all" || source === file.direction) &&
+    (project === "*" || (file.projectId || "") === project) && (kind === "*" || (file.kind || engine.fileKind(file.name)) === kind) &&
+    file.name.toLocaleLowerCase("fr").includes(query.trim().toLocaleLowerCase("fr"))).map(file => ({
+    key: "local:" + file.id, id: file.id, name: file.name, note: file.direction === "sent" ? "Envoyé" : "Généré",
+    local: true, date: file.created, bytes: undefined, projectId: file.projectId
+  })));
+  const cards = $derived([...remote, ...local].sort((a, b) => {
+    if (sort.startsWith("name")) return a.name.localeCompare(b.name, "fr", { numeric: true, sensitivity: "base" }) * (sort === "name-asc" ? 1 : -1);
+    if (sort.startsWith("size")) return a.bytes === undefined ? (b.bytes === undefined ? 0 : 1) : b.bytes === undefined ? -1 : (a.bytes - b.bytes) * (sort === "size-asc" ? 1 : -1);
+    const timestamp = (date: number) => date < 1e12 ? date * 1000 : date;
+    return (timestamp(a.date) - timestamp(b.date)) * (sort === "date-asc" ? 1 : -1);
+  }));
+
+  function sync() {
+    files = engine.files();
+    hasMore = engine.moreFiles();
+    pending = engine.pending();
+  }
+
+  onMount(() => {
+    dialog.showModal();
+    sync();
+    const unsubscribe = engine.watchFiles(sync);
+    void refresh(false);
+    void api.json<{ projects?: { id: string; name: string }[] } | { id: string; name: string }[]>("/projects", { signal: lifetime.signal }).then(result => {
+      if (!inView) return;
+      const items = Array.isArray(result) ? result : result?.projects;
+      if (Array.isArray(items)) projects = items.filter(row => row?.id && row?.name);
+    }).catch(() => {});
+    return () => { inView = false; lifetime.abort(); unsubscribe(); };
+  });
+
+  async function operate(work: () => Promise<unknown>) {
+    if (busy) return;
+    busy = true;
+    actionMessage = "";
+    try { await work(); }
+    catch (error) {
+      const description = errorMessage(error);
+      if (inView) actionMessage = description;
+      else ontoast(description, true);
+    } finally {
+      if (inView) { busy = false; sync(); }
+    }
+  }
+
+  function refresh(force: boolean) {
+    return operate(async () => {
+      fileMessage = localMessage = "";
+      const [remoteResult, localResult] = await Promise.allSettled([
+        force ? engine.refreshFiles() : engine.loadFiles(), engine.localFiles()
+      ]);
+      if (!inView) return;
+      if (remoteResult.status === "rejected") fileMessage = "Fichiers FRST : " + errorMessage(remoteResult.reason);
+      if (localResult.status === "fulfilled") localFiles = localResult.value;
+      else localMessage = "Fichiers de discussions : " + errorMessage(localResult.reason);
+    });
+  }
+
+  function open(id: string, local: boolean) {
+    void operate(async () => {
+      onclose();
+      if (local) await engine.localFileAction(id, "preview");
+      else await engine.previewRemote(id);
+    });
+  }
+
+  function fileAction(id: string, local: boolean, action: "save" | "chat") {
+    void operate(async () => {
+      if (action === "chat") onclose();
+      if (local) {
+        await engine.localFileAction(id, action);
+        if (action === "save") ontoast("Fichier enregistré.", false);
+      } else if (typeof await engine.saveRemote(id) === "string") {
+        ontoast("Fichier enregistré.", false);
+      }
+    });
+  }
+
+  function classify(fileId: string, projectId: string) {
+    void operate(async () => {
+      await engine.classifyLocal(fileId, projectId);
+      if (inView) localFiles = localFiles.map(file => file.id === fileId ? { ...file, projectId } : file);
+    });
+  }
+</script>
+
+<dialog id="svelte-library" class="file-library" aria-labelledby="svelte-library-title" bind:this={dialog} oncancel={event => { event.preventDefault(); onclose(); }}>
+  <header><div><h2 id="svelte-library-title">Bibliothèque</h2></div><button type="button" aria-label="Fermer" onclick={onclose}>×</button></header>
+  {#each pending as row (row.id)}
+    <div class="library-job">
+      <strong>Réponse en attente · {row.title}</strong>
+      <button type="button" disabled={busy || !row.resume} onclick={() => void operate(async () => { onclose(); await engine.pendingAction(row.id, "resume"); })}>Reprendre</button>
+      <button type="button" disabled={busy} onclick={() => { if (window.confirm("Annuler le suivi de cette réponse ?")) void operate(() => engine.pendingAction(row.id, "cancel")); }}>Annuler</button>
+    </div>
+  {/each}
+  <div class="library-filters">
+    <input type="search" placeholder="Rechercher un fichier" aria-label="Rechercher un fichier" bind:value={query}>
+    <select aria-label="Origine" bind:value={source}><option value="all">Toutes les sources</option><option value="remote">Fichiers FRST</option><option value="generated">Fichiers générés</option><option value="sent">Fichiers envoyés</option></select>
+    <select aria-label="Type de fichier" bind:value={kind}>{#each FILE_KINDS as [value, label]}<option {value}>{label}</option>{/each}</select>
+    <select aria-label="Projet" bind:value={project}><option value="*">Tous les projets</option><option value="">Sans projet</option>{#each projects as item (item.id)}<option value={item.id}>{item.name}</option>{/each}</select>
+    <select aria-label="Trier les fichiers" bind:value={sort}>{#each FILE_SORTS as [value, label]}<option {value}>{label}</option>{/each}</select>
+    <button type="button" class="settings-btn" disabled={busy} onclick={() => void refresh(true)}>Actualiser</button>
+  </div>
+  {#if fileMessage}<p role="alert" class="settings-error">{fileMessage}</p>{/if}
+  {#if localMessage}<p role="alert" class="settings-error">{localMessage}</p>{/if}
+  {#if actionMessage}<p role="alert" class="settings-error">{actionMessage}</p>{/if}
+  <p role="status">{busy ? "Chargement…" : cards.length + " fichier(s)"}</p>
+  <div class="library-grid" style:--library-columns={engine.libraryColumns()}>
+    {#each cards as file (file.key)}
+      <article class="library-card">
+        <button type="button" class="library-open" disabled={busy} onclick={() => open(file.id, file.local)}>
+          <LibraryThumbnail {engine} id={file.id} name={file.name} local={file.local} />
+          <strong>{file.name}</strong>
+        </button>
+        <small>{file.note}</small>
+        <details class="library-actions">
+          <summary aria-label={"Actions pour " + file.name}>•••</summary>
+          <div class="library-card-menu">
+            <button type="button" disabled={busy} onclick={() => fileAction(file.id, file.local, "save")}>Enregistrer</button>
+            {#if file.local}
+              <button type="button" disabled={busy} onclick={() => fileAction(file.id, true, "chat")}>Ouvrir le chat</button>
+              <select aria-label={"Classer localement " + file.name + " dans un projet"} value={file.projectId} disabled={busy} onchange={event => { const selected = event.currentTarget.value; event.currentTarget.value = file.projectId; classify(file.id, selected); }}>
+                <option value="">Sans projet</option>
+                {#each projects as item (item.id)}<option value={item.id}>{item.name}</option>{/each}
+              </select>
+            {/if}
+          </div>
+        </details>
+      </article>
+    {/each}
+  </div>
+  {#if hasMore && (source === "all" || source === "remote") && project === "*"}
+    <button type="button" class="settings-btn" disabled={busy} onclick={() => void operate(() => engine.loadMore())}>Charger plus de fichiers FRST</button>
+  {/if}
+</dialog>
