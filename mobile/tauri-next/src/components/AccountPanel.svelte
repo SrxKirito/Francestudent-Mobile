@@ -1,15 +1,17 @@
 <!-- Onglet Compte (Svelte) : même balisage et mêmes classes que la section #panel-account de mobile/www/index.html
     (feuilles legacy déjà importées par le shell). La logique est dans AccountStore. -->
 <script lang="ts">
+  import type { Snippet } from "svelte";
   import type { AccountStore } from "../lib/stores/account.svelte.ts";
   import { compactNumber, exactNumber } from "../lib/services/account.ts";
   import logo from "../../../www/image.png";
 
   interface Props {
     account: AccountStore;
+    children?: Snippet;
   }
 
-  let { account }: Props = $props();
+  let { account, children }: Props = $props();
 
   let fileInput: HTMLInputElement | undefined = $state();
 
@@ -93,5 +95,6 @@
     {#if account.logoutError}
       <p id="logout-status" role="alert" class="settings-hint general-status-error">{account.logoutError}</p>
     {/if}
+    {@render children?.()}
   </div>
 </section>

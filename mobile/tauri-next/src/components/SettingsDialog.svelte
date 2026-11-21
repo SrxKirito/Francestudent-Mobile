@@ -1,6 +1,7 @@
 <!-- Fenêtre Paramètres Svelte. Les styles communs sont chargés par la coque. -->
 <script lang="ts">
   import { tick } from "svelte";
+  import type { Snippet } from "svelte";
   import ApiKeyPanel from "./ApiKeyPanel.svelte";
   import StoragePanel from "./StoragePanel.svelte";
   import McpPanel from "./McpPanel.svelte";
@@ -18,14 +19,16 @@
     store: SettingsStore;
     showChatToggle?: boolean;
     onarchives?: () => void;
+    onimport?: () => void;
+    conversations?: Snippet;
     onconfirm?: (text: string) => Promise<boolean>;
   }
 
-  type MenuId = "default" | "image" | "reasoning";
+  type MenuId = "default" | "reasoning";
 
   const AUTO_MODEL_MARK = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8z"/><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z"/></svg>';
-  const BUTTON_IDS: Record<MenuId, string> = { default: "default-model-button", image: "settings-image-model-button", reasoning: "gpt-reasoning-button" };
-  const MENU_IDS: Record<MenuId, string> = { default: "default-model-menu", image: "settings-image-models", reasoning: "gpt-reasoning-menu" };
+  const BUTTON_IDS: Record<MenuId, string> = { default: "default-model-button", reasoning: "gpt-reasoning-button" };
+  const MENU_IDS: Record<MenuId, string> = { default: "default-model-menu", reasoning: "gpt-reasoning-menu" };
   const THEMES: readonly { id: Theme; label: string }[] = [
     { id: "system", label: "Système" },
     { id: "light", label: "Clair" },
@@ -34,7 +37,7 @@
   const COLUMNS: readonly LibraryColumns[] = [1, 2, 3, 4];
   const UNAVAILABLE = "Ce modèle est indisponible pour le moment.";
 
-  let { store, showChatToggle = true, onarchives, onconfirm = async () => false }: Props = $props();
+  let { store, showChatToggle = true, onarchives, onimport, conversations, onconfirm = async () => false }: Props = $props();
 
   let menu: MenuId | null = $state(null);
   let webDialog: HTMLDialogElement | undefined = $state();
@@ -43,9 +46,6 @@
   const groups = $derived(store.groups);
   const valid = $derived(store.defaultValid);
   const current = $derived(valid ? groups.flatMap(group => group.agents).find(agent => agent.id === store.settings.defaultAgentId) ?? null : null);
-  const imageModels = $derived(store.catalog.imageModels);
-  const imageName = $derived(imageModels.find(model => model.id === store.settings.imageModel)?.name ?? "Choisir le modèle");
-  const imageMark = providerMark({ provider: "OpenAI", name: "" }, PROVIDER_LOGOS);
   const reasoningLabel = $derived(REASONING_LEVELS.find(level => level.value === store.reasoning)?.label ?? REASONING_LEVELS[0].label);
 
   // Ouverture : bloque le défilement de la page, mémorise l'élément focalisé, met le focus sur « Fermer ».
@@ -92,12 +92,6 @@
     store.setDefaultAgent(id);
     menu = null;
     focusButton("default");
-  }
-
-  function pickImage(id: string) {
-    store.setImageModel(id);
-    menu = null;
-    focusButton("image");
   }
 
   function pickReasoning(value: (typeof REASONING_LEVELS)[number]["value"]) {
@@ -258,6 +252,10 @@
           {#if store.tab === "general"}
             <!-- svelte-ignore a11y_no_noninteractive_element_to_interactive_role : balisage identique à l'écran classique (testé) -->
             <section id="panel-general" class="settings-panel" data-panel="general" role="tabpanel" aria-labelledby="tab-general">
+              {@render conversations?.()}
+              {#if onimport}
+                <button id="conversation-import-open" type="button" class="settings-btn" onclick={onimport}>Importer une conversation</button>
+              {/if}
               <h3 class="settings-section-title">Apparence</h3>
               <div class="theme-choices" role="radiogroup" aria-label="Thème">
                 {#each THEMES as theme (theme.id)}
@@ -322,25 +320,6 @@
                   <span class="settings-switch"><input type="checkbox" id="image-tool-toggle" role="switch" checked={store.settings.imageTool} aria-checked={store.settings.imageTool ? "true" : "false"} onchange={event => store.setImageTool(event.currentTarget.checked)}>
                     <span class="settings-switch-track" aria-hidden="true"></span></span>
                 </label>
-                <div class="settings-field default-model-field">
-                  <button id="settings-image-model-button" class="model-button default-model-button" type="button" aria-haspopup="listbox" aria-expanded={menu === "image" ? "true" : "false"} aria-controls="settings-image-models" aria-label="Modèle de génération d'images" onclick={() => void toggleMenu("image")}>
-                    <span class="model-logo" id="settings-image-model-logo" aria-hidden="true">{@html imageMark}</span>
-                    <span class="model-name"><span class="model-title" id="settings-image-model-name">{imageName}</span></span>
-                    {@render caret()}
-                  </button>
-                  <div id="settings-image-models" class="popover model-menu default-model-menu" class:hidden={menu !== "image"} role="listbox" aria-label="Modèle de génération d'images">
-                    {#each imageModels as model (model.id)}
-                      {@const selected = model.id === store.settings.imageModel}
-                      <button type="button" class="model-option" role="option" data-id={model.id} aria-selected={selected ? "true" : "false"} onclick={() => pickImage(model.id)}>
-                        <span class="model-logo" aria-hidden="true">{@html imageMark}</span>
-                        <span class="model-option-text"><span class="model-option-name">{model.name}</span></span>
-                        {#if selected}{@render check()}{/if}
-                      </button>
-                    {:else}
-                      <div class="model-menu-note">Les modèles d’image sont indisponibles. Relance l’application.</div>
-                    {/each}
-                  </div>
-                </div>
               </div>
               <div class="general-section">
                 <h3 class="settings-section-title">Outils</h3>
@@ -361,7 +340,6 @@
                       </div>
                     </div>
                   </div>
-                  {#if store.api}<ApiKeyPanel api={store.api} {onconfirm} />{/if}
                   <section class="general-section" aria-labelledby="compression-title">
                     <h3 id="compression-title" class="settings-section-title">Compression du contexte</h3>
                     <p class="settings-hint">Raccourcit les anciens messages avant leur envoi au modèle. Le niveau maximal peut atténuer certaines nuances.</p>
@@ -396,7 +374,9 @@
               </dialog>
             </section>
           {:else if store.tab === "account" && store.accountPanel}
-            <AccountPanel account={store.accountPanel} />
+            <AccountPanel account={store.accountPanel}>
+              {#if store.api}<ApiKeyPanel api={store.api} {onconfirm} />{/if}
+            </AccountPanel>
           {:else if store.tab === "skills" && store.skillsPanel}
             <SkillsPanel skills={store.skillsPanel} {onconfirm} />
           {:else if store.tab === "mcp" && store.api}

@@ -169,10 +169,10 @@
   {#if actionMessage}<p role="alert" class="settings-error">{actionMessage}</p>{/if}
   <p role="status">{busy ? "Chargement…" : cards.length + " fichier(s) affiché(s)"}</p>
   <div class="library-grid" style:--library-columns={engine.libraryColumns()}>
-    {#each cards as file (file.key)}
+    {#each cards as file, index (file.key)}
       <article class="library-card">
         <button type="button" class="library-open" disabled={busy} onclick={() => open(file.id, file.local)}>
-          <LibraryThumbnail {engine} id={file.id} name={file.name} local={file.local} />
+          <LibraryThumbnail {engine} id={file.id} name={file.name} local={file.local} eager={index < 6} />
           <strong>{file.name}</strong>
         </button>
         <small>{file.note}</small>

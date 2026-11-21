@@ -9,6 +9,7 @@ export interface PreviewFile {
   /** Téléchargement en flux ou enregistrement d'une copie sans charger l'aperçu. */
   save?: () => Promise<unknown>;
   presentation?: () => Promise<Presentation>;
+  markdown?: string;
 }
 
 export interface GeneratedArtifact {
@@ -39,7 +40,7 @@ function powerPointName(code: string): string {
 
 export function generatedArtifacts(source: string): GeneratedArtifact[] {
   return parseMarkdownBlocks(source).flatMap(block => {
-    if (block.type !== "code" || block.open || parseStudyContent(block.language, block.content)) return [];
+    if (block.type !== "code" || block.open || block.language.toLowerCase() === "frst-ui" || parseStudyContent(block.language, block.content)) return [];
     const name = fileNameFromCode(block.content, block.language, powerPointName) || guessFileName(block.content, block.language);
     return [{ name, code: block.content, lang: block.language, fenceIndex: block.index }];
   });
@@ -61,7 +62,8 @@ export function generatedFile(name: string, code: string): PreviewFile {
       const content = new Blob([Uint8Array.from(bytes)], { type: mime });
       return content;
     },
-    presentation: extension === "pptx" ? () => loadPresentation(code) : undefined
+    presentation: extension === "pptx" ? () => loadPresentation(code) : undefined,
+    markdown: extension === "docx" ? code.replace(/^#\s+[^\n]+\.docx\s*\n/i, "") : undefined
   };
 }
 

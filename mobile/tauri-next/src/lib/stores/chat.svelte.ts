@@ -60,7 +60,7 @@ export class ChatStore {
   #sharesCtl: SharesController | null = null;
   #toastSeq = 0;
 
-  constructor(shell: ShellStore) {
+  constructor(shell: ShellStore, private readonly onOpenImported?: () => void) {
     this.shell = shell;
   }
 
@@ -162,6 +162,7 @@ export class ChatStore {
           this.importStatus = { text: "", error: false };
         },
         openConversation: async id => {
+          this.onOpenImported?.();
           this.shell.open(id);
         },
         setImporting: on => {

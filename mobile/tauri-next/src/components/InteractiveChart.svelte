@@ -4,6 +4,7 @@
   let { data }: { data: Extract<InteractiveContent, { kind: "chart" }> } = $props();
   let detailed = $state(false);
   let magnified = $state(false);
+  let focusPoint = $state("");
   const palette = ["#6d83ff", "#27b997", "#d97e27", "#c472e6", "#df587d", "#268cca"];
   const width = 420, height = 190, gap = 20;
   const colors = (index: number) => palette[index % palette.length];
@@ -42,6 +43,7 @@
     <svg viewBox="0 0 180 180" role="img" aria-label={data.title}>
       {#each pie as segment, index (index)}
         <circle cx="90" cy="90" r="57" pathLength="100" fill="none" stroke={colors(index)} stroke-width="34"
+          opacity={!focusPoint || focusPoint === "0:" + index ? 1 : .38}
           stroke-dasharray={segment.part + " " + (100 - segment.part)} stroke-dashoffset={-segment.offset} transform="rotate(-90 90 90)">
           <title>{segment.point.label} · {value.format(segment.point.y)} ({value.format(segment.part)} %)</title>
         </circle>
@@ -64,11 +66,11 @@
         {#each series.points as point, index (index)}
           {#if data.chart === "bar"}
             <rect x={cx(point.x) + slot * .1 + seriesIndex * bar} y={Math.min(cy(0), cy(point.y))}
-              width={bar} height={Math.abs(cy(point.y) - cy(0))} fill={colors(seriesIndex)}>
+              width={bar} height={Math.abs(cy(point.y) - cy(0))} fill={colors(seriesIndex)} stroke={focusPoint === seriesIndex + ":" + index ? "currentColor" : "none"}>
               <title>{caption(series, point)}</title>
             </rect>
           {:else}
-            <circle cx={cx(point.x)} cy={cy(point.y)} r="4" fill={colors(seriesIndex)}><title>{caption(series, point)}</title></circle>
+            <circle cx={cx(point.x)} cy={cy(point.y)} r={focusPoint === seriesIndex + ":" + index ? 8 : 4} fill={colors(seriesIndex)}><title>{caption(series, point)}</title></circle>
           {/if}
         {/each}
       {/each}
@@ -80,6 +82,18 @@
     </ul>
   {/if}
   </div>
+  {#if points.length > 1}
+    <label>Point du graphique
+      <select class="settings-input" bind:value={focusPoint}>
+        <option value="">Choisir un point</option>
+        {#each data.series as series, i (i)}
+          {#each series.points as point, j (j)}
+            <option value={i + ":" + j}>{caption(series, point)}</option>
+          {/each}
+        {/each}
+      </select>
+    </label>
+  {/if}
   <button type="button" class="settings-btn" aria-pressed={magnified} onclick={() => magnified = !magnified}>Agrandir le graphique</button>
   <button type="button" class="settings-btn" aria-expanded={detailed} onclick={() => detailed = !detailed}>
     {detailed ? "Masquer les données" : "Voir les données"}
@@ -87,11 +101,11 @@
   {#if detailed}
     <div class="chart-data">
       <table aria-label={data.title}>
-        <thead><tr><th scope="col">Série</th><th scope="col">Point</th>{#if data.chart === "scatter"}<th scope="col">X</th>{/if}<th scope="col">Valeur</th></tr></thead>
+        <thead><tr><th scope="col">Série</th><th scope="col">Point</th>{#if data.numericX}<th scope="col">X</th>{/if}<th scope="col">Valeur</th></tr></thead>
         <tbody>
           {#each data.series as series, index (index)}
             {#each series.points as point, pointIndex (pointIndex)}
-              <tr><td>{series.name}</td><td>{point.label}</td>{#if data.chart === "scatter"}<td>{value.format(point.x)}</td>{/if}<td>{value.format(point.y)}</td></tr>
+              <tr><td>{series.name}</td><td>{point.label}</td>{#if data.numericX}<td>{value.format(point.x)}</td>{/if}<td>{value.format(point.y)}</td></tr>
             {/each}
           {/each}
         </tbody>

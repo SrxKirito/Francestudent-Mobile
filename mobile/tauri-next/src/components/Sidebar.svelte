@@ -37,8 +37,6 @@
     onnewchat: () => void;
     onprojects: () => void;
     onlibrary: () => void;
-    /** Chat Svelte : entrée « Importer une conversation » (dans l'ancienne interface, ajoutée par conversation-import.js). */
-    onimport?: () => void;
     onprojectsettings: () => void;
     onleaveproject: () => void;
     onsettings: () => void;
@@ -72,7 +70,6 @@
     onnewchat,
     onprojects,
     onlibrary,
-    onimport,
     onprojectsettings,
     onleaveproject,
     onsettings,
@@ -99,7 +96,6 @@
   </div>
   <button id="projects-open" class="side-nav-item" type="button" onclick={onprojects}><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M3 7V5a2 2 0 0 1 2-2h5l2 3h7a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/><path d="M7 10h10v7H7z"/></svg><span>Projets</span></button>
   <button id="library-open" class="side-nav-item" type="button" onclick={onlibrary}><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M4 4h6v16H4zM10 4h5v16h-5zM16 5l4-1 3 15-4 1z"/></svg><span>Bibliothèque</span></button>
-  {#if onimport}<button id="conversation-import-open" class="side-nav-item" type="button" onclick={onimport}><span aria-hidden="true">⇩</span><span>Importer une conversation</span></button>{/if}
   <div id="project-context" hidden={!project}><strong id="project-context-name">{project?.name ?? ""}</strong><button id="project-settings-open" class="side-nav-item" type="button" hidden={project?.sharedWithMe === true} onclick={onprojectsettings}>⚙ Paramètres du projet</button><button id="project-leave" class="side-nav-item" type="button" onclick={onleaveproject}>‹ Retour à la page principale</button><p id="project-status" class="settings-hint" role="status">{projectStatus}</p></div>
   {#if archive.available}<ArchivedChats {archive} ontoggle={ontogglearchive} onrestore={onrestorearchived} ondownload={ondownloadarchived} onmore={onmorearchived} />{/if}
   <HistoryList {groups} searching={query.trim() !== ""} {currentId} {menuId} {markFor} {onopen} {onmenu} onscroll={onhistoryscroll} />

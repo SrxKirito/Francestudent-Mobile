@@ -3,8 +3,8 @@
   import WorkspaceIcon from "./WorkspaceIcon.svelte";
   import type { ApiClient } from "../lib/services/api-client.ts";
   import type { WorkspaceEngine } from "../lib/services/workspace-engine.ts";
-  import { listProjects, projectChats, projectForm, projectPath, projectResult, rows } from "../lib/services/projects.ts";
-  import type { Project, ProjectShare } from "../lib/services/projects.ts";
+  import { listProjects, projectChats, projectForm, projectPath, projectResult } from "../lib/services/projects.ts";
+  import type { Project } from "../lib/services/projects.ts";
   import { errorMessage } from "../lib/utils/errors.ts";
 
   type Target = { id: string; projectId: string | null };
@@ -15,12 +15,9 @@
   const signal = lifetime.signal;
   let dialog: HTMLDialogElement;
   let projects = $state.raw<Project[]>([]);
-  let shares = $state.raw<ProjectShare[]>([]);
   let editor = $state.raw<{ id: string | null } | null>(null);
   let name = $state("");
   let instructions = $state("");
-  let invite = $state("");
-  let showAccess = $state(false);
   let busy = $state(false);
   let message = $state("");
   let query = $state("");
@@ -65,9 +62,6 @@
     editor = { id: project?.id ?? null };
     name = project?.name ?? "";
     instructions = project?.customInstructions ?? "";
-    showAccess = false;
-    shares = [];
-    invite = "";
     message = "";
   }
 
@@ -130,33 +124,6 @@
     });
   }
 
-  async function refreshShares(id: string) {
-    const data = await api.json(projectPath(id) + "/shares", { signal });
-    if (!signal.aborted) shares = rows<ProjectShare>(data, "users").filter(row => row && typeof row === "object");
-  }
-
-  function share(event: SubmitEvent) {
-    event.preventDefault();
-    const id = editor?.id;
-    const userEmail = invite.trim();
-    if (!id || !userEmail) return;
-    void run(async () => {
-      await api.json(projectPath(id) + "/shares", { method: "POST", body: { userEmail }, signal });
-      invite = "";
-      await refreshShares(id);
-    });
-  }
-
-  function unshare(userId: number) {
-    const id = editor?.id;
-    if (!id) return;
-    void run(async () => {
-      if (!await onconfirm("Retirer cet accès au projet ?") || signal.aborted) return;
-      await api.json(projectPath(id) + "/shares/" + encodeURIComponent(userId), { method: "DELETE", signal });
-      await refreshShares(id);
-    });
-  }
-
   function move(event: SubmitEvent) {
     event.preventDefault();
     if (!target || !canMove || destination === (target.projectId ?? "")) return;
@@ -202,27 +169,6 @@
       </div>
     </form>
     {#if editor.id}
-      <section class="project-access" aria-label="Accès au projet">
-      <button type="button" class="settings-btn" aria-expanded={showAccess} disabled={busy} onclick={() => {
-        const id = editor?.id;
-        showAccess = !showAccess;
-        if (showAccess && id) void run(() => refreshShares(id));
-      }}>Gérer les accès</button>
-      {#if showAccess}
-        <form class="settings-form" onsubmit={share}>
-          <label class="settings-label">Adresse e-mail <input class="settings-input" type="email" bind:value={invite} required></label>
-          <button class="settings-btn" disabled={busy}>Partager</button>
-        </form>
-        {#each shares as row}
-          {@const userId = row.userId}
-          <div class="settings-item-head"><span>{row.userEmail || "Utilisateur"} · {row.owner ? "Propriétaire" : row.permission === "Write" ? "Écriture" : "Lecture"}</span>
-            {#if !row.owner && typeof userId === "number" && Number.isInteger(userId)}
-              <button type="button" class="settings-btn danger" disabled={busy} onclick={() => unshare(userId)}>Retirer</button>
-            {/if}
-          </div>
-        {/each}
-      {/if}
-      </section>
       <button type="button" class="settings-btn danger" disabled={busy} onclick={removeProject}>Supprimer le projet</button>
     {/if}
   {:else}
@@ -282,7 +228,5 @@
   .project-open span { overflow-wrap: anywhere; }
   .project-edit { display: grid; place-items: center; width: 44px; height: 44px; padding: 0; }
   .project-fields { min-inline-size: 0; display: grid; gap: 14px; border: 0; margin: 0; padding: 0; }
-  .project-access { display: grid; gap: 10px; padding-block: 12px; margin-block: 12px; border-block: 1px solid var(--border, #343436); }
-  .project-access > button { justify-self: start; }
   textarea { min-height: 7rem; resize: vertical; }
 </style>

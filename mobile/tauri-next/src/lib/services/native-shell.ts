@@ -65,6 +65,7 @@ export function createNativeShell(deps: NativeShellOptions): ShellEngine {
   let remoteStatus = "";
   let archiveOpen = false;
   let archiveLoading = false;
+  let archiveLoaded = false;
   let archiveMore = false;
   let archiveError = false;
   let archiveStatus = "";
@@ -174,6 +175,7 @@ export function createNativeShell(deps: NativeShellOptions): ShellEngine {
       repository.commit();
       archiveCursor = last ?? archiveCursor;
       archiveMore = result.hasMore === true;
+      archiveLoaded = true;
       archiveStatus = archiveRows.size ? "" : "Aucune conversation archivée.";
     } catch (error) {
       if (signal.aborted) return;
@@ -299,6 +301,7 @@ export function createNativeShell(deps: NativeShellOptions): ShellEngine {
         if (signal.aborted) return;
         row.serverArchived = true;
         archiveRows.set(row.chatId, { id: row.chatId, title: row.title, projectId: row.projectId });
+        if (archiveStatus === "Aucune conversation archivée.") archiveStatus = "";
         if (repository.currentId() === id) repository.select(null);
         repository.commit();
         deps.notify("Conversation archivée.");
@@ -308,7 +311,7 @@ export function createNativeShell(deps: NativeShellOptions): ShellEngine {
     composition(active) { composing = active; scheduleSearch(query, true); },
     toggleArchive() {
       archiveOpen = !archiveOpen;
-      if (archiveOpen && !archiveRows.size) void loadArchives();
+      if (archiveOpen && !archiveLoaded) void loadArchives();
       notify();
     },
     restoreArchived(id) { void archiveAction(id, true); },

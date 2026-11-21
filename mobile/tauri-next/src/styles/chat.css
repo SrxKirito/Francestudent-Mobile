@@ -18,12 +18,19 @@ main.main:has(> .chat-pane) { position: relative; }
 
 /* Confirmation. */
 .fs-confirm {
+  position: fixed;
+  inset: auto 0;
+  top: calc(var(--ios-viewport-top, 0px) + (var(--ios-viewport-height, 100dvh) + var(--fs-safe-top, 0px) - var(--fs-safe-bottom, 0px)) / 2);
+  margin: 0 auto;
+  translate: 0 -50%;
+  max-height: calc(var(--ios-viewport-height, 100dvh) - var(--fs-safe-top, 0px) - var(--fs-safe-bottom, 0px) - 24px);
+  overflow: auto;
   width: min(380px, calc(100vw - 32px)); padding: 20px; border: 1px solid var(--border, #333); border-radius: 18px;
   background: var(--bg, #111); color: var(--text, #fff); box-sizing: border-box;
 }
 .fs-confirm::backdrop { background: rgba(0, 0, 0, .5); }
 .fs-confirm-text { margin: 0 0 16px; line-height: 1.45; overflow-wrap: anywhere; }
-.fs-confirm-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.fs-confirm-actions { display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
 
 /* Partage d'une conversation. */
 .fs-shares-body { padding: 20px; width: min(480px, calc(100vw - 48px)); box-sizing: border-box; }

@@ -2,7 +2,7 @@
 // Vignettes des fichiers enregistrés (Files V2) : bornées en octets, en mémoire et en requêtes simultanées.
 // - Images raster (png, jpg, webp, gif) : miniature réelle, sous une limite d'octets stricte.
 // - Texte et code : quelques lignes, lues en tronquant le fichier ; jamais exécutés ni injectés en HTML.
-// - Tout le reste (PDF, Word, PowerPoint, SVG, HEIC, archives…) : icône avec l'extension, SANS aucune requête.
+// - Les documents passent par un rendu optionnel fourni par le client. Les formats restants conservent leur icône.
 // Les URL d'objet sont comptées par « bail » : une URL affichée n'est jamais révoquée avant sa libération.
 (() => {
   const IMAGE_MIME = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", webp: "image/webp", gif: "image/gif" };
@@ -20,7 +20,7 @@
 
   function create(deps) {
     const {
-      fetchBlob, createUrl, revokeUrl,
+      fetchBlob, createUrl, revokeUrl, documentPreview,
       maxCachedImages = 40, maxCachedTexts = 200, concurrency = 2,
       imageMaxBytes = 2 * 1024 * 1024, textMaxBytes = 16 * 1024,
       textMaxChars = 600, textMaxLines = 12, textMaxLineLength = 80
@@ -47,6 +47,10 @@
         return { kind: "image", mime };
       }
       if (TEXT_EXT.test(name)) return { kind: "text" };
+      if (documentPreview && (!extension(name) || /\.(pdf|docx|xlsx|pptx|avif|bmp|heic|heif)$/i.test(name))) {
+        if (Number.isFinite(file.bytes) && file.bytes > imageMaxBytes) return { kind: "icon", reason: "too-large" };
+        return { kind: "document" };
+      }
       return { kind: "icon", reason: "unsupported" };
     }
 
@@ -107,13 +111,18 @@
       const { file, spec } = job;
       const blob = await fetchBlob(file, {
           signal: job.controller.signal,
-          limit: spec.kind === "image" ? imageMaxBytes : textMaxBytes,
+          limit: spec.kind === "text" ? textMaxBytes : imageMaxBytes,
           truncate: spec.kind === "text"
         });
       if (job.controller.signal.aborted) throw abortError();
       if (spec.kind === "text") return { result: await buildText(blob, nameOf(file)), cacheable: true };
       if (!blob || blob.size > imageMaxBytes) throw tooLarge();
-      const url = await createUrl(blob, spec.mime);
+      const preview = spec.kind === "document" ? await documentPreview(blob, nameOf(file), job.controller.signal) : null;
+      if (spec.kind === "document" && typeof preview !== "string" && !preview?.url) {
+        return { result: icon(nameOf(file), "unsupported"), cacheable: true };
+      }
+      if (typeof preview === "string") return { result: await buildText(new Blob([preview]), nameOf(file)), cacheable: true };
+      const url = preview?.url ?? await createUrl(blob, spec.mime);
       if (job.controller.signal.aborted) { revokeUrl(url); throw abortError(); }
       return { result: { type: "image", key: job.key, url }, cacheable: true };
     }

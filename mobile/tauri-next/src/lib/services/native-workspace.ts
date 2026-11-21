@@ -1,6 +1,7 @@
 import "../../../files-store.js";
 import "../../../file-thumbnails.js";
 import type { ApiClient } from "./api-client.ts";
+import { extractDocumentText, openPdf } from "./document-assets.ts";
 import { generatedArtifacts, generatedFile } from "./file-preview.ts";
 import type { PreviewFile } from "./file-preview.ts";
 import { saveStream } from "./file-saver.ts";
@@ -14,6 +15,7 @@ import type { FileThumbnail, FileUsage, LibraryRecord, RemoteFile, WorkspaceEngi
 
 const LOCAL_IMAGE_LIMIT = 1024 * 1024;
 const MAX_ATTACHMENT_BYTES = 50 * 1024 * 1024;
+const REMOTE_PREVIEW_LIMIT = 10 * 1024 * 1024;
 const TEXT_SNIPPET_LIMIT = 1800;
 const RASTER = /^image\/(?:png|jpeg|webp|gif|avif)$/i;
 const TEXT_SUFFIX = /\.(?:txt|md|markdown|csv|tsv|log|json|js|ts|py)$/i;
@@ -21,7 +23,7 @@ const NON_TEXT = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/;
 const FILE_TYPE: Record<string, string> = {
   ...FILE_MIME,
   png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif",
-  webp: "image/webp", avif: "image/avif", heic: "image/heic",
+  webp: "image/webp", avif: "image/avif", bmp: "image/bmp", heic: "image/heic", heif: "image/heif",
   doc: "application/msword", docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
   xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 };
@@ -52,6 +54,7 @@ interface ThumbnailFactory {
   create(deps: {
     fetchBlob: (file: RemoteFile, options: { signal: AbortSignal; limit: number; truncate: boolean }) => Promise<Blob>;
     createUrl: (blob: Blob, mime: string) => string | Promise<string>;
+    documentPreview: (blob: Blob, name: string, signal: AbortSignal) => Promise<string | { url: string } | null>;
     imageMaxBytes?: number;
     revokeUrl: (url: string) => void;
   }): {
@@ -67,7 +70,6 @@ export interface NativeWorkspaceOptions {
   files: NativeFiles;
   previewStorage: PreviewStorage;
   deviceOwner?: string;
-  upload(file: File, signal: AbortSignal, progress: (sent: number, total: number) => void): Promise<unknown>;
   openPreview(file: PreviewFile): void;
   resume(id: string): Promise<void>;
   cancelPending(id: string): Promise<void>;
@@ -152,13 +154,33 @@ function libraryRecords(owner: string, conversations: readonly NativeConversatio
   return entries;
 }
 
+async function coverCanvasUrl(canvas: HTMLCanvasElement): Promise<string> {
+  const preview = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, "image/png"));
+  if (!preview) throw new Error("Miniature indisponible.");
+  return URL.createObjectURL(preview);
+}
+
+async function sniffPreviewType(blob: Blob, name: string): Promise<Blob> {
+  const head = new Uint8Array(await blob.slice(0, 16).arrayBuffer());
+  const ascii = String.fromCharCode(...head);
+  const mime = ascii.startsWith("%PDF-") ? "application/pdf"
+    : head[0] === 0xff && head[1] === 0xd8 && head[2] === 0xff ? "image/jpeg"
+    : ascii.startsWith("\x89PNG\r\n\x1a\n") ? "image/png"
+    : ascii.startsWith("GIF87a") || ascii.startsWith("GIF89a") ? "image/gif"
+    : ascii.startsWith("RIFF") && ascii.slice(8, 12) === "WEBP" ? "image/webp" : "";
+  return mime && blob.type !== mime ? blob.slice(0, blob.size, mime) : typed(blob, name);
+}
+
 async function thumbnailUrl(blob: Blob, mime: string): Promise<string> {
   const typed = blob.type === mime ? blob : blob.slice(0, blob.size, mime);
   const source = URL.createObjectURL(typed);
   try {
     const image = new Image();
-    image.src = source;
-    await image.decode();
+    await new Promise<void>((resolve, reject) => {
+      image.onload = () => resolve();
+      image.onerror = () => reject(new Error("Image illisible."));
+      image.src = source;
+    });
     if (!image.naturalWidth || !image.naturalHeight || image.naturalWidth * image.naturalHeight > 40_000_000) throw new Error("Image trop grande.");
     const scale = Math.min(1, 300 / Math.max(image.naturalWidth, image.naturalHeight));
     const canvas = document.createElement("canvas");
@@ -167,10 +189,46 @@ async function thumbnailUrl(blob: Blob, mime: string): Promise<string> {
     const context = canvas.getContext("2d");
     if (!context) throw new Error("Miniature indisponible.");
     context.drawImage(image, 0, 0, canvas.width, canvas.height);
-    const preview = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, "image/webp", .8));
-    if (!preview) throw new Error("Miniature indisponible.");
-    return URL.createObjectURL(preview);
+    return coverCanvasUrl(canvas);
   } finally { URL.revokeObjectURL(source); }
+}
+
+async function documentThumbnail(input: Blob, name: string, signal: AbortSignal): Promise<string | { url: string } | null> {
+  const blob = await sniffPreviewType(input, name);
+  signal.throwIfAborted();
+  if (/^image\/(?:jpeg|png|gif|webp|avif|bmp|heic|heif)$/.test(blob.type)) {
+    return { url: await thumbnailUrl(blob, blob.type) };
+  }
+  if (blob.type === "application/pdf" || /\.pdf$/i.test(name)) {
+    const pdf = await openPdf(blob, signal);
+    try {
+      const page = await pdf.getPage(1);
+      try {
+        signal.throwIfAborted();
+        const base = page.getViewport({ scale: 1 });
+        if (Math.min(base.width, base.height) <= 0 || !Number.isFinite(base.width * base.height)) return null;
+        const viewport = page.getViewport({ scale: 300 / Math.max(base.width, base.height) });
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.max(1, Math.ceil(viewport.width));
+        canvas.height = Math.max(1, Math.ceil(viewport.height));
+        const context = canvas.getContext("2d");
+        if (!context) return null;
+        const task = page.render({ canvasContext: context, viewport });
+        const cancel = () => task.cancel();
+        signal.addEventListener("abort", cancel, { once: true });
+        try { await task.promise; }
+        finally { signal.removeEventListener("abort", cancel); }
+        signal.throwIfAborted();
+        return { url: await coverCanvasUrl(canvas) };
+      } finally { page.cleanup(); }
+    } finally { await pdf.destroy().catch(() => {}); }
+  }
+  if (/\.(docx|xlsx|pptx)$/i.test(name)) {
+    return (await extractDocumentText(blob, name, signal))?.text.slice(0, 600) ?? null;
+  }
+  const bytes = await blob.slice(0, TEXT_SNIPPET_LIMIT).arrayBuffer();
+  try { return new TextDecoder("utf-8", { fatal: true }).decode(bytes, { stream: blob.size > bytes.byteLength }); }
+  catch { return null; }
 }
 
 function publicEntry({ id, name, kind, direction, created, projectId, conversationId, attribution }: LibraryEntry): LibraryRecord {
@@ -190,8 +248,12 @@ export function createNativeWorkspaceEngine(options: NativeWorkspaceOptions): Na
   const unwatchForeground = typeof document === "undefined" ? () => {} : remote.watchForeground(document);
   const thumbnails = bundles.tauriFileThumbnails.create({
     fetchBlob: (file, settings) => files.content(file.id, settings),
-    imageMaxBytes: 10 * 1024 * 1024,
-    createUrl: thumbnailUrl,
+    imageMaxBytes: REMOTE_PREVIEW_LIMIT,
+    createUrl: async (blob, mime) => {
+      const input = await sniffPreviewType(blob, "preview");
+      return thumbnailUrl(input, RASTER.test(input.type) ? input.type : mime);
+    },
+    documentPreview: documentThumbnail,
     revokeUrl: url => URL.revokeObjectURL(url)
   });
   let thumbnailOwner = repository.owner();
@@ -329,13 +391,6 @@ export function createNativeWorkspaceEngine(options: NativeWorkspaceOptions): Na
     loadFiles: () => remote.ensureLoaded(),
     loadMore: () => remote.loadMore(),
     removeFile: id => remote.remove(id),
-    async uploadRemote(file, uploadSignal, progress) {
-      if (file.size > MAX_ATTACHMENT_BYTES) throw new Error("Le fichier dépasse 50 Mo.");
-      if (file.size === 0) throw new Error("Le fichier est vide.");
-      const uploaded = await options.upload(file, uploadSignal, progress);
-      if (signal.aborted) return;
-      if (!remote.noteUploaded(uploaded)) remote.invalidate();
-    },
     watchFiles(listener) {
       const removeFiles = remote.subscribe(listener);
       const removeConversations = repository.subscribe(listener);
@@ -351,7 +406,7 @@ export function createNativeWorkspaceEngine(options: NativeWorkspaceOptions): Na
         name,
         load: outer => previewLoad(outer, async requestSignal => {
           if (typeof row.bytes === "number" && row.bytes > PREVIEW_MAX_BYTES) throw tooLarge();
-          return typed(await files.content(id, { signal: requestSignal }), name);
+          return sniffPreviewType(await files.content(id, { signal: requestSignal, limit: REMOTE_PREVIEW_LIMIT }), name);
         }),
         save: () => downloadRemote(row)
       });

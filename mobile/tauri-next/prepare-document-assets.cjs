@@ -78,4 +78,13 @@ convert = replaceRequired(convert, "    if (entry.method === 0) return data;\n  
   "      return decoded;",
   "    }"
 ].join("\n"));
+convert = replaceRequired(convert, "  const api = { embeddedThumbnail,", [
+  "  async function wordXml(input) {",
+  "    const bytes = input instanceof Uint8Array ? input : new Uint8Array(input);",
+  "    if (!isZip(bytes)) return null;",
+  '    const entry = zipEntries(bytes).find(item => item.name === "word/document.xml");',
+  "    return entry && entry.size <= 1024 * 1024 ? utf8(await readEntry(bytes, entry)) : null;",
+  "  }",
+  "  const api = { wordXml, embeddedThumbnail,"
+].join("\n"));
 fs.writeFileSync(path.join(target, "fileconvert.js"), convert);

@@ -10,7 +10,8 @@
   import ConfirmDialog from "./ConfirmDialog.svelte";
   import RenameDialog from "./RenameDialog.svelte";
   import ImportDialog from "./ImportDialog.svelte";
-  import SharesDialog from "./SharesDialog.svelte";
+  import ArchivedChats from "./ArchivedChats.svelte";
+  import { agentLabel } from "../lib/utils/agents.ts";
   import ToastHost from "./ToastHost.svelte";
   import { createRuntimeApiClient } from "../lib/services/api-runtime.ts";
   import { createStorageAccount } from "../lib/services/account-local.ts";
@@ -61,7 +62,7 @@
   }: Props = $props();
 
   // svelte-ignore state_referenced_locally
-  const chat = new ChatStore(store);
+  const chat = new ChatStore(store, () => settings?.close());
   const avatarSrc = $derived(store.avatar && store.avatar !== "image.png" ? store.avatar : logo);
   let projects = $state.raw<{ editId?: string; target?: { id: string; projectId: string | null } } | null>(null);
   let libraryOpen = $state(false);
@@ -134,7 +135,6 @@
     });
     const workspace = createNativeWorkspaceEngine({
       api, repository, local, files, previewStorage, openPreview,
-      upload: async (file, uploadSignal, progress) => uploadFile(file, await sessionTokens.getAccessToken(), uploadSignal, progress),
       deviceOwner: cached.deviceId ? "device:" + cached.deviceId : undefined,
       resume: id => engine.resume(id), cancelPending: id => engine.cancelPending(id), busy: () => engine.busy(),
       openChat: id => store.open(id)
@@ -328,14 +328,7 @@
     settings.show("general");
   }
 
-  function shareMenuConversation() {
-    const id = store.menu?.id;
-    store.closeMenus();
-    if (id) chat.openShares(id);
-  }
-
   function importConversation() {
-    if (store.drawerOpen) store.overlayClick();
     chat.openImport();
   }
 
@@ -377,7 +370,7 @@
     <Sidebar
       open={store.drawerOpen}
       bind:query={store.conversations.query}
-      archive={store.archive}
+      archive={legacyChat ? store.archive : undefined}
       remoteSearch={store.remoteSearch}
       onsearchcomposition={active => store.composition(active)}
       ontogglearchive={() => store.toggleArchive()}
@@ -405,7 +398,6 @@
       onleaveproject={() => store.leaveProject()}
       onsettings={() => legacyChat ? store.settings() : openSettings()}
       oncollapse={() => store.collapse()}
-      onimport={legacyChat ? undefined : importConversation}
     />
     <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
     <div id="overlay" class="overlay" class:hidden={!store.drawerOpen} onclick={() => store.overlayClick()}></div>
@@ -423,7 +415,6 @@
         if (id) store.engine?.exportConversation?.(id);
       }}
       ondelete={() => store.menuAction("deleteConversation")}
-      onshare={legacyChat ? undefined : shareMenuConversation}
       onproject={settings?.workspace ? moveConversation : undefined}
     />
   {/if}
@@ -436,7 +427,6 @@
       <ToastHost {chat} />
       <ConfirmDialog {chat} />
       <ImportDialog {chat} />
-      <SharesDialog {chat} />
     {/if}
   </main>
   {#if projects && settings?.workspace && settings.api}
@@ -468,7 +458,24 @@
     {@const current = settings}
     {#await import("./SettingsDialog.svelte") then { default: SettingsDialog }}
       <SettingsDialog store={current} showChatToggle={false} onconfirm={text => chat.confirm(text)}
-        onarchives={() => { current.close(); if (!store.archive.open) store.toggleArchive(); if (!store.wide && !store.drawerOpen) store.menuToggle(); }} />
+        onimport={importConversation} onarchives={() => { current.selectTab("general"); if (!store.archive.open) store.toggleArchive(); }}>
+        {#snippet conversations()}
+          {@const snapshot = chat.state}
+          <section class="general-section" aria-labelledby="settings-conversations-title">
+            <h3 id="settings-conversations-title" class="settings-section-title">Discussions</h3>
+            {#if snapshot.conversationAgent && snapshot.messages.length}
+              <p id="settings-conversation-model" class="settings-hint">Modèle de cette discussion · <strong>{agentLabel(snapshot.conversationAgent)}</strong></p>
+              {#if snapshot.conversationAgent.id !== snapshot.composer.agentId}
+                <p class="settings-hint">Envoyer avec un autre modèle démarrera une nouvelle discussion côté serveur.</p>
+              {/if}
+            {/if}
+            {#if store.archive.available}
+              <ArchivedChats archive={store.archive} ontoggle={() => store.toggleArchive()} onrestore={id => store.restoreArchived(id)}
+                ondownload={id => store.downloadArchived(id)} onmore={() => store.moreArchived()} />
+            {/if}
+          </section>
+        {/snippet}
+      </SettingsDialog>
     {:catch}
       <p role="alert">Impossible d’ouvrir les paramètres.</p>
     {/await}

@@ -6,7 +6,6 @@
   import { onDestroy, tick, untrack } from "svelte";
   import type { ChatStore } from "../lib/stores/chat.svelte.ts";
   import { canSend, imageTitle, studyLabel, uploadLabel, uploadsPending, webSearchTitle } from "../lib/services/chat-view.ts";
-  import { IMAGE_MODEL_CATALOG } from "../lib/services/local-settings.ts";
   import type { StudyMode } from "../lib/types/chat.ts";
   import { ICON_PATHS } from "../lib/utils/icons.ts";
 
@@ -47,7 +46,6 @@
   onDestroy(() => { void dictation?.stop(); });
   let attachOpen = $state(false);
   let studyOpen = $state(false);
-  let imageModelsOpen = $state(false);
   let photoInput: HTMLInputElement | undefined = $state();
   let fileInput: HTMLInputElement | undefined = $state();
   let cameraInput: HTMLInputElement | undefined = $state();
@@ -91,11 +89,9 @@
     const active: string[] = [];
     if (composer.webSearch && composer.webSearchMode !== "disabled") active.push("Recherche web");
     if (composer.imageMode) active.push("Image");
-    if (composer.powerpointMode) active.push("PowerPoint");
     if (composer.studyMode) active.push(studyLabel(composer.studyMode));
     return active;
   });
-  const imageModel = $derived(IMAGE_MODEL_CATALOG.find(model => model.id === composer.imageModel)?.name ?? "");
   const attachLabel = $derived("Outils et pièces jointes" + (activeTools.length > 0 ? ". Actifs : " + activeTools.join(", ") : ""));
 
   const STUDY_OPTIONS: { value: StudyMode; label: string }[] = [
@@ -190,7 +186,6 @@
   function closeMenus() {
     attachOpen = false;
     studyOpen = false;
-    imageModelsOpen = false;
   }
 
   function toggleAttach(event: MouseEvent) {
@@ -229,26 +224,6 @@
     if (next) void tick().then(() => document.querySelector<HTMLElement>("#study-menu button")?.focus());
   }
 
-  function toggleImageModelMenu(event: MouseEvent) {
-    event.stopPropagation();
-    const next = !imageModelsOpen;
-    closeMenus();
-    imageModelsOpen = next;
-    if (next) void tick().then(() => document.querySelector<HTMLElement>("#composer-image-models button")?.focus());
-  }
-
-  function pickImageModel(id: string) {
-    chat.engine?.setOption("imageModel", id);
-    closeMenus();
-    document.getElementById("attach")?.focus();
-  }
-
-  function togglePowerpoint() {
-    chat.engine?.setOption("powerpointMode", !composer.powerpointMode);
-    closeMenus();
-    document.getElementById("attach")?.focus();
-  }
-
   function chooseStudy(mode: StudyMode) {
     chat.engine?.setOption("studyMode", mode);
     closeMenus();
@@ -258,13 +233,13 @@
   function onDocumentClick(event: MouseEvent) {
     const target = event.target as Element | null;
     if (!target?.closest("#prompt, #skill-menu")) dismissed = text;
-    if (target?.closest("#attach-menu, #study-menu, #composer-image-models, #attach")) return;
+    if (target?.closest("#attach-menu, #study-menu, #attach")) return;
     closeMenus();
   }
 
   function onDocumentKey(event: KeyboardEvent) {
     const target = event.target instanceof HTMLElement ? event.target : null;
-    const submenu = target?.closest("#study-menu, #composer-image-models");
+    const submenu = target?.closest("#study-menu");
     if (submenu && ["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) {
       const options = [...submenu.querySelectorAll("button")];
       if (!options.length) return;
@@ -275,7 +250,7 @@
       options[next]?.focus();
       return;
     }
-    if (event.key === "Escape" && (attachOpen || studyOpen || imageModelsOpen)) {
+    if (event.key === "Escape" && (attachOpen || studyOpen)) {
       closeMenus();
       document.getElementById("attach")?.focus();
     }
@@ -355,14 +330,6 @@
         <button type="button" id="toggle-web" role="menuitemcheckbox" class="tool-button toggle" aria-pressed={composer.webSearch ? "true" : "false"} aria-checked={composer.webSearch ? "true" : "false"} disabled={composer.webSearchMode === "disabled"} title={webSearchTitle(composer.webSearch, composer.webSearchMode)} onclick={toggleWeb}><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3a14 14 0 0 1 0 18a14 14 0 0 1 0-18z"/></svg> <span>Recherche web</span></button>
         <!-- svelte-ignore a11y_role_supports_aria_props : idem -->
         <button type="button" id="toggle-image" role="menuitemcheckbox" class="tool-button toggle" aria-pressed={composer.imageMode ? "true" : "false"} aria-checked={composer.imageMode ? "true" : "false"} title={imageTitle(composer.imageMode)} onclick={toggleImage}><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="9" cy="9" r="2"/><path d="M21 15l-5-5L5 21"/></svg> <span>Image</span></button>
-        <button type="button" class="tool-button toggle" role="menuitem" aria-controls="composer-image-models" aria-haspopup="menu" aria-expanded={imageModelsOpen} onclick={toggleImageModelMenu}>
-          <span>Modèle d’image{imageModel ? " · " + imageModel : ""}</span>
-        </button>
-        <!-- svelte-ignore a11y_role_supports_aria_props : les styles communs utilisent aria-pressed -->
-        <button type="button" id="toggle-powerpoint" class="tool-button toggle" role="menuitemcheckbox" aria-checked={composer.powerpointMode} aria-pressed={composer.powerpointMode} onclick={togglePowerpoint}>
-          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 4h18v13H3zM12 17v4M8 21l4-4 4 4M7 13V8m5 5v-3m5 3v-6"/></svg>
-          <span>PowerPoint</span>
-        </button>
         <!-- svelte-ignore a11y_role_supports_aria_props : idem -->
         <button type="button" id="toggle-study" role="menuitem" aria-controls="study-menu" aria-haspopup="menu" aria-expanded={studyOpen ? "true" : "false"} class="tool-button toggle" aria-pressed={composer.studyMode ? "true" : "false"} title="Mode étudiant : fiches, quiz ou cartes mémoire" onclick={toggleStudy}><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 10L12 5 2 10l10 5 10-5z"/><path d="M6 12v5c3 2 9 2 12 0v-5"/></svg> <span id="study-label">{studyLabel(composer.studyMode)}</span></button>
       </div>
@@ -375,16 +342,6 @@
           <button type="button" class="image-model-option" class:selected={composer.studyMode === option.value} role="menuitemradio" aria-checked={composer.studyMode === option.value ? "true" : "false"} data-study={option.value} onclick={() => chooseStudy(option.value)}><span class="image-model-name">{option.label}</span><span class="image-model-radio" aria-hidden="true"></span></button>
         {/each}
       </div>
-      {#if imageModelsOpen}
-        <div id="composer-image-models" class="popover image-model-menu" role="menu" aria-label="Modèles d’image">
-          {#each IMAGE_MODEL_CATALOG as item (item.id)}
-            <button type="button" class="image-model-option" class:selected={composer.imageModel === item.id} role="menuitemradio" aria-checked={composer.imageModel === item.id} onclick={() => pickImageModel(item.id)}>
-              <span class="image-model-name">{item.name}</span>
-              <span class="image-model-radio" aria-hidden="true"></span>
-            </button>
-          {/each}
-        </div>
-      {/if}
       {#if dictation && !busy}
         <button type="button" id="mic" class="tool-button icon-button mic" aria-pressed={micActive} aria-label={micActive ? "Arrêter la dictée" : "Dicter un message"} onclick={toggleDictation}>
           <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>
@@ -403,8 +360,6 @@
 <style>
 
   .composer-box { position: relative; }
-  #composer-image-models { width: min(18rem, calc(100vw - 2rem)); max-height: min(28rem, 55dvh); overflow-y: auto; }
-  #composer-image-models button { min-height: 44px; }
   .native-skill-menu { position: absolute; inset: auto 0 calc(100% + 8px); z-index: 25; max-height: min(280px, calc(var(--ios-viewport-height, 100dvh) * .38)); overflow-y: auto; overscroll-behavior: contain; padding: 6px; border: 1px solid var(--border); border-radius: 16px; background: var(--surface); }
   .native-skill-menu button { display: grid; gap: 3px; width: 100%; min-height: 44px; padding: 8px; border: 0; border-radius: 8px; background: transparent; color: inherit; text-align: left; }
   .native-skill-menu button[aria-selected="true"] { background: var(--hover); }

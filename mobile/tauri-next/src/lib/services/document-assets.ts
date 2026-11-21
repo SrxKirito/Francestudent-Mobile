@@ -86,6 +86,7 @@ interface PdfJs {
 type ExtractedText = { text: string; format: string };
 type FileConvert = {
   extractText(buffer: ArrayBuffer, name: string, mime: string): Promise<ExtractedText | null>;
+  wordXml(buffer: ArrayBuffer): Promise<string | null>;
 };
 type DocumentGlobals = Window & { pdfjsLib?: PdfJs; FileConvert?: FileConvert };
 const MAX_TEXT = 250_000;
@@ -139,6 +140,17 @@ async function extractPdfText(blob: Blob, signal?: AbortSignal): Promise<Extract
   } finally {
     await pdf.destroy();
   }
+}
+
+export async function readWordDocument(blob: Blob, signal?: AbortSignal): Promise<string | null> {
+  if (blob.size > MAX_PREVIEW_BYTES) return null;
+  await script("fileconvert.js");
+  signal?.throwIfAborted();
+  const library = (window as DocumentGlobals).FileConvert;
+  if (!library) return null;
+  const bytes = await blob.arrayBuffer();
+  signal?.throwIfAborted();
+  return library.wordXml(bytes);
 }
 
 export async function extractDocumentText(blob: Blob, name: string, signal?: AbortSignal): Promise<ExtractedText | null> {

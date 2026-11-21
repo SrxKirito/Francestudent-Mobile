@@ -60,10 +60,6 @@
     }
     return [...groups];
   });
-  const conversationAgent = $derived(snap.conversationAgent);
-  const nextAgentDiffers = $derived(
-    hasMessages && conversationAgent !== null && conversationAgent.id !== snap.composer.agentId
-  );
 
   $effect(() => {
     chat.loadKatex();
@@ -160,14 +156,6 @@
 
   <div class="chat-area">
     <section id="messages" class="messages" bind:this={messagesEl} onscroll={onScroll}>
-      <div id="conversation-model" class="conversation-model" class:hidden={!hasMessages || conversationAgent === null}>
-        {#if conversationAgent}
-          <span>Modèle de cette discussion : <strong>{agentLabel(conversationAgent)}</strong></span>
-          {#if nextAgentDiffers}
-            <div class="conversation-model-note">Le prochain message utilisera {currentAgent ? agentLabel(currentAgent) : "le modèle choisi"} et démarrera une nouvelle discussion côté serveur.</div>
-          {/if}
-        {/if}
-      </div>
       <div id="empty-state" class="empty-state" class:hidden={hasMessages || showLive}>
         <img class="logo logo-img" src={logo} alt="FranceStudent">
         <h2>Comment puis-je t'aider ?</h2>

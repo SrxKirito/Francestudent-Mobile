@@ -36,7 +36,8 @@ function slice(source, from, to, offset = 0) {
 const flat = html => html.replace(/\s+aria-selected="[^"]*"/g, "").replace(/\s+tabindex="[^"]*"/g, "").replace(/&#10;|\n/g, " ");
 
 const legacyFrame = slice(indexHtml, '<div id="settings-modal"', "</nav>");
-const legacyGeneral = slice(indexHtml, '<section id="panel-general"', "</section>").replace(' aria-labelledby="tab-general" hidden>', ' aria-labelledby="tab-general">');
+const legacyGeneral = slice(indexHtml, '<section id="panel-general"', "</section>").replace(' aria-labelledby="tab-general" hidden>', ' aria-labelledby="tab-general">')
+  .replace(/<div class="settings-field default-model-field">\s*<button id="settings-image-model-button"[\s\S]*?<div id="settings-image-models"[^>]*><\/div>\s*<\/div>/, "");
 const legacyInterface = [...interfaceScript.split("\n").slice(51, 58).join("\n").matchAll(/'((?:[^'\\]|\\.)*)'/g)].map(match => match[1]).join("");
 
 function elements(html) {
@@ -135,7 +136,7 @@ try {
     // le title du bouton du modèle par défaut est posé par JavaScript dans le legacy (absent du HTML statique), mais dynamique ici.
     const ignored = new Map([["custom-instructions", new Set(["maxlength"])], ["default-model-button", new Set(["title"])]]);
     const keys = ["role", "type", "aria-haspopup", "aria-labelledby", "aria-controls", "aria-label", "aria-expanded", "for", "title", "rows", "placeholder", "data-settings-close"];
-    assert.ok(expected.size > 40, "le legacy doit exposer beaucoup d'identifiants");
+    assert.ok(expected.size > 35, "le legacy doit exposer beaucoup d'identifiants");
     for (const [id, legacy] of expected) {
       const modern = actual.get(id);
       assert.ok(modern, `élément manquant : #${id}`);
@@ -225,18 +226,10 @@ try {
     assert.ok(/id="default-model-name"[^>]*><span class="model-title">Automatique</.test(out));
   });
 
-  await test("génération d'images : interrupteur, nom du modèle, options", () => {
+  await test("génération d’images : interrupteur disponible sans sélecteur de modèle", () => {
     const out = panel(build());
-    assert.ok(/id="image-tool-toggle"[^>]*\schecked/.test(out) && /id="image-tool-toggle"[^>]*aria-checked="true"/.test(out));
-    assert.ok(/id="settings-image-model-name"[^>]*>GPT Image 2.5 Flare</.test(out));
-    const menu = slice(out, 'id="settings-image-models"', "</div></div>");
-    assert.deepEqual([...menu.matchAll(/class="model-option-name">([^<]*)</g)].map(match => match[1]), ["GPT Image 2.6 Sunburst", "GPT Image 2.5 Flare"]);
-    assert.ok(/data-id="gpt-image-2.5-flare"[^>]*aria-selected="true"|aria-selected="true"[^>]*data-id="gpt-image-2.5-flare"/.test(menu));
-    const off = panel(build({ local: { imageTool: false, imageModel: "inconnu" } }));
-    assert.ok(!/id="image-tool-toggle"[^>]*\schecked/.test(off) && /id="image-tool-toggle"[^>]*aria-checked="false"/.test(off));
-    assert.ok(/id="settings-image-model-name"[^>]*>Choisir le modèle</.test(off));
-    const empty = panel(build({ catalog: { imageModels: [] } }));
-    assert.ok(empty.includes('class="model-menu-note">Les modèles d’image sont indisponibles. Relance l’application.<'));
+    assert.ok(/id="image-tool-toggle"[^>]*\schecked/.test(out));
+    assert.ok(!out.includes("settings-image-model-button"));
   });
 
   await test("chargement : champs et lien Recherche web désactivés, statut, pas de bouton Réessayer", () => {
@@ -326,8 +319,8 @@ try {
 
   await test("menus fermés au départ : listes masquées, boutons non déployés", () => {
     const out = panel(build());
-    for (const id of ["default-model-menu", "settings-image-models", "gpt-reasoning-menu"]) assert.ok(new RegExp(`id="${id}"[^>]*class="[^"]*\\bhidden\\b|class="[^"]*\\bhidden\\b[^"]*"[^>]*id="${id}"`).test(out) || new RegExp(`<div[^>]*id="${id}"[^>]*>`).exec(out)?.[0].includes("hidden"), `menu ouvert : ${id}`);
-    for (const id of ["default-model-button", "settings-image-model-button", "gpt-reasoning-button"]) assert.ok(new RegExp(`id="${id}"[^>]*aria-expanded="false"`).test(out), `bouton déployé : ${id}`);
+    for (const id of ["default-model-menu", "gpt-reasoning-menu"]) assert.ok(new RegExp(`id="${id}"[^>]*class="[^"]*\\bhidden\\b|class="[^"]*\\bhidden\\b[^"]*"[^>]*id="${id}"`).test(out) || new RegExp(`<div[^>]*id="${id}"[^>]*>`).exec(out)?.[0].includes("hidden"), `menu ouvert : ${id}`);
+    for (const id of ["default-model-button", "gpt-reasoning-button"]) assert.ok(new RegExp(`id="${id}"[^>]*aria-expanded="false"`).test(out), `bouton déployé : ${id}`);
   });
 
   await test("recherche web : tant que les filtres ne sont pas chargés, champs et bouton Enregistrer sont désactivés", () => {

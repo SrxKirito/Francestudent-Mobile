@@ -47,7 +47,6 @@ export interface WorkspaceEngine {
   loadFiles(): Promise<unknown>;
   loadMore(): Promise<unknown>;
   removeFile(id: string): Promise<unknown>;
-  uploadRemote?(file: File, signal: AbortSignal, progress: (sent: number, total: number) => void): Promise<void>;
   watchFiles(listener: () => void): () => void;
   arrange(rows: RemoteFile[], options: { query: string; kind: string; sort: string }): RemoteFile[];
   fileKind(name: string): string;

@@ -2,15 +2,24 @@
   import type { PreviewFile } from "../lib/services/file-preview.ts";
   import { safeFileName } from "../lib/services/file-preview.ts";
   import type { PdfDocument, Presentation } from "../lib/services/document-assets.ts";
-  import { extractDocumentText, MAX_PREVIEW_BYTES, openPdf } from "../lib/services/document-assets.ts";
+  import { extractDocumentText, MAX_PREVIEW_BYTES, openPdf, readWordDocument } from "../lib/services/document-assets.ts";
   import { saveBytes } from "../lib/services/file-saver.ts";
   import PreviewPdf from "./PreviewPdf.svelte";
+  import { copyText } from "../lib/utils/clipboard.ts";
+  import InteractiveTable from "./InteractiveTable.svelte";
+  import { renderMarkdownText, highlightCode } from "../lib/services/markdown.ts";
+  import { htmlPreview, readDelimited, readSheets, readWordParagraphs, svgPreview, type Sheet, type WordParagraph } from "../lib/services/preview-formats.ts";
 
   type View =
     | { kind: "image"; url: string }
     | { kind: "pdf"; pdf: PdfDocument }
     | { kind: "slides"; presentation: Presentation }
     | { kind: "text"; text: string }
+    | { kind: "formatted"; html: string }
+    | { kind: "word"; paragraphs: WordParagraph[] }
+    | { kind: "json"; text: string }
+    | { kind: "html"; srcdoc: string }
+    | { kind: "sheets"; sheets: Sheet[] }
     | { kind: "unavailable"; detail: string };
 
   let { file, onclose }: { file: PreviewFile | null; onclose: () => void } = $props();
@@ -20,6 +29,7 @@
   let saveBusy = $state(false);
   let status = $state("");
   let slideIndex = $state(0);
+  let sheetIndex = $state(0);
   let zoom = $state(1);
   const canShare = typeof navigator !== "undefined" && typeof navigator.share === "function";
   function selectedSlide(current: View | null, index: number) {
@@ -43,6 +53,7 @@
     loadedBlob = null;
     status = "";
     slideIndex = 0;
+    sheetIndex = 0;
     zoom = 1;
     if (!element.open) element.showModal();
 
@@ -59,9 +70,28 @@
         loadedBlob = blob;
         if (blob.size > MAX_PREVIEW_BYTES) {
           view = { kind: "unavailable", detail: "Ce fichier est trop volumineux pour l’aperçu." };
-        } else if (/^image\/(?:png|jpe?g|webp|gif|avif|bmp)(?:$|[; ])/i.test(blob.type)) {
+        } else if (/^image\/(?:png|jpe?g|webp|gif|avif|bmp|heic|heif)(?:$|[; ])/i.test(blob.type)) {
           ownedUrl = URL.createObjectURL(blob);
           view = { kind: "image", url: ownedUrl };
+        } else if (/\.svg$/i.test(current.name) || blob.type === "image/svg+xml") {
+          const source = await blob.text();
+          if (signal.aborted) return;
+          ownedUrl = URL.createObjectURL(svgPreview(source));
+          view = { kind: "image", url: ownedUrl };
+        } else if (/\.html?$/i.test(current.name)) {
+          const source = await blob.text();
+          if (!signal.aborted) view = { kind: "html", srcdoc: htmlPreview(source) };
+        } else if (/\.(csv|tsv)$/i.test(current.name)) {
+          const source = await blob.text();
+          if (signal.aborted) return;
+          const table = readDelimited(current.name, source);
+          view = table ? { kind: "sheets", sheets: [table] } : { kind: "text", text: source.slice(0, 250_000) };
+        } else if (current.markdown !== undefined || /\.(md|markdown|json)$/i.test(current.name)) {
+          const source = current.markdown ?? (await blob.text()).slice(0, 250_000);
+          if (signal.aborted) return;
+          if (/\.json$/i.test(current.name)) {
+            view = { kind: "json", text: source };
+          } else view = { kind: "formatted", html: renderMarkdownText(source) };
         } else if (blob.type === "application/pdf" || /\.pdf$/i.test(current.name)) {
           const opened = await openPdf(blob, signal);
           if (signal.aborted) {
@@ -71,10 +101,21 @@
           pdf = opened;
           view = { kind: "pdf", pdf: opened };
         } else {
+          if (/\.docx$/i.test(current.name)) {
+            const xml = await readWordDocument(blob, signal).catch(() => null);
+            if (signal.aborted) return;
+            const paragraphs = xml ? readWordParagraphs(xml) : [];
+            if (paragraphs.length) {
+              view = { kind: "word", paragraphs };
+              return;
+            }
+          }
           const extracted = await extractDocumentText(blob, current.name, signal);
           if (signal.aborted) return;
           const slides = extracted && /\.pptx$/i.test(current.name) ? textSlides(extracted.text) : [];
+          const sheets = extracted?.format === "classeur Excel" ? readSheets(extracted.text) : [];
           if (slides.length) view = { kind: "slides", presentation: { title: current.name, subtitle: "", slides } };
+          else if (sheets.length) view = { kind: "sheets", sheets };
           else view = extracted ? { kind: "text", text: extracted.text } :
             { kind: "unavailable", detail: "Aucun aperçu disponible pour ce fichier." };
         }
@@ -102,6 +143,13 @@
         illustration: ""
       };
     });
+  }
+
+  async function copyJson() {
+    const current = view;
+    if (current?.kind !== "json") return;
+    const copied = await copyText(current.text);
+    if (view === current) status = copied ? "Texte copié." : "Copie indisponible.";
   }
 
   async function share() {
@@ -154,7 +202,8 @@
           <span role="status">{Math.round(zoom * 100)} %</span>
           <button type="button" class="settings-btn" aria-label="Augmenter le zoom" disabled={zoom === 3} onclick={() => { zoom = Math.min(3, zoom + .5); }}>+</button>
         </div>
-        <img src={view.url} alt={file.name} class:zoomed={zoom > 1} style:--preview-width={zoom * 100 + "%"}>
+        <img src={view.url} alt={file.name} class:zoomed={zoom > 1} style:--preview-width={zoom * 100 + "%"}
+          onerror={() => { view = { kind: "unavailable", detail: "Le format de cette image n’est pas pris en charge par cet appareil." }; }}>
       {:else if view?.kind === "pdf"}
         {#key view.pdf}<PreviewPdf pdf={view.pdf} />{/key}
       {:else if view?.kind === "slides" && slide}
@@ -169,6 +218,30 @@
           {#if slide.bullets.length}<ul>{#each slide.bullets as point}<li>{point}</li>{/each}</ul>{/if}
         </article>
         {#if slide.notes}<details><summary>Notes</summary><p>{slide.notes}</p></details>{/if}
+      {:else if view?.kind === "html"}
+        <iframe title="Aperçu HTML isolé" sandbox="" referrerpolicy="no-referrer" srcdoc={view.srcdoc}></iframe>
+      {:else if view?.kind === "sheets"}
+        {#if view.sheets.length > 1}
+          <label>Feuille <select class="settings-input" bind:value={sheetIndex}>
+            {#each view.sheets as sheet, i (i)}<option value={i}>{sheet.title}</option>{/each}
+          </select></label>
+        {/if}
+        {#key sheetIndex}
+          <InteractiveTable {...view.sheets[sheetIndex]} />
+        {/key}
+      {:else if view?.kind === "word"}
+        <article class="word-preview">
+          {#each view.paragraphs as paragraph, i (i)}
+            <svelte:element this={paragraph.heading}>
+              {#each paragraph.runs as run, j (j)}<span class:bold={run.bold} class:italic={run.italic} class:underline={run.underline}>{run.text}</span>{/each}
+            </svelte:element>
+          {/each}
+        </article>
+      {:else if view?.kind === "json"}
+        <button type="button" class="settings-btn" onclick={() => void copyJson()}>Copier le JSON</button>
+        <pre><code>{@html highlightCode(view.text, "json")}</code></pre>
+      {:else if view?.kind === "formatted"}
+        <div class="formatted-preview">{@html view.html}</div>
       {:else if view?.kind === "text"}
         <pre>{view.text}</pre>
       {:else if view?.kind === "unavailable"}
@@ -211,6 +284,12 @@
   footer span { overflow-wrap: anywhere; }
   header button, footer button { flex: 0 0 auto; }
   .preview-content { min-height: 0; overflow: auto; padding: 1rem; }
+  iframe { display: block; width: 100%; height: 100%; min-height: 16rem; border: 0; }
+  .formatted-preview, .word-preview { overflow-wrap: anywhere; }
+  .word-preview { white-space: pre-wrap; }
+  .word-preview .bold { font-weight: 700; }
+  .word-preview .italic { font-style: italic; }
+  .word-preview .underline { text-decoration: underline; }
   img { display: block; margin: 0 auto; width: auto; max-width: 100%; max-height: 100%; object-fit: contain; }
   img.zoomed { max-width: none; max-height: none; margin: 0; width: var(--preview-width); }
   .image-controls { position: sticky; left: 0; top: 0; display: flex; align-items: center; justify-content: center; gap: .75rem; margin-bottom: .75rem; background: var(--surface); }

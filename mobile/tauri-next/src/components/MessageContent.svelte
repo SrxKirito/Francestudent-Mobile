@@ -3,7 +3,6 @@
   import { generatedArtifacts, generatedFile } from "../lib/services/file-preview.ts";
   import type { PreviewFile, GeneratedArtifact } from "../lib/services/file-preview.ts";
   import { parseInteractiveContent } from "../lib/services/interactive-content.ts";
-  import InteractiveBlock from "./InteractiveBlock.svelte";
 
   let { content, katexReady, openPreview }: { content: string; katexReady: boolean; openPreview?: (file: PreviewFile) => void } = $props();
   const rendered = $derived.by(() => {
@@ -27,7 +26,11 @@
 
 {#each rendered.parts as part, index (index)}
   {#if part.interactive}
-    <InteractiveBlock data={part.interactive} />
+    {#await import("./InteractiveBlock.svelte") then { default: InteractiveBlock }}
+      <InteractiveBlock data={part.interactive} />
+    {:catch}
+      <p role="status">Rendu interactif indisponible.</p>
+    {/await}
   {:else}
     {@html part.html}
   {/if}

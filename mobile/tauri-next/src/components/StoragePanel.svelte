@@ -22,9 +22,6 @@
   let sort = $state("date-desc");
   let message = $state("");
   let live = true;
-  let upload: AbortController | null = null;
-  let uploading = $state(false);
-  let transferPercent = $state(0);
   const rows = $derived(engine.arrange(files.filter(file =>
     (engine.fileKind(file.filename || "") === "image") === (detail === "images")
   ), { query, kind: "*", sort }));
@@ -40,7 +37,7 @@
   onMount(() => {
     const unsubscribe = engine.watchFiles(sync);
     void run(() => readUsage(false));
-    return () => { live = false; upload?.abort(); unsubscribe(); };
+    return () => { live = false; unsubscribe(); };
   });
 
   function sync() {
@@ -71,30 +68,6 @@
     detail = category;
     query = "";
     void run(() => engine.loadFiles());
-  }
-
-  function chooseFile(event: Event & { currentTarget: HTMLInputElement }) {
-    const file = event.currentTarget.files?.[0];
-    event.currentTarget.value = "";
-    if (!file || !engine.uploadRemote) return;
-    void run(async () => {
-      const controller = upload = new AbortController();
-      transferPercent = 0;
-      uploading = true;
-      try {
-        await engine.uploadRemote?.(file, controller.signal, (sent, total) => {
-          transferPercent = Math.round(100 * sent / total);
-        });
-        if (!live) return;
-        await engine.loadFiles();
-        await readUsage(false);
-      } catch (error) {
-        if (!controller.signal.aborted) throw error;
-      } finally {
-        upload = null;
-        uploading = false;
-      }
-    });
   }
 
   function remove(file: RemoteFile) {
@@ -146,27 +119,18 @@
       <button type="button" class="settings-btn storage-action" aria-label="Actualiser les fichiers" disabled={busy}
         onclick={() => void run(() => engine.refreshFiles())}><WorkspaceIcon name="refresh" size={17} /></button>
     </div>
-    {#if engine.uploadRemote}
-      <label class="settings-label">{detail === "images" ? "Ajouter une image" : "Ajouter un fichier au stockage FRST"}
-        <input type="file" class="settings-input" accept={detail === "images" ? "image/*" : undefined} disabled={busy} onchange={chooseFile}>
-      </label>
-    {/if}
-    {#if uploading}
-      <progress max="100" value={transferPercent} aria-label="Progression du transfert">{transferPercent} %</progress>
-      <button type="button" class="settings-btn" onclick={() => upload?.abort()}>Annuler le transfert</button>
-    {/if}
     <div class="library-filters">
       <input type="search" class="settings-input" aria-label="Rechercher un fichier" placeholder="Rechercher un fichier" bind:value={query}>
       <select class="settings-input" aria-label="Trier les fichiers" bind:value={sort}>{#each FILE_SORTS as [value, label]}<option {value}>{label}</option>{/each}</select>
     </div>
     <div class="storage-list">
-      {#each rows as file (file.id)}
+      {#each rows as file, index (file.id)}
         {@const name = file.filename || file.id}
         {@const date = fileDate(file.created_at)}
         <div class="settings-item storage-file">
           <button type="button" class="storage-preview" aria-label={"Aperçu de " + name} disabled={busy}
             onclick={() => void run(() => engine.previewRemote(file.id))}>
-            <LibraryThumbnail {engine} id={file.id} {name} local={false} compact />
+            <LibraryThumbnail {engine} id={file.id} {name} local={false} compact eager={index < 6} />
             <span><strong>{name}</strong><small>{date ? date + " · " : ""}{formatBytes(file.bytes)}</small></span>
           </button>
           <button type="button" class="settings-btn storage-action" aria-label={"Télécharger " + name} disabled={busy}

@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
 import { parseInteractiveContent } from "./src/lib/services/interactive-content.ts";
+import { calculate } from "./src/lib/services/interactive-widgets.ts";
+import { readDelimited, readSheets } from "./src/lib/services/preview-formats.ts";
+import { generatedArtifacts } from "./src/lib/services/file-preview.ts";
 import { parseMarkdownBlocks } from "./src/lib/services/markdown.ts";
 import { chatPrompt } from "./src/lib/services/native-chat-prompts.ts";
 
@@ -27,4 +30,28 @@ assert.equal(block.open, false);
 const options = { studyMode: "", powerpointMode: false };
 assert.match(chatPrompt("Fais un histogramme", options), /frst-ui/);
 assert.equal(chatPrompt("Bonjour", options), "Bonjour");
+const table = parse({ kind: "table", columns: ["Nom", "Quantité"], rows: [["Deux", 2], ["Un", 1]] });
+assert.deepEqual(table.rows[1], ["Un", 1]);
+assert.equal(parse({ kind: "table", columns: [null], rows: [["Un"]] }), null);
+const fields = [{ id: "value", label: "Intensité", type: "range", min: 0, max: 100, value: 35 }];
+const simulator = formula => parse({ kind: "simulator", fields, results: [{ label: "Puissance", unit: "W", formula }] });
+const power = simulator({ op: "mul", args: [{ field: "value" }, 2] });
+assert.equal(calculate(power.results[0].formula, [35]), 70);
+assert.equal(calculate(power.results[0].formula, [20]), 40);
+assert.equal(simulator({ op: "fetch", args: ["https://example.org"] }), null);
+assert.equal(simulator({ op: "constructor", args: [1, 2] }), null);
+assert.equal(simulator({ field: "secret" }), null);
+assert.equal(parse({ kind: "form", fields: Array.from({ length: 25 }, () => fields[0]) }).fields.length, 1);
+assert.equal(parse({ kind: "map", places: [{ title: "Illisible", lat: 100, lon: 1 }] }), null);
+assert.deepEqual(parse({ kind: "diagram", items: [{ title: "A" }, { title: "B" }], edges: [[0, 1], [1, 9]] }).edges, [[0, 1]]);
+const cards = parse({ kind: "carousel", items: [{ title: "Inerte", url: "javascript:alert(1)", image: "https://example.org/a.png" }] });
+assert.equal(cards.items[0].href, "");
+assert.equal(cards.items[0].image, "");
+assert.equal(readDelimited("Courses", 'Nom;Valeur\r\n"Jean; Dupond";12\r\n"multi\nligne";13').rows[1][0], "multi\nligne");
+assert.equal(readSheets("--- Feuille Budget ---\nNom\tValeur\nCoût\t12")[0].title, "Budget");
+assert.equal(generatedArtifacts(fence + 'frst-ui\n{"version":1,"kind":"checklist","items":["a"]}\n' + fence).length, 0);
+for (const [request, kind] of [
+  ["fais-moi un tableau interactif", "table"], ["ouvre un simulateur", "simulator"], ["crée une carte interactive", "map"],
+  ["prépare une frise chronologique", "timeline"], ["fais un formulaire", "form"], ["donne la météo", "cards"]
+]) assert.match(chatPrompt(request, options), new RegExp('"kind":"' + kind + '"'));
 console.log("Rendus structurés : formats, bornes, données inertes et reconnaissance du bloc vérifiés.");

@@ -152,12 +152,17 @@ const FAKE_BACKEND = String.raw`(() => {
     if (p === "/filesv2" && method === "GET") {
       if (!backend.pagedFiles) return [200, { data: backend.files, has_more: false }];
       if (url.searchParams.has("after")) {
-        return [200, { data: [{ id: "file-image", filename: "photo-frst.png", bytes: 3145728 }], has_more: false }];
+        return [200, { data: [
+          { id: "file-image", filename: "photo-frst.jpeg", bytes: 3145728 },
+          { id: "file-pdf", filename: "Première page.pdf", bytes: 400 }
+        ], has_more: false }];
       }
       const data = [...backend.files, ...Array.from({ length: 23 }, (_, i) => ({ id: "page-" + i, filename: "Document " + i + ".pdf" }))];
       return [200, { data, has_more: true, last_id: data.at(-1).id }];
     }
     if (p === "/filesv2/file-image/content" && method === "GET") return [200, backend.pagedFiles];
+    if (p === "/filesv2/file-pdf/content" && method === "GET") return [200, backend.pdf];
+    if (p === "/filesv2/file-text/content" && method === "GET") return [200, "VW5lIGZvbmN0aW9uIGV0IHNhIGTDqXJpdsOpZS4="];
     if (p === "/filesv2/file-1/content" && method === "GET") return [200, "Y29udGVudSBGUlNU"];
     if (p === "/filesv2/file-1" && method === "DELETE") { backend.files = backend.files.filter(file => file.id !== "file-1"); return [200, { deleted: true }]; }
     if (p === "/projects" && method === "GET") return [200, backend.projects];
@@ -717,8 +722,17 @@ async function nativePhase(baseUrl, pageErrors) {
     assert.equal(await ev(has('#model-menu [data-id="1"] .chatgpt-symbol')), true);
     await escape();
   });
+  const closeSettings = () => click("Fermer les paramètres", q("#settings-close"));
+  async function importFromSettings() {
+    assert.equal(await ev(has("#sidebar #conversation-import-open")), false);
+    await click("Ouvrir les paramètres", q("#user-button"));
+    const importer = q("#panel-general #conversation-import-open");
+    await waitFor(importer, "import accessible dans Général");
+    await ev(importer + '.scrollIntoView({ block: "center" })');
+    await click("Importer", importer);
+  }
   await check("import : thème, validation sans requête et fermeture", async () => {
-    await click("Importer", q("#conversation-import-open"));
+    await importFromSettings();
     await waitFor(has("dialog.import-dialog[open]"), "dialogue ouvert");
     assert.equal(await ev("document.activeElement.id"), "import-title");
     assert.notEqual(await ev("getComputedStyle(" + q("dialog.import-dialog") + ").backgroundColor"), "rgb(255, 255, 255)");
@@ -728,6 +742,7 @@ async function nativePhase(baseUrl, pageErrors) {
     assert.equal(await ev('window.__backend.calls.some(row => row.path.startsWith("/conversation-imports"))'), false);
     await click("Annuler", q('dialog.import-dialog button[type="button"]'));
     await waitFor("!" + has("dialog.import-dialog[open]"), "fermeture");
+    await closeSettings();
   });
   await check("slash : ouverture, filtre, annulation, sélection et envoi", async () => {
     await input("#prompt", "un / au milieu");
@@ -762,10 +777,29 @@ async function nativePhase(baseUrl, pageErrors) {
     await waitFor('window.__backend.calls.some(row => row.path === "/chats/00000000-0000-4000-8000-000000000004")', "conversation distante chargée");
     await input("#search-input", "");
     await escape();
-    await click("Archives", q(".archived-chat-toggle"));
-    await waitFor(contains(".archived-chats-panel", "Vieille discussion"), "archive chargée");
+    const historyMore = "(" + historyItem("Histoire") + ')?.querySelector(".history-more")';
+    await click("Menu Histoire", historyMore);
+    await click("Archiver", `[...document.querySelectorAll("#conv-menu button")].find(button => button.textContent === "Archiver")`);
+    await waitFor(has("dialog.fs-confirm[open]"), "confirmation d’archivage ouverte");
+    await waitFor(`(() => {
+      const r = document.querySelector("dialog.fs-confirm").getBoundingClientRect();
+      return Math.abs(r.x + r.width / 2 - innerWidth / 2) < 3 &&
+        Math.abs(r.y + r.height / 2 - innerHeight / 2) < 3;
+    })()`, "confirmation centrée");
+    await click("Confirmer l’archivage", q(".fs-confirm-ok"));
+    await waitFor("!(" + historyItem("Histoire") + ")", "discussion retirée de l’historique");
+    await click("Ouvrir les paramètres", q("#user-button"));
+    const archives = q("#panel-general .archived-chat-toggle");
+    await waitFor(archives, "archives dans Général");
+    assert.equal(await ev(has("#sidebar .archived-chat-toggle, #messages #conversation-model")), false);
+    await ev(archives + '.scrollIntoView({ block: "center" })');
+    await click("Archives", archives);
+    await waitFor(contains(".archived-chats-panel", "Vieille discussion"), "archives serveur chargées après un archivage local");
+    await click("Restaurer Histoire", q('.archived-chats-panel button[aria-label="Restaurer Histoire"]'));
+    await waitFor("!!(" + historyItem("Histoire") + ")", "nouvelle archive restaurée");
     await click("Restaurer", q('.archived-chats-panel button[aria-label="Restaurer Vieille discussion"]'));
     await waitFor('!!(' + historyItem("Vieille discussion") + ')', "archive restaurée dans l’historique");
+    await closeSettings();
   });
   await check("messages enregistrés : ajouter, retrouver et retirer dans la bibliothèque", async () => {
     await ev(`window.__backend.chats.find(c => c.title === "Maths").chatMessages = [
@@ -811,6 +845,54 @@ async function nativePhase(baseUrl, pageErrors) {
     assert.equal(await ev(has("#frst-injection")), false);
     assert.equal(await ev(contains("#thread", '<img id="frst-injection"')), true);
   });
+  await check("rendus Svelte : tableau, simulateur, carte, carrousel et HTML isolé", async () => {
+    const fence = String.fromCharCode(96).repeat(3);
+    const answer = [
+      { kind: "table", title: "Comparatif", columns: ["Nom", "Valeur"], rows: [["Alpha", 4], ["Bêta", 2]] },
+      { kind: "simulator", title: "Puissance", fields: [{ id: "x", label: "Intensité", type: "range", min: 0, max: 100, value: 35 }],
+        results: [{ label: "Résultat", unit: "W", formula: { op: "mul", args: [{ field: "x" }, 2] } }] },
+      { kind: "map", title: "Étapes", route: true, places: [{ title: "Paris", lat: 48.85, lon: 2.35 }, { title: "Lyon", lat: 45.75, lon: 4.85 }] },
+      { kind: "carousel", title: "Exemples", items: [{ title: "Première carte" }, { title: "Deuxième carte" }] }
+    ].map(row => fence + "frst-ui\n" + JSON.stringify({ version: 1, ...row }) + "\n" + fence);
+    answer.push(fence + 'html\n<h1>Aperçu test</h1><script id="bad-script">window.test = 1</script><form action="https://example.org"><input></form><p onmouseover="window.test = 2">Texte</p>\n' + fence);
+    const reply = answer.join("\n\n");
+    await click("Nouvelle discussion", q("#new-chat"));
+    await input("#prompt", "Fais un tableau interactif et un simulateur.");
+    await setPlan({ events: [delta(reply, 63), done(reply, 63)] });
+    await click("Envoyer", q("#send"));
+    await waitFor('window.__backend.calls.some(row => row.body?.includes?.("frst-ui") && row.body.includes("simulateur"))', "protocole de rendu dans la requête");
+    await waitFor(has("#thread .interactive-table"), "tableau interactif rendu");
+    const show = async target => ev(q(target) + '.scrollIntoView({ block: "center", behavior: "instant" })');
+    const sort = "#thread .interactive-table th:last-child button";
+    await show(sort);
+    await click("Trier", q(sort));
+    assert.equal(await ev(contains("#thread .interactive-table tbody tr:first-child", "Bêta")), true);
+    const slider = '#thread .interactive-form input[type="range"]';
+    await waitFor(contains("#thread .interactive-form dd", "70 W"), "calcul initial");
+    await ev(`(() => { const el = ${q(slider)}; el.value = "20"; el.dispatchEvent(new Event("input", { bubbles: true })); })()`);
+    await waitFor(contains("#thread .interactive-form dd", "40 W"), "calcul recalculé");
+    const map = "#thread .interactive-map";
+    await waitFor(q(map + " .land") + '?.getAttribute("d").length > 1000', "fond cartographique local");
+    const zoom = map + ' button[aria-label="Agrandir la carte"]';
+    await show(zoom);
+    await click("Zoom de la carte", q(zoom));
+    await waitFor(q(map + " svg") + '.getAttribute("viewBox").split(" ")[2] === "180"', "carte zoomée");
+    const next = '#thread .interactive-collection button[aria-label="Suivant"]';
+    await show(next);
+    await click("Carte suivante", q(next));
+    assert.equal(await ev(contains("#thread .interactive-collection", "Deuxième carte")), true);
+    const html = "#thread .assistant-artifacts button";
+    await show(html);
+    await click("Prévisualiser HTML", q(html));
+    const frame = 'dialog.preview-dialog iframe[sandbox=""]';
+    await waitFor(has(frame), "aperçu HTML avec bac à sable");
+    const srcdoc = await ev(q(frame) + ".srcdoc");
+    assert.match(srcdoc, /Aperçu test/);
+    assert.match(srcdoc, /default-src 'none'/);
+    assert.doesNotMatch(srcdoc, /bad-script|<form|onmouseover/);
+    await escape();
+    await waitFor("!" + has("dialog.preview-dialog[open]"), "aperçu fermé");
+  });
   await check("export de texte : conversation active et sélecteur de fichier", async () => {
     await click("Menu de Maths", "(" + historyItem("Maths") + ')?.querySelector(".history-more")');
     const item = `[...document.querySelectorAll("#conv-menu button")].find(b => b.textContent.includes("Exporter le texte"))`;
@@ -819,44 +901,21 @@ async function nativePhase(baseUrl, pageErrors) {
     const payload = await ev("JSON.parse(new TextDecoder().decode(Uint8Array.from(window.__backend.exported)))");
     assert.deepEqual(payload, { title: "Maths", messages: [{ role: "assistant", content: "Contenu à retrouver" }] });
   });
-  await check("stockage FRST : limite, transfert et confirmation Svelte", async () => {
+  await check("stockage FRST : aperçu texte, sans ajout direct et confirmation de suppression", async () => {
     await click("Ouvrir les paramètres", q("#user-button"));
     await waitFor(has("#tab-storage"), "onglet stockage");
     await click("Stockage", q("#tab-storage"));
-    const textButton = word => `[...document.querySelectorAll("#panel-storage button")].find(button => button.textContent.includes(${JSON.stringify(word)}))`;
     await waitFor(q("#storage-files") + " && !" + q("#storage-files") + ".disabled", "quota chargé");
     await click("Fichiers", q("#storage-files"));
-    await waitFor(contains("#panel-storage", "notes-frst.txt"), "liste Files V2");
-    const choose = (name, size) => ev(`(() => {
-      const picker = document.querySelector('#panel-storage input[type="file"]');
-      const transfer = new DataTransfer();
-      const file = new File(["bonjour"], ${JSON.stringify(name)}, { type: "text/plain" });
-      if (${size}) Object.defineProperty(file, "size", { value: ${size} });
-      transfer.items.add(file);
-      picker.files = transfer.files;
-      picker.dispatchEvent(new Event("change", { bubbles: true }));
-    })()`);
-    await choose("trop-grand.txt", 50 * 1024 * 1024 + 1);
-    await waitFor(contains("#panel-storage [role=alert]", "dépasse 50 Mo"), "limite de taille appliquée");
-    assert.equal(await ev("window.__backend.uploads.size"), 0);
-    await choose("transfert-frst.txt", 0);
-    await waitFor(contains("#panel-storage", "transfert-frst.txt"), "fichier chargé dans Files V2");
-    await ev("window.__backend.uploadHold = true");
-    await choose("transfert-annule.txt", 0);
-    await waitFor("window.__backend.uploads.size === 2", "transfert en cours");
-    await click("Annuler le transfert", textButton("Annuler le transfert"));
-    await waitFor("[...window.__backend.uploads.values()].some(row => row.name === 'transfert-annule.txt' && row.cancelled)", "annulation transmise au pont Rust");
-    assert.equal(await ev("window.__backend.files.some(file => file.filename === 'transfert-annule.txt')"), false);
-    await ev("window.__backend.uploadHold = false");
+    await waitFor(contains("#panel-storage .library-thumbnail", "contenu FRST"), "extrait du document visible dans Stockage");
+    assert.equal(await ev(has('#panel-storage input[type="file"]')), false);
     const remove = `[...document.querySelectorAll("#panel-storage .settings-item")].find(item => item.textContent.includes("notes-frst.txt"))?.querySelector(".danger")`;
-    await waitFor("!(" + remove + ")?.disabled && !" + has('#panel-storage progress[aria-label="Progression du transfert"]'), "transfert terminé");
     await ev("(" + remove + ')?.scrollIntoView({ block: "center" })');
     await click("Supprimer le fichier", remove);
     await waitFor(has("dialog.fs-confirm[open]"), "confirmation Svelte ouverte");
     assert.equal(await ev("window.__backend.files.some(file => file.id === 'file-1')"), true);
     await click("Confirmer", q(".fs-confirm-ok"));
     await waitFor("!window.__backend.files.some(file => file.id === 'file-1')", "suppression envoyée");
-    assert.equal(await ev("window.__backend.files.some(file => file.filename === 'transfert-frst.txt')"), true);
     assert.equal(dialogs.length, 0);
     await click("Fermer les paramètres", q("#settings-close"));
   });
@@ -868,11 +927,15 @@ async function nativePhase(baseUrl, pageErrors) {
     await waitFor(contains("#project-context-name", "Projet de test"), "projet actif dans la barre latérale");
     await click("Quitter le projet", q("#project-leave"));
     await waitFor(q("#project-context") + ".hidden", "retour à l’historique principal");
+    await ev('window.__backend.files.push({ id: "file-text", filename: "Contrôle de mathématiques", bytes: 32 })');
     await click("Bibliothèque", q("#library-open"));
-    await waitFor(contains("#svelte-library", "transfert-frst.txt"), "fichier FRST dans la bibliothèque");
-    const file = `[...document.querySelectorAll("#svelte-library .library-open")].find(button => button.textContent.includes("transfert-frst.txt"))`;
+    const refresh = q('#svelte-library button[aria-label="Actualiser les fichiers"]');
+    await waitFor(refresh + " && !" + refresh + ".disabled", "bibliothèque chargée");
+    await click("Actualiser", refresh);
+    const file = `[...document.querySelectorAll("#svelte-library .library-open")].find(button => button.textContent.includes("Contrôle de mathématiques"))`;
+    await waitFor("(" + file + ')?.querySelector(".library-thumbnail")?.textContent.includes("Une fonction")', "extrait d’un fichier sans extension affiché");
     await click("Prévisualiser", file);
-    await waitFor(contains("dialog.preview-dialog[open] #preview-title", "transfert-frst.txt"), "module d’aperçu ouvert");
+    await waitFor(contains("dialog.preview-dialog[open] #preview-title", "Contrôle de mathématiques"), "module d’aperçu ouvert");
     await escape();
   });
   await check("Compte allégé et compression enregistrée depuis Général", async () => {
@@ -881,11 +944,12 @@ async function nativePhase(baseUrl, pageErrors) {
     await click("Compte", q("#tab-account"));
     await waitFor(has("#panel-account #logout"), "déconnexion disponible");
     assert.equal(await ev(contains("#panel-account", "Mémoires du compte")), false);
-    assert.equal(await ev(has("#account-api-key, #account-sessions")), false);
+    assert.equal(await ev(has("#panel-account #account-api-key")), true);
+    assert.equal(await ev(has("#account-sessions")), false);
     assert.equal(await ev('window.__backend.calls.some(row => row.path === "/user/sessions")'), false);
     await click("Général", q("#tab-general"));
     await waitFor(has("#prompt-compression"), "compression chargée");
-    assert.equal(await ev('Boolean(document.querySelector("#gpt-reasoning-button").compareDocumentPosition(document.querySelector("#account-api-key")) & Node.DOCUMENT_POSITION_FOLLOWING)'), true);
+    assert.equal(await ev(has("#account-api-key, #settings-image-model-button")), false);
     await ev(`(() => {
       const field = document.querySelector("#prompt-compression");
       field.value = "ultra";
@@ -913,11 +977,11 @@ async function nativePhase(baseUrl, pageErrors) {
       { id: "office-exports", role: "assistant", content: ${JSON.stringify(content)} }
     ]`);
     await click("Ouvrir Physique", historyItem("Physique"));
-    for (const [name, preview] of [["rapport.docx", "Document créé pour le test."], ["tableau.xlsx", "42"]]) {
+    for (const [name, preview, selector] of [["rapport.docx", "Document créé pour le test.", ".formatted-preview"], ["tableau.xlsx", "42", "table"]]) {
       const card = `[...document.querySelectorAll("#thread button.artifact")].find(button => button.textContent.trim() === ${JSON.stringify(name)})`;
       await waitFor("!!(" + card + ")", "carte " + name);
       await click("Ouvrir " + name, card);
-      await waitFor(contains("dialog.preview-dialog .preview-content pre", preview), "aperçu de " + name);
+      await waitFor(contains("dialog.preview-dialog .preview-content " + selector, preview), "aperçu de " + name);
       await ev("window.__backend.exported = []");
       await click("Enregistrer " + name, q("dialog.preview-dialog footer button.primary"));
       await waitFor("window.__backend.exported.length > 100", "fichier enregistré");
@@ -973,8 +1037,10 @@ async function nativePhase(baseUrl, pageErrors) {
     await click("Outils du compositeur", q("#attach"));
     await waitFor(has("#attach-menu:not(.hidden)"), "menu outils ouvert");
     assert.equal(await ev("getComputedStyle(" + q("#attach-menu") + ").animationName"), "fs-rise");
+    assert.equal(await ev(has("#toggle-powerpoint, #composer-image-models")), false);
+    assert.equal(await ev(has("#toggle-image")), true);
     await escape();
-    await click("Importer", q("#conversation-import-open"));
+    await importFromSettings();
     await waitFor(has("dialog.import-dialog[open]"), "modale animée ouverte");
     assert.equal(await ev("getComputedStyle(" + q("dialog.import-dialog") + ").animationName"), "fs-rise");
     await cdp.send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: "reduce" }] });
@@ -982,6 +1048,7 @@ async function nativePhase(baseUrl, pageErrors) {
     assert.equal(await ev("getComputedStyle(" + q("#send") + ").transitionDuration"), "0s");
     await escape();
     await waitFor("!" + has("dialog.import-dialog[open]"), "fermeture en mouvement réduit");
+    await closeSettings();
     await cdp.send("Emulation.setEmulatedMedia", { features: [] });
   });
   await check("petite hauteur : compositeur et dialogue dans la fenêtre", async () => {
@@ -989,15 +1056,16 @@ async function nativePhase(baseUrl, pageErrors) {
     await waitFor('(() => { const r = document.querySelector("#composer").getBoundingClientRect(); return r.bottom <= innerHeight + 1 && r.left >= 0 && r.right <= innerWidth + 1; })()', "compositeur contenu");
     await click("Ouvrir le tiroir", q("#menu-toggle"));
     await waitFor(`(() => {
-      const button = document.querySelector("#sidebar.open #conversation-import-open");
+      const button = document.querySelector("#sidebar.open #user-button");
       if (!button) return false;
       const rect = button.getBoundingClientRect();
       return button.contains(document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2));
     })()`, "tiroir ouvert et animation terminée");
-    await click("Importer", q("#conversation-import-open"));
+    await importFromSettings();
     await waitFor(has("dialog.import-dialog[open]"), "modale compacte");
     assert.equal(await ev(q("dialog.import-dialog") + ".scrollWidth <= " + q("dialog.import-dialog") + ".clientWidth + 1"), true);
     await escape();
+    await closeSettings();
   });
   await check("session valide sans profil : historique, envoi et stockage FRST", async () => {
     await cdp.send("Emulation.setDeviceMetricsOverride", { width: 1280, height: 800, deviceScaleFactor: 1, mobile: false });
@@ -1017,18 +1085,47 @@ async function nativePhase(baseUrl, pageErrors) {
       await waitFor("!" + has("#svelte-library[open]"), "bibliothèque fermée");
     }
   });
-  await check("bibliothèque : pagination au défilement et miniature d’une image FRST de 3 Mo", async () => {
-    await ev(`window.__backend.pagedFiles = ${JSON.stringify(makePng(512).toString("base64"))}`);
+  await check("bibliothèque et Stockage : pagination, miniature JPEG et première page PDF", async () => {
+    const drawing = "0.1 0.3 0.8 rg 0 0 150 210 re f\n";
+    const objects = [
+      "<< /Type /Catalog /Pages 2 0 R >>",
+      "<< /Type /Pages /Count 1 /Kids [3 0 R] >>",
+      "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 150 210] /Resources << >> /Contents 4 0 R >>",
+      "<< /Length " + drawing.length + " >>\nstream\n" + drawing + "endstream"
+    ];
+    let pdf = "%PDF-1.4\n";
+    const offsets = objects.map((object, index) => {
+      const offset = pdf.length;
+      pdf += (index + 1) + " 0 obj\n" + object + "\nendobj\n";
+      return offset;
+    });
+    const xref = pdf.length;
+    pdf += "xref\n0 5\n0000000000 65535 f \n" +
+      offsets.map(offset => String(offset).padStart(10, "0") + " 00000 n \n").join("") +
+      "trailer\n<< /Size 5 /Root 1 0 R >>\nstartxref\n" + xref + "\n%%EOF\n";
+    await ev(`window.__backend.pdf = ${JSON.stringify(Buffer.from(pdf).toString("base64"))}`);
+    await ev(`(() => {
+      const canvas = document.createElement("canvas");
+      canvas.width = canvas.height = 512;
+      const context = canvas.getContext("2d");
+      context.fillStyle = "#176dc0";
+      context.fillRect(0, 0, 512, 512);
+      window.__backend.pagedFiles = canvas.toDataURL("image/jpeg").split(",")[1];
+      Image.prototype.decode = () => Promise.reject(new Error("Décodage explicite indisponible"));
+    })()`);
     await click("Bibliothèque", q("#library-open"));
     const refresh = q('#svelte-library button[aria-label="Actualiser les fichiers"]');
     await waitFor(refresh + " && !" + refresh + ".disabled", "chargement initial terminé");
     await click("Actualiser", refresh);
     await waitFor(has(".library-more-marker"), "page suivante disponible");
     await ev(q(".library-more-marker") + ".scrollIntoView()");
-    await waitFor(contains("#svelte-library", "photo-frst.png"), "page suivante chargée sans bouton");
-    const image = `[...document.querySelectorAll("#svelte-library .library-open")].find(button => button.textContent.includes("photo-frst.png"))`;
+    await waitFor(contains("#svelte-library", "photo-frst.jpeg"), "page suivante chargée sans bouton");
+    const image = `[...document.querySelectorAll("#svelte-library .library-open")].find(button => button.textContent.includes("photo-frst.jpeg"))`;
     await ev("(" + image + ")?.scrollIntoView()");
     await waitFor("(" + image + ')?.querySelector("img")?.naturalWidth === 300', "miniature de l’image redimensionnée");
+    const documentPdf = `[...document.querySelectorAll("#svelte-library .library-open")].find(button => button.textContent.includes("Première page.pdf"))`;
+    await ev("(" + documentPdf + ")?.scrollIntoView()");
+    await waitFor("(" + documentPdf + ')?.querySelector("img")?.naturalHeight === 300', "première page PDF rendue");
     await escape();
     await waitFor("!" + has("#svelte-library[open]"), "bibliothèque fermée");
     await click("Ouvrir les paramètres", q("#user-button"));
@@ -1036,10 +1133,10 @@ async function nativePhase(baseUrl, pageErrors) {
     await click("Stockage", q("#tab-storage"));
     await waitFor(q("#storage-images") + " && !" + q("#storage-images") + ".disabled", "stockage chargé");
     await click("Images", q("#storage-images"));
-    const preview = q('#panel-storage button[aria-label="Aperçu de photo-frst.png"]');
+    const preview = q('#panel-storage button[aria-label="Aperçu de photo-frst.jpeg"]');
     await waitFor(preview + '?.querySelector("img")?.naturalWidth === 300', "miniature visible dans Stockage");
     await click("Aperçu de l’image", preview);
-    await waitFor(contains("dialog.preview-dialog[open] #preview-title", "photo-frst.png"), "aperçu de l’image ouvert");
+    await waitFor(contains("dialog.preview-dialog[open] #preview-title", "photo-frst.jpeg"), "aperçu de l’image ouvert");
     await escape();
     await waitFor("!" + has("dialog.preview-dialog[open]"), "aperçu fermé");
     await click("Fermer les paramètres", q("#settings-close"));
@@ -1083,6 +1180,7 @@ async function nativePhase(baseUrl, pageErrors) {
     await waitFor(edit + " && !" + edit + ".disabled", "crayon disponible");
     await click("Modifier le projet", edit);
     await waitFor(has(".project-fields textarea"), "formulaire de modification");
+    assert.equal(await ev(contains("#svelte-projects", "Gérer les accès")), false);
     assert.equal(await ev(q(".project-fields input") + ".value"), "Projet de test");
     assert.equal(await ev("getComputedStyle(" + q(".project-fields") + ").borderTopWidth"), "0px");
     await escape();

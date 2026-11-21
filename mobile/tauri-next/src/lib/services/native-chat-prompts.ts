@@ -1,4 +1,5 @@
 import type { StudyMode } from "../types/chat.ts";
+import { widgetInstruction } from "./interactive-prompts.ts";
 
 const POWERPOINT_MARK = "Création PowerPoint.";
 const POWERPOINT = POWERPOINT_MARK + " Crée une présentation visuelle et soignée. Donne une courte introduction puis un seul bloc de code pptx contenant uniquement ce JSON valide : " +
@@ -20,10 +21,10 @@ const STUDY: Record<Exclude<StudyMode, "">, string> = {
 const WORD_RULE = "Pour générer un document Word, donne le texte final dans un seul bloc de code docx. Écris sur la première ligne # document.docx, puis le contenu. Utilise # devant les titres.";
 const EXCEL_RULE = 'Pour générer un classeur Excel, écris un seul bloc de code xlsx. La première ligne peut être # tableau.xlsx. Ensuite, écris uniquement un tableau JSON de lignes, par exemple [["Nom","Valeur"],["A",12]]. Les valeurs sont texte, nombres, booléens ou null.';
 
-const CHART_PATTERN = /\b(?:graphique|histogramme|camembert|nuage de points|courbe interactive)s?\b/i;
+const CHART_PATTERN = /\b(?:graphique|histogramme|camembert|nuage de points|courbe interactive|graphe de fonction)s?\b/i;
 const CHART_RULE = "Si des données fiables sont disponibles et que la demande porte sur un graphique, ajoute un bloc de code frst-ui avec uniquement du JSON : " +
   '{"version":1,"kind":"chart","title":"Titre","chart":"line","series":[{"name":"Série","points":[{"label":"Janvier","y":12}]}]}. ' +
-  "Utilise line, bar, pie ou scatter ; scatter exige aussi x sur chaque point. Ne présente pas des données inventées comme des données réelles.";
+  "Utilise line, bar, pie ou scatter. Pour scatter, fournis x et y sur chaque point. Pour une courbe mathématique utilise line, ajoute axis: numeric et fournis x et y sur chaque point. Ne présente pas des données inventées comme des données réelles.";
 
 export function isPowerPointPrompt(value?: string): boolean {
   return value?.startsWith(POWERPOINT_MARK) === true;
@@ -38,6 +39,6 @@ export function chatPrompt(text: string, options: {
     (isPowerPointPrompt(options.previousPrompt) && /\b(modifi|corrig|ajout|am[ée]lior|diapos|slides?)/i.test(text));
   const office = /\b(xlsx|classeur excel|tableau excel|fichier excel)\b/i.test(text) ? EXCEL_RULE :
     /\b(docx|document word|fichier word)\b/i.test(text) ? WORD_RULE : "";
-  const format = options.powerpointMode ? POWERPOINT : office || (powerpoint ? POWERPOINT : mode ? STUDY[mode] : CHART_PATTERN.test(text) ? CHART_RULE : "");
+  const format = options.powerpointMode ? POWERPOINT : office || (powerpoint ? POWERPOINT : mode ? STUDY[mode] : [CHART_PATTERN.test(text) ? CHART_RULE : "", widgetInstruction(text)].filter(Boolean).join("\n"));
   return (format ? format + "\n\n" : "") + (options.skillPrefix || "") + text;
 }
