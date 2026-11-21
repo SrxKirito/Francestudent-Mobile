@@ -57,6 +57,7 @@ const FAKE_BACKEND = String.raw`(() => {
     files: [{ id: "file-1", filename: "notes-frst.txt", bytes: 17, created_at: 1700000000 }],
     projects: [{ id: U(81), name: "Projet de test", customInstructions: "Répondre brièvement." }],
     shares: [], savedMessages: [], exported: [],
+    memories: [{ id: "mem-1", path: "préférences.md", content: "Mémoire de test" }],
     apiKey: false,
     sessions: [
       { id: "s-iphone", since: ago(48), os: "iOS 19", location: "Paris, France", lastActiveAt: ago(1) },
@@ -105,6 +106,11 @@ const FAKE_BACKEND = String.raw`(() => {
       }
       return [200, {}];
     }
+    if (p === "/user/@me/memories" && method === "GET") {
+      return [200, { memories: backend.memories.map(({ id, path }) => ({ id, path })) }];
+    }
+    if (p === "/user/@me/memories/mem-1" && method === "GET") return [200, backend.memories[0]];
+    if (p === "/user/@me/memories/mem-1" && method === "DELETE") { backend.memories = []; return [200, {}]; }
     if (p === "/user/@me/api-key") {
       if (method === "POST") { backend.apiKey = true; return [200, { key: "fixture-key-only" }]; }
       if (method === "DELETE") { backend.apiKey = false; return [200, {}]; }
@@ -800,6 +806,27 @@ async function nativePhase(baseUrl, pageErrors) {
     await waitFor("!window.__backend.files.some(file => file.id === 'file-1')", "suppression envoyée");
     assert.equal(await ev("window.__backend.files.some(file => file.filename === 'transfert-frst.txt')"), true);
     assert.equal(dialogs.length, 0);
+    await click("Fermer les paramètres", q("#settings-close"));
+  });
+  await check("mémoires du compte : liste, lecture à la demande et suppression", async () => {
+    await click("Ouvrir les paramètres", q("#user-button"));
+    await waitFor(has("#tab-account"), "onglet compte");
+    await click("Compte", q("#tab-account"));
+    const memory = `[...document.querySelectorAll("#panel-account details")].find(item => item.querySelector("summary")?.textContent.includes("Mémoires du compte"))`;
+    await ev("(" + memory + ')?.scrollIntoView({ block: "center" })');
+    await click("Mémoires du compte", "(" + memory + ')?.querySelector("summary")');
+    await waitFor("(" + memory + ')?.textContent.includes("préférences.md")', "liste des mémoires");
+    assert.equal(await ev('window.__backend.calls.some(row => row.path === "/user/@me/memories/mem-1")'), false);
+    const read = "(" + memory + ')?.querySelector("article button:first-child")';
+    await ev("(" + read + ')?.scrollIntoView({ block: "center" })');
+    await click("Lire", read);
+    await waitFor("(" + memory + ')?.textContent.includes("Mémoire de test")', "mémoire affichée");
+    const remove = "(" + memory + ')?.querySelector("article button:last-child")';
+    await ev("(" + remove + ')?.scrollIntoView({ block: "center" })');
+    await click("Supprimer la mémoire", remove);
+    await waitFor(has("dialog.fs-confirm[open]"), "confirmation mémoire");
+    await click("Confirmer", q(".fs-confirm-ok"));
+    await waitFor("(" + memory + ')?.textContent.includes("Aucune mémoire enregistrée.")', "mémoire supprimée");
     await click("Fermer les paramètres", q("#settings-close"));
   });
   await check("petite hauteur : compositeur et dialogue dans la fenêtre", async () => {

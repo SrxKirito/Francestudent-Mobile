@@ -1,6 +1,7 @@
 <!-- Onglet Compte (Svelte) : même balisage et mêmes classes que la section #panel-account de mobile/www/index.html
     (feuilles legacy déjà importées par le shell). Seule la section « Sessions actives » est nouvelle. La logique est dans AccountStore. -->
 <script lang="ts">
+  import MemoryPanel from "./MemoryPanel.svelte";
   import ApiKeyPanel from "./ApiKeyPanel.svelte";
   import type { ApiClient } from "../lib/services/api-client.ts";
   import type { AccountStore } from "../lib/stores/account.svelte.ts";
@@ -65,7 +66,10 @@
   <div class="settings-section-title quota-head">Budget du jour <button type="button" id="quota-refresh" class="quota-refresh" aria-label="Actualiser le quota" title="Actualiser" disabled={account.quotaState === "loading"} onclick={() => void account.refreshQuota()}><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.6-6.4L21 8"/><path d="M21 3v5h-5"/></svg></button></div>
   <div id="quota-box" class="quota-box" aria-live="polite">{#if quota}<div class="quota-row-head"><span>Utilisé</span><strong>{quota.label}</strong></div><div class="quota-bar"><span class={quota.level || undefined} style={"width: " + quota.percent + "%"}></span></div><div class="quota-note">{quota.note}</div>{:else}<div class="quota-note">{account.quotaMessage}</div>{/if}</div>
   <div class="settings-actions">
-    {#if api && !account.signingOut}<ApiKeyPanel {api} {onconfirm} />{/if}
+    {#if api && !account.signingOut}
+      <ApiKeyPanel {api} {onconfirm} />
+      <MemoryPanel {api} {onconfirm} />
+    {/if}
     <section id="account-activity" class="account-activity" aria-label="Activité tokens">
       <div class="activity-heading"><h3>Activité tokens</h3><div><button type="button" id="activity-share" class="settings-btn small" disabled={account.shareDisabled || account.activityLoading} onclick={() => void account.shareActivity()}>Partager</button><button type="button" id="activity-refresh" class="settings-icon-btn" aria-label="Actualiser l’activité" disabled={account.activityLoading} onclick={() => void account.refreshActivity()}>↻</button></div></div>
       <p id="activity-status" class="settings-hint" role="status" aria-live="polite">{account.activityStatus}</p>
