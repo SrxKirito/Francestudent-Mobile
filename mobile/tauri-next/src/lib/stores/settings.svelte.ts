@@ -1,5 +1,5 @@
 import type { EngineAgent } from "../services/legacy-engine.ts";
-import type { GeneralSettingsService, ReasoningLevel, WebDomainSettings, WebFilterType } from "../services/general-settings.ts";
+import type { GeneralSettingsService, PromptCompression, ReasoningLevel, WebDomainSettings, WebFilterType } from "../services/general-settings.ts";
 import { instructionsError, webModeSummary } from "../services/general-settings.ts";
 import type { LocalSettings, LocalSettingsGateway, LocalSettingsPatch, SettingsCatalog } from "../services/local-settings.ts";
 import type { LibraryColumns, Theme, WebSearchMode } from "../types/state.ts";
@@ -69,6 +69,7 @@ export class SettingsStore {
 
   loadState = $state<LoadState>("idle");
   reasoning = $state<ReasoningLevel>("none");
+  compression = $state<PromptCompression | undefined>(undefined);
   instructions = $state("");
   status = $state("");
   statusError = $state(false);
@@ -206,6 +207,7 @@ export class SettingsStore {
       this.#fileInstructions = prefs.fileInstructions === true;
       this.#apply({ webSearchMode: prefs.webSearchMode });
       this.reasoning = prefs.gptReasoning;
+      this.compression = prefs.promptCompression;
       this.instructions = prefs.customInstructions;
       this.webSummary = webModeSummary(prefs.webSearchMode);
       this.status = "";
@@ -232,7 +234,7 @@ export class SettingsStore {
     this.status = "Enregistrement…";
     this.statusError = false;
     try {
-      await this.#deps.service.savePersonalization({ gptReasoning: this.reasoning, customInstructions: this.instructions, fileInstructions });
+      await this.#deps.service.savePersonalization({ gptReasoning: this.reasoning, customInstructions: this.instructions, fileInstructions, ...(this.compression === undefined ? {} : { promptCompression: this.compression }) });
     } catch (error) {
       if (generation !== this.#generation) return;
       this.status = `Enregistrement impossible : ${errorMessage(error)}`;

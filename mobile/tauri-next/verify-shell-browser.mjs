@@ -149,7 +149,15 @@ const FAKE_BACKEND = String.raw`(() => {
       return [200, { maskedKey: backend.apiKey ? "fixture-•••" : null, budget: { remainingUsd: 5 } }];
     }
     if (p === "/filesv2/usage" && method === "GET") return [200, { usedBytes: 10000, maxBytes: 20000, remainingBytes: 10000, filesBytes: 8000, skillsBytes: 2000 }];
-    if (p === "/filesv2" && method === "GET") return [200, { data: backend.files, has_more: false }];
+    if (p === "/filesv2" && method === "GET") {
+      if (!backend.pagedFiles) return [200, { data: backend.files, has_more: false }];
+      if (url.searchParams.has("after")) {
+        return [200, { data: [{ id: "file-image", filename: "photo-frst.png", bytes: 3145728 }], has_more: false }];
+      }
+      const data = [...backend.files, ...Array.from({ length: 23 }, (_, i) => ({ id: "page-" + i, filename: "Document " + i + ".pdf" }))];
+      return [200, { data, has_more: true, last_id: data.at(-1).id }];
+    }
+    if (p === "/filesv2/file-image/content" && method === "GET") return [200, backend.pagedFiles];
     if (p === "/filesv2/file-1/content" && method === "GET") return [200, "Y29udGVudSBGUlNU"];
     if (p === "/filesv2/file-1" && method === "DELETE") { backend.files = backend.files.filter(file => file.id !== "file-1"); return [200, { deleted: true }]; }
     if (p === "/projects" && method === "GET") return [200, backend.projects];
@@ -816,8 +824,8 @@ async function nativePhase(baseUrl, pageErrors) {
     await waitFor(has("#tab-storage"), "onglet stockage");
     await click("Stockage", q("#tab-storage"));
     const textButton = word => `[...document.querySelectorAll("#panel-storage button")].find(button => button.textContent.includes(${JSON.stringify(word)}))`;
-    await waitFor(`!(${textButton("Gérer les fichiers")})?.disabled`, "quota chargé");
-    await click("Gérer les fichiers", textButton("Gérer les fichiers"));
+    await waitFor(q("#storage-files") + " && !" + q("#storage-files") + ".disabled", "quota chargé");
+    await click("Fichiers", q("#storage-files"));
     await waitFor(contains("#panel-storage", "notes-frst.txt"), "liste Files V2");
     const choose = (name, size) => ev(`(() => {
       const picker = document.querySelector('#panel-storage input[type="file"]');
@@ -867,25 +875,24 @@ async function nativePhase(baseUrl, pageErrors) {
     await waitFor(contains("dialog.preview-dialog[open] #preview-title", "transfert-frst.txt"), "module d’aperçu ouvert");
     await escape();
   });
-  await check("mémoires du compte : liste, lecture à la demande et suppression", async () => {
+  await check("Compte allégé et compression enregistrée depuis Général", async () => {
     await click("Ouvrir les paramètres", q("#user-button"));
     await waitFor(has("#tab-account"), "onglet compte");
     await click("Compte", q("#tab-account"));
-    const memory = `[...document.querySelectorAll("#panel-account details")].find(item => item.querySelector("summary")?.textContent.includes("Mémoires du compte"))`;
-    await ev("(" + memory + ')?.scrollIntoView({ block: "center" })');
-    await click("Mémoires du compte", "(" + memory + ')?.querySelector("summary")');
-    await waitFor("(" + memory + ')?.textContent.includes("préférences.md")', "liste des mémoires");
-    assert.equal(await ev('window.__backend.calls.some(row => row.path === "/user/@me/memories/mem-1")'), false);
-    const read = "(" + memory + ')?.querySelector("article button:first-child")';
-    await ev("(" + read + ')?.scrollIntoView({ block: "center" })');
-    await click("Lire", read);
-    await waitFor("(" + memory + ')?.textContent.includes("Mémoire de test")', "mémoire affichée");
-    const remove = "(" + memory + ')?.querySelector("article button:last-child")';
-    await ev("(" + remove + ')?.scrollIntoView({ block: "center" })');
-    await click("Supprimer la mémoire", remove);
-    await waitFor(has("dialog.fs-confirm[open]"), "confirmation mémoire");
-    await click("Confirmer", q(".fs-confirm-ok"));
-    await waitFor("(" + memory + ')?.textContent.includes("Aucune mémoire enregistrée.")', "mémoire supprimée");
+    await waitFor(has("#panel-account #logout"), "déconnexion disponible");
+    assert.equal(await ev(contains("#panel-account", "Mémoires du compte")), false);
+    assert.equal(await ev(has("#account-api-key, #account-sessions")), false);
+    assert.equal(await ev('window.__backend.calls.some(row => row.path === "/user/sessions")'), false);
+    await click("Général", q("#tab-general"));
+    await waitFor(has("#prompt-compression"), "compression chargée");
+    assert.equal(await ev('Boolean(document.querySelector("#gpt-reasoning-button").compareDocumentPosition(document.querySelector("#account-api-key")) & Node.DOCUMENT_POSITION_FOLLOWING)'), true);
+    await ev(`(() => {
+      const field = document.querySelector("#prompt-compression");
+      field.value = "ultra";
+      field.dispatchEvent(new Event("change", { bubbles: true }));
+      document.querySelector("#personalization-save").form.requestSubmit();
+    })()`);
+    await waitFor('window.__backend.prefs.promptCompression === "ultra"', "compression maximum enregistrée");
     await click("Fermer les paramètres", q("#settings-close"));
   });
   await check("lire une réponse et arrêter en changeant de discussion", async () => {
@@ -1010,6 +1017,33 @@ async function nativePhase(baseUrl, pageErrors) {
       await waitFor("!" + has("#svelte-library[open]"), "bibliothèque fermée");
     }
   });
+  await check("bibliothèque : pagination au défilement et miniature d’une image FRST de 3 Mo", async () => {
+    await ev(`window.__backend.pagedFiles = ${JSON.stringify(makePng(512).toString("base64"))}`);
+    await click("Bibliothèque", q("#library-open"));
+    const refresh = q('#svelte-library button[aria-label="Actualiser les fichiers"]');
+    await waitFor(refresh + " && !" + refresh + ".disabled", "chargement initial terminé");
+    await click("Actualiser", refresh);
+    await waitFor(has(".library-more-marker"), "page suivante disponible");
+    await ev(q(".library-more-marker") + ".scrollIntoView()");
+    await waitFor(contains("#svelte-library", "photo-frst.png"), "page suivante chargée sans bouton");
+    const image = `[...document.querySelectorAll("#svelte-library .library-open")].find(button => button.textContent.includes("photo-frst.png"))`;
+    await ev("(" + image + ")?.scrollIntoView()");
+    await waitFor("(" + image + ')?.querySelector("img")?.naturalWidth === 300', "miniature de l’image redimensionnée");
+    await escape();
+    await waitFor("!" + has("#svelte-library[open]"), "bibliothèque fermée");
+    await click("Ouvrir les paramètres", q("#user-button"));
+    await waitFor(has("#tab-storage"), "onglet stockage");
+    await click("Stockage", q("#tab-storage"));
+    await waitFor(q("#storage-images") + " && !" + q("#storage-images") + ".disabled", "stockage chargé");
+    await click("Images", q("#storage-images"));
+    const preview = q('#panel-storage button[aria-label="Aperçu de photo-frst.png"]');
+    await waitFor(preview + '?.querySelector("img")?.naturalWidth === 300', "miniature visible dans Stockage");
+    await click("Aperçu de l’image", preview);
+    await waitFor(contains("dialog.preview-dialog[open] #preview-title", "photo-frst.png"), "aperçu de l’image ouvert");
+    await escape();
+    await waitFor("!" + has("dialog.preview-dialog[open]"), "aperçu fermé");
+    await click("Fermer les paramètres", q("#settings-close"));
+  });
   await check("Projets : boîte de dialogue dans la zone sûre", async () => {
     await cdp.send("Emulation.setDeviceMetricsOverride", { width: 390, height: 660, deviceScaleFactor: 1, mobile: false });
     await ev(`(() => {
@@ -1019,7 +1053,20 @@ async function nativePhase(baseUrl, pageErrors) {
       root.style.setProperty("--fs-safe-bottom", "34px");
       root.style.setProperty("--ios-viewport-height", "660px");
     })()`);
-    await click("Ouvrir le tiroir", q("#menu-toggle"));
+    await cdp.send("Emulation.setTouchEmulationEnabled", { enabled: true, maxTouchPoints: 1 });
+    const swipe = async (x, y, endX, endY) => {
+      await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x, y }] });
+      await cdp.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ x: endX, y: endY }] });
+      await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+    };
+    await swipe(32, 350, 50, 530);
+    assert.equal(await ev(has("#sidebar.open")), false);
+    await swipe(32, 350, 180, 353);
+    await waitFor(has("#sidebar.open"), "tiroir ouvert au glissement droit");
+    await swipe(360, 350, 195, 350);
+    await waitFor("!" + has("#sidebar.open"), "tiroir refermé au glissement gauche");
+    await swipe(32, 350, 180, 353);
+    await cdp.send("Emulation.setTouchEmulationEnabled", { enabled: false });
     await waitFor(`(() => {
       const target = document.querySelector("#sidebar.open #projects-open");
       if (!target) return false;
@@ -1032,6 +1079,12 @@ async function nativePhase(baseUrl, pageErrors) {
     const style = await ev(`(() => { const d = document.querySelector("#svelte-projects"); const r = d.getBoundingClientRect(); return { background: getComputedStyle(d).backgroundColor, bottom: r.bottom, width: r.width }; })()`);
     assert.notEqual(style.background, "rgb(255, 255, 255)");
     assert.ok(style.bottom <= 660 - 34 && style.width < 390);
+    const edit = q('#svelte-projects button[aria-label="Modifier Projet de test"]');
+    await waitFor(edit + " && !" + edit + ".disabled", "crayon disponible");
+    await click("Modifier le projet", edit);
+    await waitFor(has(".project-fields textarea"), "formulaire de modification");
+    assert.equal(await ev(q(".project-fields input") + ".value"), "Projet de test");
+    assert.equal(await ev("getComputedStyle(" + q(".project-fields") + ").borderTopWidth"), "0px");
     await escape();
   });
   await check("secours hybride : montage et raccordement du pont historique", async () => {

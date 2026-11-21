@@ -4,6 +4,7 @@
   import type { LibraryRecord, PendingResponse, RemoteFile, WorkspaceEngine } from "../lib/services/workspace-engine.ts";
   import { FILE_KINDS, FILE_SORTS, formatBytes } from "../lib/services/workspace-engine.ts";
   import { errorMessage } from "../lib/utils/errors.ts";
+  import WorkspaceIcon from "./WorkspaceIcon.svelte";
   import SavedMessages from "./SavedMessages.svelte";
   import LibraryThumbnail from "./LibraryThumbnail.svelte";
 
@@ -18,12 +19,16 @@
   let projects = $state.raw<{ id: string; name: string }[]>([]);
   let pending = $state.raw<PendingResponse[]>([]);
   let hasMore = $state(false);
+  let moreMarker = $state<HTMLElement>();
+  let pagingError = $state(false);
+  const canObserve = typeof IntersectionObserver === "function";
   let busy = $state(false);
   let fileMessage = $state("");
   let localMessage = $state("");
   let actionMessage = $state("");
   let source = $state("all");
   let project = $state("*");
+  const showMore = $derived(hasMore && (source === "all" || source === "remote") && project === "*");
   let query = $state("");
   let kind = $state("*");
   let sort = $state("date-desc");
@@ -46,6 +51,23 @@
     const timestamp = (date: number) => date < 1e12 ? date * 1000 : date;
     return (timestamp(a.date) - timestamp(b.date)) * (sort === "date-asc" ? 1 : -1);
   }));
+
+  function nextPage() {
+    return operate(async () => {
+      pagingError = false;
+      try { await engine.loadMore(); }
+      catch (error) { pagingError = true; throw error; }
+    });
+  }
+
+  $effect(() => {
+    if (!canObserve || !showMore || !moreMarker || busy || pagingError || fileMessage) return;
+    const observer = new IntersectionObserver(entries => {
+      if (entries.some(entry => entry.isIntersecting)) void nextPage();
+    }, { root: dialog, rootMargin: "180px" });
+    observer.observe(moreMarker);
+    return () => observer.disconnect();
+  });
 
   function sync() {
     files = engine.files();
@@ -82,6 +104,7 @@
 
   function refresh(force: boolean) {
     return operate(async () => {
+      pagingError = false;
       fileMessage = localMessage = "";
       const [remoteResult, localResult] = await Promise.allSettled([
         force ? engine.refreshFiles() : engine.loadFiles(), engine.localFiles()
@@ -122,7 +145,10 @@
 </script>
 
 <dialog id="svelte-library" class="file-library" aria-labelledby="svelte-library-title" bind:this={dialog} oncancel={event => { event.preventDefault(); onclose(); }}>
-  <header><div><h2 id="svelte-library-title">Bibliothèque</h2></div><button type="button" aria-label="Fermer" onclick={onclose}>×</button></header>
+  <header><div><h2 id="svelte-library-title">Bibliothèque</h2></div><div class="library-header-actions">
+    <button type="button" aria-label="Actualiser les fichiers" title="Actualiser" disabled={busy} onclick={() => void refresh(true)}><WorkspaceIcon name="refresh" size={18} /></button>
+    <button type="button" aria-label="Fermer" onclick={onclose}>×</button>
+  </div></header>
   <SavedMessages {api} onopen={onopenmessage} />
   {#each pending as row (row.id)}
     <div class="library-job">
@@ -131,18 +157,17 @@
       <button type="button" disabled={busy} onclick={() => void operate(async () => { if (await onconfirm("Annuler le suivi de cette réponse ?")) await engine.pendingAction(row.id, "cancel"); })}>Annuler</button>
     </div>
   {/each}
-  <div class="library-filters">
-    <input type="search" placeholder="Rechercher un fichier" aria-label="Rechercher un fichier" bind:value={query}>
+  <input class="settings-input library-search" type="search" placeholder="Rechercher un fichier" aria-label="Rechercher un fichier" bind:value={query}>
+  <details class="library-refinements"><summary>Filtres et tri</summary><div class="library-filters">
     <select aria-label="Origine" bind:value={source}><option value="all">Toutes les sources</option><option value="remote">Fichiers FRST</option><option value="generated">Fichiers générés</option><option value="sent">Fichiers envoyés</option><option value="found">Images trouvées</option></select>
     <select aria-label="Type de fichier" bind:value={kind}>{#each FILE_KINDS as [value, label]}<option {value}>{label}</option>{/each}</select>
     <select aria-label="Projet" bind:value={project}><option value="*">Tous les projets</option><option value="">Sans projet</option>{#each projects as item (item.id)}<option value={item.id}>{item.name}</option>{/each}</select>
     <select aria-label="Trier les fichiers" bind:value={sort}>{#each FILE_SORTS as [value, label]}<option {value}>{label}</option>{/each}</select>
-    <button type="button" class="settings-btn" disabled={busy} onclick={() => void refresh(true)}>Actualiser</button>
-  </div>
+  </div></details>
   {#if fileMessage}<p role="alert" class="settings-error">{fileMessage}</p>{/if}
   {#if localMessage}<p role="alert" class="settings-error">{localMessage}</p>{/if}
   {#if actionMessage}<p role="alert" class="settings-error">{actionMessage}</p>{/if}
-  <p role="status">{busy ? "Chargement…" : cards.length + " fichier(s)"}</p>
+  <p role="status">{busy ? "Chargement…" : cards.length + " fichier(s) affiché(s)"}</p>
   <div class="library-grid" style:--library-columns={engine.libraryColumns()}>
     {#each cards as file (file.key)}
       <article class="library-card">
@@ -170,7 +195,20 @@
       </article>
     {/each}
   </div>
-  {#if hasMore && (source === "all" || source === "remote") && project === "*"}
-    <button type="button" class="settings-btn" disabled={busy} onclick={() => void operate(() => engine.loadMore())}>Charger plus de fichiers FRST</button>
+  {#if showMore}
+    <div class="library-more-marker" bind:this={moreMarker} aria-hidden="true"></div>
+    {#if !canObserve || pagingError}
+      <button type="button" class="settings-btn" disabled={busy} onclick={() => void nextPage()}>{pagingError ? "Réessayer" : "Charger plus de fichiers FRST"}</button>
+    {/if}
   {/if}
 </dialog>
+
+<style>
+  .library-header-actions { display: flex; gap: .5rem; }
+  .library-search { width: 100%; margin-block: .6rem; }
+  .library-refinements { margin-block-end: .65rem; }
+  .library-refinements summary { cursor: pointer; min-height: 44px; display: flex; align-items: center; gap: .45rem; color: var(--muted); }
+  .library-refinements summary::before { content: "›"; }
+  .library-refinements[open] summary::before { transform: rotate(90deg); }
+  .library-more-marker { height: 1px; }
+</style>

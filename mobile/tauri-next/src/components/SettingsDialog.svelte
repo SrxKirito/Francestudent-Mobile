@@ -1,12 +1,13 @@
 <!-- Fenêtre Paramètres Svelte. Les styles communs sont chargés par la coque. -->
 <script lang="ts">
   import { tick } from "svelte";
+  import ApiKeyPanel from "./ApiKeyPanel.svelte";
   import StoragePanel from "./StoragePanel.svelte";
   import McpPanel from "./McpPanel.svelte";
   import SkillsPanel from "./SkillsPanel.svelte";
   import AccountPanel from "./AccountPanel.svelte";
   import type { SettingsStore } from "../lib/stores/settings.svelte.ts";
-  import { REASONING_LEVELS, WEB_MODES } from "../lib/services/general-settings.ts";
+  import { COMPRESSION_LEVELS, REASONING_LEVELS, WEB_MODES } from "../lib/services/general-settings.ts";
   import type { LibraryColumns, Theme } from "../lib/types/state.ts";
   import { PROVIDER_LOGOS } from "../lib/data/provider-logos.ts";
   import { agentLabel, providerMark } from "../lib/utils/agents.ts";
@@ -16,6 +17,7 @@
   interface Props {
     store: SettingsStore;
     showChatToggle?: boolean;
+    onarchives?: () => void;
     onconfirm?: (text: string) => Promise<boolean>;
   }
 
@@ -32,7 +34,7 @@
   const COLUMNS: readonly LibraryColumns[] = [1, 2, 3, 4];
   const UNAVAILABLE = "Ce modèle est indisponible pour le moment.";
 
-  let { store, showChatToggle = true, onconfirm = async () => false }: Props = $props();
+  let { store, showChatToggle = true, onarchives, onconfirm = async () => false }: Props = $props();
 
   let menu: MenuId | null = $state(null);
   let webDialog: HTMLDialogElement | undefined = $state();
@@ -359,6 +361,14 @@
                       </div>
                     </div>
                   </div>
+                  {#if store.api}<ApiKeyPanel api={store.api} {onconfirm} />{/if}
+                  <section class="general-section" aria-labelledby="compression-title">
+                    <h3 id="compression-title" class="settings-section-title">Compression du contexte</h3>
+                    <p class="settings-hint">Raccourcit les anciens messages avant leur envoi au modèle. Le niveau maximal peut atténuer certaines nuances.</p>
+                    <label class="settings-label">Niveau<select id="prompt-compression" class="settings-input" value={store.compression ?? "off"} onchange={event => {
+                      store.compression = COMPRESSION_LEVELS.find(level => level.value === event.currentTarget.value)?.value;
+                    }}>{#each COMPRESSION_LEVELS as level (level.value)}<option value={level.value}>{level.label}</option>{/each}</select></label>
+                  </section>
                   <div class="general-section"><label for="custom-instructions" class="settings-label">Instructions personnalisées</label><p class="settings-hint">Indique le ton, le format et les consignes à suivre dans vos réponses.</p><textarea id="custom-instructions" class="settings-input" rows="6" placeholder="Comment souhaites-tu que l’assistant réponde ?" bind:value={store.instructions}></textarea><p class="settings-hint">Appliquées à vos conversations.</p></div>
                   <button type="submit" id="personalization-save" class="settings-btn primary">Enregistrer</button>
                 </fieldset>
@@ -386,13 +396,13 @@
               </dialog>
             </section>
           {:else if store.tab === "account" && store.accountPanel}
-            <AccountPanel account={store.accountPanel} api={store.api} {onconfirm} />
+            <AccountPanel account={store.accountPanel} />
           {:else if store.tab === "skills" && store.skillsPanel}
             <SkillsPanel skills={store.skillsPanel} {onconfirm} />
           {:else if store.tab === "mcp" && store.api}
             <McpPanel api={store.api} {onconfirm} />
           {:else if store.tab === "storage" && store.workspace}
-            <StoragePanel engine={store.workspace} {onconfirm} />
+            <StoragePanel engine={store.workspace} {onconfirm} {onarchives} onskills={() => store.selectTab("skills")} />
           {/if}
         </div>
       </div>

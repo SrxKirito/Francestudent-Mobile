@@ -36,7 +36,11 @@ export interface WebDomainSettings {
   blockedDomains: string[];
 }
 
+export const COMPRESSION_LEVELS = [{ value: "off", label: "Désactivée" }, { value: "lite", label: "Légère" }, { value: "standard", label: "Standard" }, { value: "ultra", label: "Maximale" }] as const;
+export type PromptCompression = typeof COMPRESSION_LEVELS[number]["value"];
+
 export interface Personalization {
+  promptCompression?: PromptCompression;
   gptReasoning: ReasoningLevel;
   /** Texte de l'utilisateur, sans la consigne de création de fichiers de FranceStudent. */
   customInstructions: string;
@@ -157,8 +161,10 @@ export function normalizeWebDomainSettings(raw: unknown): WebDomainSettings {
 export function parsePersonalization(raw: unknown): Personalization {
   if (!raw || typeof raw !== "object") throw new Error("Réponse du serveur illisible.");
   const data = raw as Record<string, unknown>;
+  const compression = COMPRESSION_LEVELS.find(level => level.value === data.promptCompression)?.value;
   const instructions = splitFileInstructions(typeof data.customInstructions === "string" ? data.customInstructions : "");
   return {
+    ...(compression === undefined ? {} : { promptCompression: compression }),
     gptReasoning: reasoningLevel(data.gptReasoning),
     customInstructions: instructions.text,
     fileInstructions: instructions.hasBlock,
@@ -169,7 +175,7 @@ export function parsePersonalization(raw: unknown): Personalization {
 export interface GeneralSettingsService {
   loadPersonalization(signal?: AbortSignal): Promise<Personalization>;
   /** Rejette avec l'erreur du serveur ; les valeurs refusées localement ne déclenchent aucune requête. */
-  savePersonalization(input: { gptReasoning: string; customInstructions: string; fileInstructions?: boolean }, signal?: AbortSignal): Promise<void>;
+  savePersonalization(input: { gptReasoning: string; customInstructions: string; fileInstructions?: boolean; promptCompression?: PromptCompression }, signal?: AbortSignal): Promise<void>;
   loadWebDomains(signal?: AbortSignal): Promise<WebDomainSettings>;
   /** Ne rejette jamais : le résultat porte le message à afficher et les listes déjà enregistrées. */
   saveWebSettings(form: WebSettingsForm, signal?: AbortSignal): Promise<WebSettingsResult>;
@@ -183,11 +189,17 @@ export function createGeneralSettingsService(api: Pick<ApiClient, "json">): Gene
 
     async savePersonalization(input, signal) {
       if (!REASONING_LEVELS.some(level => level.value === input.gptReasoning)) throw new Error("Niveau de réflexion invalide.");
+      if (input.promptCompression !== undefined && !COMPRESSION_LEVELS.some(level => level.value === input.promptCompression)) throw new Error("Niveau de compression invalide.");
       const withFiles = input.fileInstructions === true;
       const tooLong = instructionsError(input.customInstructions, withFiles);
       if (tooLong) throw new Error(tooLong);
       const customInstructions = joinFileInstructions(input.customInstructions, withFiles);
-      await api.json("/user/instructions", { method: "PATCH", body: { gptReasoning: input.gptReasoning, customInstructions }, signal });
+      const body = {
+        gptReasoning: input.gptReasoning,
+        customInstructions,
+        ...(input.promptCompression === undefined ? {} : { promptCompression: input.promptCompression })
+      };
+      await api.json("/user/instructions", { method: "PATCH", body, signal });
     },
 
     async loadWebDomains(signal) {

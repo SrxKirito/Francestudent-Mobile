@@ -152,7 +152,7 @@
       }
     };
     const account = onlogout ? new AccountStore({
-      api,
+      api, showSessions: false,
       local: {
         ...accountLocal,
         saveProfile(profile) {
@@ -342,9 +342,34 @@
   $effect(() => {
     store.syncSearch(store.conversations.query);
   });
+  let drawerSwipe: { id: number; x: number; y: number; open: boolean } | null = null;
+
+  function startDrawerSwipe(event: TouchEvent) {
+    drawerSwipe = null;
+    const target = event.target;
+    if (legacyChat || !store.ready || store.wide || event.touches.length !== 1 || !(target instanceof Element)) return;
+    if (document.querySelector("dialog[open]") || target.closest("input, textarea, select, button, a, label, [contenteditable], [role=option], pre, table, .visual")) return;
+    const open = store.drawerOpen;
+    if (!target.closest(open ? "#sidebar, #overlay" : "#messages, .chat-pane .topbar")) return;
+    const touch = event.touches[0];
+    if (open || touch.clientX >= 14) drawerSwipe = { id: touch.identifier, x: touch.clientX, y: touch.clientY, open };
+  }
+
+  function finishDrawerSwipe(event: TouchEvent) {
+    const start = drawerSwipe;
+    drawerSwipe = null;
+    if (!start || store.wide || store.drawerOpen !== start.open || document.querySelector("dialog[open]")) return;
+    const touch = Array.from(event.changedTouches).find(item => item.identifier === start.id);
+    if (!touch) return;
+    const distance = (touch.clientX - start.x) * (start.open ? -1 : 1);
+    if (distance < 60 || distance < Math.abs(touch.clientY - start.y) * 1.5) return;
+    if (start.open) store.overlayClick();
+    else store.menuToggle();
+  }
 </script>
 
-<svelte:window onresize={() => store.resize(window.innerWidth)} />
+<svelte:window onresize={() => store.resize(window.innerWidth)} ontouchstart={startDrawerSwipe}
+  ontouchend={finishDrawerSwipe} ontouchcancel={() => { drawerSwipe = null; }} />
 <svelte:document onclick={() => store.closeMenus()} />
 
 <div class="app" class:fs-native={!legacyChat} class:sidebar-collapsed={store.collapsed} class:booting={!store.ready}>
@@ -442,7 +467,8 @@
   {#if settings?.open}
     {@const current = settings}
     {#await import("./SettingsDialog.svelte") then { default: SettingsDialog }}
-      <SettingsDialog store={current} showChatToggle={false} onconfirm={text => chat.confirm(text)} />
+      <SettingsDialog store={current} showChatToggle={false} onconfirm={text => chat.confirm(text)}
+        onarchives={() => { current.close(); if (!store.archive.open) store.toggleArchive(); if (!store.wide && !store.drawerOpen) store.menuToggle(); }} />
     {:catch}
       <p role="alert">Impossible d’ouvrir les paramètres.</p>
     {/await}

@@ -27,6 +27,7 @@ import { errorMessage } from "../utils/errors.ts";
 export interface AccountDeps {
   api: ApiClient;
   local: AccountGateway;
+  showSessions?: boolean;
   /** Enregistre un fichier sur l'appareil (boîte de dialogue native) ; rejette si l'utilisateur annule. */
   saver: (name: string, bytes: Uint8Array) => Promise<unknown>;
   /** Feuille de partage du système, ou `null` quand elle n'existe pas (repli : export CSV). */
@@ -125,7 +126,7 @@ export class AccountStore {
       this.#syncProfile(generation, signal),
       this.#loadQuota(generation, signal),
       this.#loadActivity(generation, signal),
-      this.#loadSessions(generation, signal)
+      this.#deps.showSessions === false ? Promise.resolve() : this.#loadSessions(generation, signal)
     ]);
   }
 

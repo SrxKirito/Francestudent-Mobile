@@ -113,6 +113,16 @@ await test("service : enregistrer niveau et instructions envoie un PATCH ciblé"
   assert.equal(api.calls.length, 1, "aucune requête pour des valeurs refusées");
 });
 
+await test("compression : valeur lue et enregistrée, niveau inconnu refusé", async () => {
+  const api = fakeApi(() => ({ promptCompression: "standard" }));
+  const service = general.createGeneralSettingsService(api);
+  assert.equal((await service.loadPersonalization()).promptCompression, "standard");
+  await service.savePersonalization({ gptReasoning: "medium", customInstructions: "", promptCompression: "off" });
+  assert.equal(api.calls[1].body.promptCompression, "off");
+  await assert.rejects(service.savePersonalization({ gptReasoning: "medium", customInstructions: "", promptCompression: "maximum" }), /compression/);
+  assert.equal(api.calls.length, 2);
+});
+
 const FILES = general.FILE_INSTRUCTIONS;
 
 await test("consigne de fichiers : même texte que le moteur historique", async () => {

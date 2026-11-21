@@ -113,7 +113,9 @@
       if (job.controller.signal.aborted) throw abortError();
       if (spec.kind === "text") return { result: await buildText(blob, nameOf(file)), cacheable: true };
       if (!blob || blob.size > imageMaxBytes) throw tooLarge();
-      return { result: { type: "image", key: job.key, url: createUrl(blob, spec.mime) }, cacheable: true };
+      const url = await createUrl(blob, spec.mime);
+      if (job.controller.signal.aborted) { revokeUrl(url); throw abortError(); }
+      return { result: { type: "image", key: job.key, url }, cacheable: true };
     }
 
     async function run(job) {

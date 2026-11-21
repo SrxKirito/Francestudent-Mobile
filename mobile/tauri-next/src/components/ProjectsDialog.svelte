@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import WorkspaceIcon from "./WorkspaceIcon.svelte";
   import type { ApiClient } from "../lib/services/api-client.ts";
   import type { WorkspaceEngine } from "../lib/services/workspace-engine.ts";
   import { listProjects, projectChats, projectForm, projectPath, projectResult, rows } from "../lib/services/projects.ts";
@@ -191,17 +192,17 @@
     </form>
   {:else if editor}
     <form class="settings-form" onsubmit={save}>
-      <fieldset disabled={busy}>
+      <fieldset class="project-fields" disabled={busy}>
         <label class="settings-label">Nom du projet <input class="settings-input" maxlength="50" bind:value={name} required></label>
         <label class="settings-label">Instructions personnalisées <textarea class="settings-input" maxlength="10000" bind:value={instructions}></textarea></label>
       </fieldset>
       <div class="settings-item-actions">
         <button class="settings-btn primary" disabled={busy || !name.trim()}>{editor.id ? "Enregistrer" : "Créer le projet"}</button>
         <button type="button" class="settings-btn" disabled={busy} onclick={() => { editor = null; message = ""; }}>Retour</button>
-        {#if editor.id}<button type="button" class="settings-btn danger" disabled={busy} onclick={removeProject}>Supprimer le projet</button>{/if}
       </div>
     </form>
     {#if editor.id}
+      <section class="project-access" aria-label="Accès au projet">
       <button type="button" class="settings-btn" aria-expanded={showAccess} disabled={busy} onclick={() => {
         const id = editor?.id;
         showAccess = !showAccess;
@@ -221,6 +222,8 @@
           </div>
         {/each}
       {/if}
+      </section>
+      <button type="button" class="settings-btn danger" disabled={busy} onclick={removeProject}>Supprimer le projet</button>
     {/if}
   {:else}
     <div class="settings-item-actions">
@@ -232,12 +235,17 @@
       <select class="settings-input" aria-label="Trier les projets" bind:value={sort}><option value="date">Plus récents</option><option value="name">Nom A → Z</option></select>
     </div>
     {#each filtered as project (project.id)}
-      <div class="settings-item">
-        <div class="settings-item-actions">
-          <button type="button" class="settings-btn" disabled={busy} onclick={() => enter(project)}>{project.name}</button>
-          {#if project.sharedWithMe}<span class="settings-hint">Partagé</span>
-          {:else}<button type="button" class="settings-btn small" disabled={busy} onclick={() => void run(() => editExisting(project.id))} aria-label={"Modifier " + project.name}>Modifier</button>{/if}
-        </div>
+      <div class="settings-item project-row">
+        <button type="button" class="settings-btn project-open" disabled={busy} onclick={() => enter(project)}>
+          <WorkspaceIcon name="folder" size={19} /> <span>{project.name}</span>
+        </button>
+        {#if project.sharedWithMe}<span class="settings-hint">Partagé</span>
+        {:else}
+          <button type="button" class="settings-btn project-edit" disabled={busy}
+            onclick={() => void run(() => editExisting(project.id))} aria-label={"Modifier " + project.name}>
+            <WorkspaceIcon name="edit" size={19} />
+          </button>
+        {/if}
       </div>
     {:else}
       {#if !busy && !message}<p class="settings-hint">Aucun projet dans cette liste.</p>{/if}
@@ -269,5 +277,12 @@
     bottom: auto;
     margin-block: 0;
   }
-  textarea { min-height: 7rem; }
+  .project-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px; padding: 5px; }
+  .project-open { display: flex; align-items: center; justify-content: flex-start; gap: 10px; text-align: left; background: transparent; border-color: transparent; }
+  .project-open span { overflow-wrap: anywhere; }
+  .project-edit { display: grid; place-items: center; width: 44px; height: 44px; padding: 0; }
+  .project-fields { min-inline-size: 0; display: grid; gap: 14px; border: 0; margin: 0; padding: 0; }
+  .project-access { display: grid; gap: 10px; padding-block: 12px; margin-block: 12px; border-block: 1px solid var(--border, #343436); }
+  .project-access > button { justify-self: start; }
+  textarea { min-height: 7rem; resize: vertical; }
 </style>

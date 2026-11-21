@@ -537,41 +537,13 @@ try {
     assert.ok(/id="activity-share"[^>]*\sdisabled/.test(bad) && /id="activity-content"[^>]*\shidden/.test(bad));
   });
 
-  await test("sessions (nouveau) : liste, appareil sans nom, bouton Terminer par session, aucun appel à window.confirm", async () => {
+  await test("Compte expose la déconnexion sans la gestion des sessions", async () => {
     const { store } = await accountStore();
     const out = accountPanel(store);
-    const section = slice(out, '<section id="account-sessions"', "</section>");
-    assert.ok(/aria-label="Sessions actives"/.test(section) && section.includes("<h3>Sessions actives</h3>"));
-    assert.ok(/id="sessions-refresh"[^>]*aria-label="Actualiser les sessions"/.test(section));
-    assert.ok(/id="sessions-end-all"[^>]*class="[^"]*\bdanger\b/.test(section) && !/id="sessions-end-all"[^>]*\sdisabled/.test(section));
-    const items = [...section.matchAll(/<li[^>]*data-session-id="([^"]*)"[^>]*>([\s\S]*?)<\/li>/g)];
-    assert.deepEqual(items.map(item => item[1]), ["s1", "s2"]);
-    assert.ok(items[0][2].includes("iOS 19") && items[0][2].includes("Paris, France"));
-    assert.ok(items[1][2].includes("Appareil inconnu"));
-    assert.ok(/data-session-end="s1"/.test(items[0][2]) && />Terminer</.test(items[0][2]));
-    assert.ok(!out.includes("sessions-confirm"), "aucune confirmation tant qu'on n'a rien demandé");
-    assert.ok(!/id="sessions-list"[^>]*\shidden/.test(section));
-    assert.ok(out.indexOf('id="account-sessions"') > out.indexOf('id="account-activity"') && out.indexOf('id="logout"') > out.indexOf('id="account-sessions"'));
-  });
-
-  await test("sessions : liste vide, erreur, confirmation en ligne pour une session puis pour toutes", async () => {
-    const empty = await accountStore({ data: { "/user/sessions": [] } });
-    const none = accountPanel(empty.store);
-    assert.ok(/id="sessions-status"[^>]*>Aucune session active\.</.test(none));
-    assert.ok(/id="sessions-list"[^>]*\shidden/.test(none) && /id="sessions-end-all"[^>]*\sdisabled/.test(none));
-    const failed = await accountStore({ data: { "/user/sessions": new Error("HTTP 500") } });
-    assert.ok(/id="sessions-status"[^>]*>Sessions indisponibles : HTTP 500</.test(accountPanel(failed.store)));
-    const { store, account } = await accountStore();
-    account.askRevoke("s1");
-    const one = accountPanel(store);
-    const confirm = slice(one, 'id="sessions-confirm"', "</div></div>");
-    assert.ok(/role="alertdialog"/.test(confirm) && confirm.includes("peut te déconnecter de cet appareil"), confirm);
-    assert.ok(/id="sessions-confirm-cancel"/.test(confirm) && /id="sessions-confirm-yes"[^>]*class="[^"]*\bdanger\b/.test(confirm));
-    account.askRevoke("all");
-    const all = slice(accountPanel(store), 'id="sessions-confirm"', "</div></div>");
-    assert.ok(all.includes("toutes les sessions") && all.includes("déconnecté de cet appareil"), all);
-    account.cancelRevoke();
-    assert.ok(!accountPanel(store).includes("sessions-confirm"));
+    assert.ok(!out.includes('id="account-sessions"'));
+    assert.ok(!out.includes("Mémoires du compte"));
+    assert.ok(!out.includes('id="account-api-key"'));
+    assert.ok(out.indexOf('id="logout"') > out.indexOf('id="account-activity"'));
   });
 
   await test("déconnexion : le bouton danger existe ; une erreur s'affiche dans une zone d'alerte", async () => {

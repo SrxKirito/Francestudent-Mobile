@@ -51,7 +51,8 @@ interface RemoteCacheFactory {
 interface ThumbnailFactory {
   create(deps: {
     fetchBlob: (file: RemoteFile, options: { signal: AbortSignal; limit: number; truncate: boolean }) => Promise<Blob>;
-    createUrl: (blob: Blob, mime: string) => string;
+    createUrl: (blob: Blob, mime: string) => string | Promise<string>;
+    imageMaxBytes?: number;
     revokeUrl: (url: string) => void;
   }): {
     request(file: RemoteFile, options: { signal: AbortSignal }): Promise<FileThumbnail>;
@@ -151,6 +152,27 @@ function libraryRecords(owner: string, conversations: readonly NativeConversatio
   return entries;
 }
 
+async function thumbnailUrl(blob: Blob, mime: string): Promise<string> {
+  const typed = blob.type === mime ? blob : blob.slice(0, blob.size, mime);
+  const source = URL.createObjectURL(typed);
+  try {
+    const image = new Image();
+    image.src = source;
+    await image.decode();
+    if (!image.naturalWidth || !image.naturalHeight || image.naturalWidth * image.naturalHeight > 40_000_000) throw new Error("Image trop grande.");
+    const scale = Math.min(1, 300 / Math.max(image.naturalWidth, image.naturalHeight));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
+    canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+    const context = canvas.getContext("2d");
+    if (!context) throw new Error("Miniature indisponible.");
+    context.drawImage(image, 0, 0, canvas.width, canvas.height);
+    const preview = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, "image/webp", .8));
+    if (!preview) throw new Error("Miniature indisponible.");
+    return URL.createObjectURL(preview);
+  } finally { URL.revokeObjectURL(source); }
+}
+
 function publicEntry({ id, name, kind, direction, created, projectId, conversationId, attribution }: LibraryEntry): LibraryRecord {
   return { id, name, kind, direction, created, projectId, conversationId, attribution };
 }
@@ -168,7 +190,8 @@ export function createNativeWorkspaceEngine(options: NativeWorkspaceOptions): Na
   const unwatchForeground = typeof document === "undefined" ? () => {} : remote.watchForeground(document);
   const thumbnails = bundles.tauriFileThumbnails.create({
     fetchBlob: (file, settings) => files.content(file.id, settings),
-    createUrl: (blob, mime) => URL.createObjectURL(blob.type === mime ? blob : blob.slice(0, blob.size, mime)),
+    imageMaxBytes: 10 * 1024 * 1024,
+    createUrl: thumbnailUrl,
     revokeUrl: url => URL.revokeObjectURL(url)
   });
   let thumbnailOwner = repository.owner();
