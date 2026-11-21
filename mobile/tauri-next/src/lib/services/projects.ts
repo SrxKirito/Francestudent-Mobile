@@ -45,7 +45,7 @@ export function projectResult(value: Partial<Project> | null | undefined, shared
 
 export async function listProjects(api: ApiClient, signal: AbortSignal) {
   const requests = ["/projects", "/projects/shared"].map((path, index) => api.json(path, { signal }).then(value =>
-    rows<Partial<Project>>(value, "projects").filter(row => typeof row?.id === "string" && row.id).map(row => projectResult(row, index === 1))));
+    (index === 1 && value === null ? [] : rows<Partial<Project>>(value, "projects")).filter(row => typeof row?.id === "string" && row.id).map(row => projectResult(row, index === 1))));
   const [owned, shared] = await Promise.allSettled(requests);
   if (owned.status === "rejected" && shared.status === "rejected") throw new Error("Les deux listes de projets sont indisponibles.");
   const projects = new Map<string, Project>();

@@ -78,6 +78,20 @@ function setup({ stored, session = null, exchange, loginWithPassword } = {}) {
   return { flow, secure, exchanges, warnings, saved: () => JSON.parse(storage.stored) };
 }
 
+await test("la session vérifiée conserve un cloisonnement stable sans profil et le change au changement de compte", async () => {
+  const { flow, saved } = setup({ session: "cookie-un" });
+  assert.equal(await flow.tokens.localScope(), "");
+  assert.equal((await flow.start()).screen, "app");
+  const original = await flow.tokens.localScope();
+  assert.match(original, /^session:[0-9a-f]{64}$/);
+  assert.equal(await flow.tokens.localScope(), original);
+  assert.doesNotMatch(JSON.stringify(saved()), /cookie-un|session:[0-9a-f]{64}/);
+  await flow.loginWithCookie("cookie-deux");
+  assert.notEqual(await flow.tokens.localScope(), original);
+  await flow.logout();
+  assert.equal(await flow.tokens.localScope(), "");
+});
+
 const failing = message => async () => { throw new Error(message); };
 
 // --- démarrage -----------------------------------------------------------------

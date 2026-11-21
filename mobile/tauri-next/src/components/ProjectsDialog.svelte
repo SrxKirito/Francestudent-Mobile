@@ -248,6 +248,26 @@
 </dialog>
 
 <style>
-  .workspace-project-dialog { max-height: 90dvh; overflow: auto; }
+  .workspace-project-dialog {
+    position: fixed;
+    inset: 0;
+    margin: auto;
+    box-sizing: border-box;
+    width: min(560px, calc(100% - max(24px, env(safe-area-inset-left) + env(safe-area-inset-right))));
+    max-height: calc(var(--ios-viewport-height, 100dvh) - var(--fs-safe-top, 0px) - var(--fs-safe-bottom, 0px) - 24px);
+    padding: 16px;
+    border: 1px solid var(--border, #343436);
+    border-radius: 18px;
+    color: var(--text, #eee);
+    background: var(--surface, #18181a);
+    overflow: auto;
+    overscroll-behavior: contain;
+  }
+  .workspace-project-dialog::backdrop { background: #0009; }
+  :global(.ios-viewport) .workspace-project-dialog {
+    top: calc(var(--ios-viewport-top, 0px) + var(--fs-safe-top, 0px) + 12px);
+    bottom: auto;
+    margin-block: 0;
+  }
   textarea { min-height: 7rem; }
 </style>

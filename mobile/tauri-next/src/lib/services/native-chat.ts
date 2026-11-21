@@ -66,7 +66,7 @@ interface ComposerPreferences {
   studyMode?: StudyMode;
   customInstructionsManaged?: boolean;
   fileInstrSynced?: boolean;
-  profile?: { id?: number };
+  profile?: { id?: number; email?: string };
 }
 
 const UUID = /^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/i;
@@ -817,8 +817,9 @@ export function createNativeChatEngine(options: NativeChatOptions): NativeChatEn
   function shareTarget(id: string) {
     const row = repository.get(id);
     if (!canUse(row) || !row.chatId) return null;
-    const idValue = readPreferences().profile?.id;
-    return { chatId: row.chatId, me: { id: typeof idValue === "number" && Number.isInteger(idValue) ? idValue : null, email: repository.owner() } };
+    const profile = readPreferences().profile;
+    const idValue = profile?.id;
+    return { chatId: row.chatId, me: { id: typeof idValue === "number" && Number.isInteger(idValue) ? idValue : null, email: typeof profile?.email === "string" ? profile.email : "" } };
   }
 
   async function shareCall(command: ShareRequest): Promise<ShareResult> {

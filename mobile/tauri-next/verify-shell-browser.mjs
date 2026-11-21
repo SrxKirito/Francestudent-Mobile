@@ -164,7 +164,12 @@ const FAKE_BACKEND = String.raw`(() => {
       if (row) row.projectId = method === "PUT" ? U(81) : null;
       return [row ? 200 : 404, row ?? {}];
     }
-    if (method === "GET" && p === "/user/me") return [200, { name: "Test", email: "test@example.org" }];
+    if (method === "GET" && p === "/user/me") {
+      const mode = new URL(location.href).searchParams.get("profile-fixture");
+      if (mode === "missing") return [404, { message: "Profil indisponible" }];
+      if (mode === "no-email") return [200, { id: 7, name: "Test" }];
+      return [200, { name: "Test", email: "test@example.org" }];
+    }
     if (method === "GET" && p === "/user/usage") return [200, backend.usage];
     if (method === "GET" && p === "/user/tokenusage") {
       const today = new Date().toLocaleDateString("sv-SE", { timeZone: "Europe/Paris" });
@@ -985,6 +990,48 @@ async function nativePhase(baseUrl, pageErrors) {
     await click("Importer", q("#conversation-import-open"));
     await waitFor(has("dialog.import-dialog[open]"), "modale compacte");
     assert.equal(await ev(q("dialog.import-dialog") + ".scrollWidth <= " + q("dialog.import-dialog") + ".clientWidth + 1"), true);
+    await escape();
+  });
+  await check("session valide sans profil : historique, envoi et stockage FRST", async () => {
+    await cdp.send("Emulation.setDeviceMetricsOverride", { width: 1280, height: 800, deviceScaleFactor: 1, mobile: false });
+    for (const mode of ["missing", "no-email"]) {
+      const url = baseUrl + "/?profile-fixture=" + mode;
+      await cdp.send("Page.navigate", { url });
+      await waitFor(`location.href === ${JSON.stringify(url)} && window.__backend.calls.some(row => row.path.startsWith("/chats?")) && document.querySelectorAll("#history .history-item").length >= 3`, "historique avec profil " + mode, { timeout: 30000 });
+      const send = `Test sans profil ${mode}`;
+      await input("#prompt", send);
+      await setPlan({ events: [delta("Réponse sans profil", 46), done("Réponse sans profil", 46)] });
+      await click("Envoyer malgré le profil absent", q("#send"));
+      await waitFor(contains("#thread", "Réponse sans profil"), "réponse reçue");
+      await click("Bibliothèque avec session valide", q("#library-open"));
+      await waitFor(contains("#svelte-library", "notes-frst.txt"), "liste Files V2 chargée");
+      assert.equal(await ev(contains("#svelte-library", "Connecte-toi")), false);
+      await escape();
+      await waitFor("!" + has("#svelte-library[open]"), "bibliothèque fermée");
+    }
+  });
+  await check("Projets : boîte de dialogue dans la zone sûre", async () => {
+    await cdp.send("Emulation.setDeviceMetricsOverride", { width: 390, height: 660, deviceScaleFactor: 1, mobile: false });
+    await ev(`(() => {
+      const root = document.documentElement;
+      root.classList.add("ios-viewport");
+      root.style.setProperty("--fs-safe-top", "54px");
+      root.style.setProperty("--fs-safe-bottom", "34px");
+      root.style.setProperty("--ios-viewport-height", "660px");
+    })()`);
+    await click("Ouvrir le tiroir", q("#menu-toggle"));
+    await waitFor(`(() => {
+      const target = document.querySelector("#sidebar.open #projects-open");
+      if (!target) return false;
+      const r = target.getBoundingClientRect();
+      return target.contains(document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2));
+    })()`, "bouton Projets visible dans le tiroir");
+    await click("Projets", q("#projects-open"));
+    await waitFor(has("#svelte-projects[open]"), "modale Projets ouverte");
+    await waitFor(q("#svelte-projects") + ".getBoundingClientRect().top >= 66", "en-tête sous la zone sûre");
+    const style = await ev(`(() => { const d = document.querySelector("#svelte-projects"); const r = d.getBoundingClientRect(); return { background: getComputedStyle(d).backgroundColor, bottom: r.bottom, width: r.width }; })()`);
+    assert.notEqual(style.background, "rgb(255, 255, 255)");
+    assert.ok(style.bottom <= 660 - 34 && style.width < 390);
     await escape();
   });
   await check("secours hybride : montage et raccordement du pont historique", async () => {

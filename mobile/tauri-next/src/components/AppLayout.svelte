@@ -115,13 +115,17 @@
     const request = createNativeRequest(sessionTokens);
     const local = createStorageSettings(storage);
     const accountLocal = createStorageAccount(storage);
-    let owner = accountLocal.read().profile.email;
+    const cachedEmail = accountLocal.read().profile.email;
+    const ownerBindingKey = STORE_KEY + ":account-owner";
+    let owner = "";
+    let ownerTask: Promise<void> | null = null;
+    let historyFailed = false;
     let ready = false;
     let agents: EngineAgent[] = [];
     const historyStorage = createConversationStorage({
       indexedDB: window.indexedDB, localStorage: storage, warn: text => chat.toast(text, true)
     });
-    const repository = createNativeConversations({ api, owner: () => owner, cachedOwner: owner, storage: historyStorage });
+    const repository = createNativeConversations({ api, owner: () => owner, cachedOwner: cachedEmail, storage: historyStorage });
     const files = createNativeFiles(request);
     const previewStorage = createPreviewStorage(window.indexedDB);
     const engine = createNativeChatEngine({
@@ -203,8 +207,60 @@
     store.connect(shellEngine);
     chat.connect(engine);
 
+    function resolveOwner(): Promise<void> {
+      if (owner || signal.aborted) return Promise.resolve();
+      if (ownerTask) return ownerTask;
+      const task = (async () => {
+        const confirmedScope = sessionTokens.localScope?.().catch(() => "");
+        let profileEmail = "";
+        const profileRequest = new AbortController();
+        const cancel = () => profileRequest.abort();
+        signal.addEventListener("abort", cancel, { once: true });
+        const timeout = setTimeout(cancel, 4500);
+        try {
+          const profile = await loadProfile(api, profileRequest.signal);
+          if (signal.aborted) return;
+          if (profile.email) {
+            profileEmail = profile.email;
+            try { accountLocal.saveProfile(profile); } catch { /* Le compte reste connu en mémoire. */ }
+          }
+        } catch {
+          // Ce point de terminaison est facultatif pour les opérations authentifiées.
+        } finally {
+          clearTimeout(timeout);
+          signal.removeEventListener("abort", cancel);
+        }
+        const scope = await confirmedScope;
+        if (signal.aborted || owner) return;
+        let previous = "";
+        if (scope) {
+          try {
+            const record = JSON.parse(storage.getItem(ownerBindingKey) || "null");
+            if (record?.scope === scope && typeof record.owner === "string") previous = record.owner;
+          } catch { /* Association locale absente. */ }
+        }
+        owner = previous || profileEmail || scope || "";
+        if (scope && owner) {
+          try { storage.setItem(ownerBindingKey, JSON.stringify({ scope, owner })); }
+          catch { /* L’identité de cette session reste disponible en mémoire. */ }
+        }
+      })();
+      ownerTask = task;
+      void task.finally(() => { if (ownerTask === task) ownerTask = null; });
+      return task;
+    }
+
     function syncHistory() {
-      if (!signal.aborted && ready && owner) void repository.sync().catch(() => {});
+      if (signal.aborted || !ready) return;
+      void resolveOwner().then(() => {
+        if (signal.aborted || !owner) return;
+        store.refresh();
+        return repository.sync();
+      }).then(() => { if (owner) historyFailed = false; }).catch(error => {
+        if (signal.aborted || historyFailed) return;
+        historyFailed = true;
+        chat.toast("Synchronisation de l’historique indisponible : " + errorMessage(error), true);
+      });
     }
     const foreground = () => { if (!document.hidden) syncHistory(); };
     document.addEventListener("visibilitychange", foreground);
@@ -216,16 +272,7 @@
       syncSettings();
     });
     void (async () => {
-      try {
-        const profile = await loadProfile(api, signal);
-        if (signal.aborted) return;
-        if (profile.email) {
-          owner = profile.email;
-          try { accountLocal.saveProfile(profile); } catch { /* Le compte reste connu en mémoire. */ }
-        }
-      } catch {
-        // Même session que lors du dernier accès, si un profil existe encore sur l’appareil.
-      }
+      await resolveOwner();
       if (signal.aborted) return;
       try { await repository.load(); }
       catch (error) { if (!signal.aborted) chat.toast("Historique local indisponible : " + errorMessage(error), true); }

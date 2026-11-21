@@ -18,6 +18,8 @@ export interface TokenProviderDeps {
 export interface TokenProvider {
   getAccessToken(force?: boolean): Promise<string>;
   invalidate(): void;
+  /** Identité locale de la session authentifiée quand le serveur ne fournit pas de profil. */
+  localScope?(): Promise<string>;
 }
 
 /** Même comportement que `getAccessToken` du pont historique (legacy-bridge.js), sans état global. */

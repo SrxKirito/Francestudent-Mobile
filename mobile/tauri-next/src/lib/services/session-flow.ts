@@ -50,11 +50,25 @@ export function createSessionFlow(deps: SessionFlowDeps): SessionFlow {
   let deviceId = "";
   let secureReady = false;
 
-  const tokens = createTokenProvider({
+  const access = createTokenProvider({
     exchange: deps.exchange,
     getSession: () => candidate ?? session,
     getDeviceId: () => deviceId
   });
+  const tokens: TokenProvider = {
+    ...access,
+    async localScope() {
+      const current = session;
+      if (!current || candidate !== null) return "";
+      await access.getAccessToken();
+      if (current !== session || candidate !== null) return "";
+      // Le cookie reste dans le trousseau. Seule l’empreinte de cloisonnement est utilisée par le stockage local.
+      const bytes = new TextEncoder().encode("FranceStudent/local-session/v1\0" + current);
+      const digest = await crypto.subtle.digest("SHA-256", bytes);
+      if (current !== session || candidate !== null) return "";
+      return "session:" + Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, "0")).join("");
+    }
+  };
 
   function persist(patch: StatePatch): void {
     try {
