@@ -11,6 +11,7 @@ import type { NativeConversation, NativeConversations } from "./native-conversat
 import { inlineFileContent, PREVIEW_MAX_BYTES } from "./native-files.ts";
 import type { NativeFiles } from "./native-files.ts";
 import type { LibraryEntry, PreviewStorage, StoredAttachment } from "./preview-storage.ts";
+import { createRemoteImageCache } from "./remote-image-cache.ts";
 import type { FileThumbnail, FileUsage, LibraryRecord, RemoteFile, WorkspaceEngine } from "./workspace-engine.ts";
 
 const LOCAL_IMAGE_LIMIT = 1024 * 1024;
@@ -32,6 +33,7 @@ interface RemoteCache {
   files(): RemoteFile[];
   get(id: string): RemoteFile | null;
   hasMore(): boolean;
+  usage(): FileUsage | null;
   fetchUsage(options: { force: boolean }): Promise<FileUsage>;
   reload(): Promise<unknown>;
   ensureLoaded(): Promise<unknown>;
@@ -79,6 +81,7 @@ export interface NativeWorkspaceOptions {
 
 export interface NativeWorkspaceEngine extends WorkspaceEngine {
   noteUploaded(file: unknown): void;
+  releaseImageCacheSpace(): Promise<void>;
   dispose(): void;
 }
 
@@ -246,8 +249,9 @@ export function createNativeWorkspaceEngine(options: NativeWorkspaceOptions): Na
     api: (path, call) => api.json(path, { ...call, signal })
   });
   const unwatchForeground = typeof document === "undefined" ? () => {} : remote.watchForeground(document);
+  const remoteImages = createRemoteImageCache(globalThis.indexedDB);
   const thumbnails = bundles.tauriFileThumbnails.create({
-    fetchBlob: (file, settings) => files.content(file.id, settings),
+    fetchBlob: (file, settings) => remoteContent(file, settings),
     imageMaxBytes: REMOTE_PREVIEW_LIMIT,
     createUrl: async (blob, mime) => {
       const input = await sniffPreviewType(blob, "preview");
@@ -266,8 +270,12 @@ export function createNativeWorkspaceEngine(options: NativeWorkspaceOptions): Na
     thumbnails.clear();
   }
 
+  function canBrowse(): boolean {
+    return !signal.aborted && Boolean(repository.owner());
+  }
+
   function ready(): boolean {
-    return !signal.aborted && Boolean(repository.owner()) && !options.busy();
+    return canBrowse() && !options.busy();
   }
 
   function requireReady() {
@@ -279,6 +287,31 @@ export function createNativeWorkspaceEngine(options: NativeWorkspaceOptions): Na
     const row = remote.get(id);
     if (!row) throw new Error("Fichier indisponible.");
     return row;
+  }
+
+  function imageCacheKey(owner: string, row: RemoteFile): string {
+    return JSON.stringify([owner, row.id, row.bytes, row.created_at]);
+  }
+
+  async function remoteContent(row: RemoteFile, settings: { signal: AbortSignal; limit: number; truncate?: boolean }): Promise<Blob> {
+    const owner = repository.owner();
+    const name = unnamed(row);
+    if (!owner || settings.truncate || fileKind(name) !== "image") return files.content(row.id, settings);
+    const key = imageCacheKey(owner, row);
+    const cached = await remoteImages.read(key);
+    function confirmOwner() {
+      checkSignal(signal);
+      checkSignal(settings.signal);
+      if (repository.owner() !== owner) throw new DOMException("Session changée.", "AbortError");
+    }
+    confirmOwner();
+    if (!remote.get(row.id)) throw new Error("Fichier indisponible.");
+    if (cached && cached.size <= settings.limit) return cached;
+    const blob = await sniffPreviewType(await files.content(row.id, settings), name);
+    confirmOwner();
+    if (RASTER.test(blob.type) && remote.get(row.id)) await remoteImages.write(key, blob);
+    confirmOwner();
+    return blob;
   }
 
   function canReadLocal(row: LibraryEntry, owner: string): boolean {
@@ -386,11 +419,18 @@ export function createNativeWorkspaceEngine(options: NativeWorkspaceOptions): Na
   return {
     files: () => remote.files(),
     moreFiles: () => remote.hasMore(),
+    cachedUsage: () => remote.usage(),
     usage: force => remote.fetchUsage({ force }),
     refreshFiles: () => remote.reload(),
     loadFiles: () => remote.ensureLoaded(),
     loadMore: () => remote.loadMore(),
-    removeFile: id => remote.remove(id),
+    async removeFile(id) {
+      const row = remote.get(id);
+      const owner = repository.owner();
+      const result = await remote.remove(id);
+      if (row && owner && fileKind(unnamed(row)) === "image") await remoteImages.remove(imageCacheKey(owner, row));
+      return result;
+    },
     watchFiles(listener) {
       const removeFiles = remote.subscribe(listener);
       const removeConversations = repository.subscribe(listener);
@@ -406,7 +446,7 @@ export function createNativeWorkspaceEngine(options: NativeWorkspaceOptions): Na
         name,
         load: outer => previewLoad(outer, async requestSignal => {
           if (typeof row.bytes === "number" && row.bytes > PREVIEW_MAX_BYTES) throw tooLarge();
-          return sniffPreviewType(await files.content(id, { signal: requestSignal, limit: REMOTE_PREVIEW_LIMIT }), name);
+          return sniffPreviewType(await remoteContent(row, { signal: requestSignal, limit: REMOTE_PREVIEW_LIMIT }), name);
         }),
         save: () => downloadRemote(row)
       });
@@ -444,7 +484,6 @@ export function createNativeWorkspaceEngine(options: NativeWorkspaceOptions): Na
     async localFileAction(id, action) {
       const row = await localEntry(id);
       if (action === "chat") {
-        requireReady();
         if (!repository.get(row.conversationId)) throw new Error("Le chat d’origine n’est plus disponible.");
         await options.openChat(row.conversationId);
         return;
@@ -460,8 +499,9 @@ export function createNativeWorkspaceEngine(options: NativeWorkspaceOptions): Na
     },
     libraryColumns: () => local.read().libraryColumns,
     projectReady: ready,
+    canOpenProject: canBrowse,
     enterProject(project, chats) {
-      requireReady();
+      if (!canBrowse()) throw new Error("Le compte n’est pas disponible.");
       repository.setProject(project, chats);
     },
     updateProject: project => repository.editProject(project),
@@ -498,12 +538,14 @@ export function createNativeWorkspaceEngine(options: NativeWorkspaceOptions): Na
       if (typeof record(file)?.filename === "string") remote.noteUploaded(file);
       else remote.invalidate();
     },
+    releaseImageCacheSpace: remoteImages.releaseSpace,
     dispose() {
       if (signal.aborted) return;
       lifetime.abort();
       unwatchForeground();
       unwatchReset();
       thumbnails.clear();
+      remoteImages.close();
       remote.reset();
     }
   };

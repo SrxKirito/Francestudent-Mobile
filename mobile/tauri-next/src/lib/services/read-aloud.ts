@@ -44,7 +44,8 @@ export function createNativeReadAloud(
   },
   onChange: (index: number | null) => void,
   onError: () => void,
-  language: string
+  language: string,
+  onEnd?: () => void
 ): ReadAloudPlayer {
   let active: number | null = null;
   let ticket = 0;
@@ -72,7 +73,7 @@ export function createNativeReadAloud(
     active = index;
     onChange(index);
     void transport.start(nextSequence(), text, language).then(
-      () => { if (ticket === id) clear(); },
+      () => { if (ticket === id) { clear(); onEnd?.(); } },
       () => {
         if (ticket !== id) return;
         clear();
@@ -89,7 +90,8 @@ export function createReadAloud(
   utterance: (text: string) => SpeechSynthesisUtterance,
   onChange: (index: number | null) => void,
   onError: () => void,
-  language: string
+  language: string,
+  onEnd?: () => void
 ) {
   let active: number | null = null;
   let ticket = 0;
@@ -117,6 +119,7 @@ export function createReadAloud(
         active = null;
         current = null;
         onChange(null);
+        onEnd?.();
         return;
       }
       try {

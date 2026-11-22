@@ -1,4 +1,5 @@
 <script lang="ts">
+  import type { TableFollowUp } from "../lib/services/interactive-app-session.ts";
   import type { PreviewFile } from "../lib/services/file-preview.ts";
   import { safeFileName } from "../lib/services/file-preview.ts";
   import type { PdfDocument, Presentation } from "../lib/services/document-assets.ts";
@@ -23,7 +24,7 @@
     | { kind: "sheets"; sheets: Sheet[] }
     | { kind: "unavailable"; detail: string };
 
-  let { file, onclose }: { file: PreviewFile | null; onclose: () => void } = $props();
+  let { file, onclose, onAnalyze }: { file: PreviewFile | null; onclose: () => void; onAnalyze?: (selection: TableFollowUp) => void } = $props();
   let dialog: HTMLDialogElement | undefined = $state();
   let view: View | null = $state.raw(null);
   let loadedBlob: Blob | null = $state.raw(null);
@@ -223,7 +224,10 @@
           </select></label>
         {/if}
         {#key sheetIndex}
-          <InteractiveTable {...view.sheets[sheetIndex]} />
+          <InteractiveTable {...view.sheets[sheetIndex]} onAnalyze={onAnalyze && file ? selection => {
+            const title = file?.name && file.name !== selection.title ? (file.name + " · " + selection.title).slice(0, 120) : selection.title;
+            onAnalyze?.({ ...selection, title });
+          } : undefined} />
         {/key}
       {:else if view?.kind === "word"}
         <article class="word-preview">

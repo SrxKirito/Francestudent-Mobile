@@ -119,6 +119,7 @@ test("liveVisible : bulle en direct seulement pendant la génération, jamais en
   const live = { active: true, text: "abc", searching: false, sources: [], imageStarted: false };
   const user = { role: "user" };
   assert.equal(view.liveVisible({ busy: true, messages: [user] }, live), true);
+  assert.equal(view.liveVisible({ busy: true, backgroundReply: true, messages: [user] }, live), false);
   assert.equal(view.liveVisible({ busy: true, messages: [] }, live), true);
   assert.equal(view.liveVisible({ busy: false, messages: [user] }, live), false);
   assert.equal(view.liveVisible({ busy: true, messages: [user] }, { ...live, active: false }), false);

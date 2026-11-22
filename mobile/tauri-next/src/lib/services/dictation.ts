@@ -15,6 +15,16 @@ export function appSpeech(): SpeechAdapter | null {
   return (window as Window & { __franceStudentSpeech?: SpeechAdapter }).__franceStudentSpeech ?? null;
 }
 
+let initializingSpeech: Promise<SpeechAdapter | null> | undefined;
+
+export function initializeAppSpeech(adapter: Promise<SpeechAdapter | null>): void {
+  initializingSpeech = adapter;
+}
+
+export function appSpeechReady(): Promise<SpeechAdapter | null> {
+  return initializingSpeech ?? Promise.resolve(appSpeech());
+}
+
 type Run = { subscriptions: Subscription[]; start?: Promise<void> };
 
 export function createDictation(plugin: SpeechAdapter, ui: {

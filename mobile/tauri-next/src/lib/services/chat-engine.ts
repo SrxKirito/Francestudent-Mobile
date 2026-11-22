@@ -4,6 +4,8 @@ import type {
   AttachmentKind, ChatImage, ChatMessage, ChatOptionName, ChatRole, ChatSource, ChatState, ComposerAttachment,
   ComposerState, ConversationAgent, MessageAttachment, PreviewTarget, StudyMode
 } from "../types/chat.ts";
+import type { EditorTarget } from "./document-editor.ts";
+import type { InteractiveFollowUp } from "./interactive-app-session.ts";
 import type { CommonsImage, ImageSearch } from "./image-search.ts";
 import type { GeneratedImage, ProcessChatStreamOptions } from "../types/chat-stream.ts";
 import type { ImportApi, ImportExisting, ImportModel, ImportModels, ImportOutcome, ImportRequest } from "./conversation-import.ts";
@@ -22,8 +24,14 @@ export interface ChatEngine {
   detach(): void;
   state(): ChatState;
   send(text: string, skillPrefix?: string): boolean;
+  sendWithInteractiveContext?(text: string, context: InteractiveFollowUp, skillPrefix?: string): boolean;
+  readEditorDraft?(conversationId: string, index: number, block: EditorTarget, revision: string): string | undefined;
+  saveEditorDraft?(conversationId: string, index: number, block: EditorTarget, revision: string, snapshot: string): void;
   stop(): void;
   regenerate(index: number): void;
+  selectResponseVersion?(index: number, version: number): void;
+  branch?(index: number): void;
+  remember?(text: string): boolean;
   removeAttachment(id: string): void;
   /** Relance le téléversement d'une pièce jointe en échec (absent des anciens ponts : sans effet). */
   retryUpload(id: string): void;

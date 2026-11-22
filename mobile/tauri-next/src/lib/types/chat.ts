@@ -1,6 +1,7 @@
 // Types du chat Svelte : instantané renvoyé par le pont de l'ancienne interface (svelte-chat-engine.js).
 // Aucun import à l'exécution : ce fichier est effacé à la compilation.
 
+import type { EditorFollowUp } from "../services/interactive-app-session.ts";
 import type { ImageSearch } from "../services/image-search.ts";
 
 export type ChatRole = "user" | "assistant" | "error";
@@ -34,6 +35,8 @@ export interface ChatMessage {
   role: ChatRole;
   content: string;
   serverMessageId?: string;
+  responseVersions?: { index: number; count: number };
+  editorRequest?: EditorFollowUp;
   feedback?: "up" | "down";
   sources?: ChatSource[];
   images?: ChatImage[];
@@ -76,6 +79,8 @@ export interface ChatState {
   chatId: string | null;
   title: string;
   busy: boolean;
+  /** Génération active dans une autre discussion. */
+  backgroundReply?: boolean;
   stopping: boolean;
   /** Réponse interrompue à reprendre (conversation.pendingResponse). */
   pending: boolean;

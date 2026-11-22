@@ -15,17 +15,20 @@
   import ToastHost from "./ToastHost.svelte";
   import { createRuntimeApiClient } from "../lib/services/api-runtime.ts";
   import { createStorageAccount } from "../lib/services/account-local.ts";
-  import { loadProfile, profileName } from "../lib/services/account.ts";
+  import { loadProfile, profileFirstName, type Profile } from "../lib/services/account.ts";
   import { readAvatarImage } from "../lib/services/avatar-image.ts";
   import { savedMessages } from "../lib/services/saved-messages.ts";
   import { saveBytes, saveResponse } from "../lib/services/file-saver.ts";
   import type { TokenProvider } from "../lib/services/auth.ts";
   import type { PreviewFile } from "../lib/services/file-preview.ts";
   import type { EngineAgent } from "../lib/services/legacy-engine.ts";
+  import { resolveStartupOwner } from "../lib/services/startup-owner.ts";
   import { createConversationStorage } from "../lib/services/conversation-storage.ts";
   import { createGeneralSettingsService } from "../lib/services/general-settings.ts";
   import { createStorageSettings } from "../lib/services/local-settings.ts";
   import type { LocalSettingsGateway } from "../lib/services/local-settings.ts";
+  import { createChatMemory, type ChatMemory } from "../lib/services/chat-memory.ts";
+  import LocalMemoryPanel from "./LocalMemoryPanel.svelte";
   import { createNativeChatEngine } from "../lib/services/native-chat.ts";
   import { createNativeRequest } from "../lib/services/native-chat-network.ts";
   import { createNativeConversations } from "../lib/services/native-conversations.ts";
@@ -68,6 +71,7 @@
   let libraryOpen = $state(false);
   let saveMessage = $state.raw<((chatId: string, messageId: string) => Promise<void>) | undefined>(undefined);
   let settings = $state.raw<SettingsStore | null>(null);
+  let chatMemory = $state.raw<ChatMemory | null>(null);
   let preview = $state.raw<PreviewFile | null>(null);
   let renameRequest = $state.raw<{ initial: string; resolve: (title: string | null) => void } | null>(null);
 
@@ -124,13 +128,16 @@
     let ready = false;
     let agents: EngineAgent[] = [];
     const historyStorage = createConversationStorage({
-      indexedDB: window.indexedDB, localStorage: storage, warn: text => chat.toast(text, true)
+      indexedDB: window.indexedDB, localStorage: storage, warn: text => chat.toast(text, true),
+      reclaimSpace: () => workspace.releaseImageCacheSpace()
     });
     const repository = createNativeConversations({ api, owner: () => owner, cachedOwner: cachedEmail, storage: historyStorage });
+    const memory = createChatMemory(storage, repository.owner);
+    chatMemory = memory;
     const files = createNativeFiles(request);
     const previewStorage = createPreviewStorage(window.indexedDB);
     const engine = createNativeChatEngine({
-      api, tokens: sessionTokens, repository, local, agents: () => agents, files, previewStorage, openPreview,
+      api, tokens: sessionTokens, repository, local, memory, agents: () => agents, files, previewStorage, openPreview,
       noteUploaded: data => workspace.noteUploaded(data)
     });
     const workspace = createNativeWorkspaceEngine({
@@ -151,6 +158,7 @@
         syncSettings();
       }
     };
+    let editedProfile: Profile | undefined;
     const account = onlogout ? new AccountStore({
       api, showSessions: false,
       local: {
@@ -172,7 +180,9 @@
       readAvatar: readAvatarImage,
       now: () => new Date(),
       toast: (text, error) => chat.toast(text, error),
-      avatarChanged: () => store.refresh()
+      avatarChanged: () => store.refresh(),
+      profileChanged: profile => { editedProfile = profile; store.refresh(); },
+      sessionSignal: signal
     }) : undefined;
     const skills = new SkillsStore(api, async (file, abort) => {
       const token = await sessionTokens.getAccessToken();
@@ -191,10 +201,10 @@
       openClassic: () => chat.toast("Cet écran est indisponible dans la session actuelle.", true)
     });
     const shellEngine = createNativeShell({
-      api, request, repository, ready: () => ready, busy: () => engine.busy(), agents: () => agents,
+      api, request, repository, ready: () => ready, agents: () => agents,
       profile() {
         const account = accountLocal.read();
-        return { label: profileName(account.profile), avatar: account.avatar };
+        return { label: profileFirstName(editedProfile ?? account.profile) || "Compte", avatar: account.avatar };
       },
       theme: () => local.read().theme,
       refreshAgent: () => engine.settingsChanged(),
@@ -210,41 +220,30 @@
     function resolveOwner(): Promise<void> {
       if (owner || signal.aborted) return Promise.resolve();
       if (ownerTask) return ownerTask;
-      const task = (async () => {
-        const confirmedScope = sessionTokens.localScope?.().catch(() => "");
-        let profileEmail = "";
+      const confirmedScope = sessionTokens.localScope?.().catch(() => "") ?? Promise.resolve("");
+      const profileEmail = (async () => {
         const profileRequest = new AbortController();
         const cancel = () => profileRequest.abort();
         signal.addEventListener("abort", cancel, { once: true });
         const timeout = setTimeout(cancel, 4500);
         try {
           const profile = await loadProfile(api, profileRequest.signal);
-          if (signal.aborted) return;
-          if (profile.email) {
-            profileEmail = profile.email;
+          if (signal.aborted) return "";
+          if (profile.email && !editedProfile) {
             try { accountLocal.saveProfile(profile); } catch { /* Le compte reste connu en mémoire. */ }
+            if (ready) store.refresh();
           }
+          return profile.email || "";
         } catch {
-          // Ce point de terminaison est facultatif pour les opérations authentifiées.
+          return "";
         } finally {
           clearTimeout(timeout);
           signal.removeEventListener("abort", cancel);
         }
-        const scope = await confirmedScope;
-        if (signal.aborted || owner) return;
-        let previous = "";
-        if (scope) {
-          try {
-            const record = JSON.parse(storage.getItem(ownerBindingKey) || "null");
-            if (record?.scope === scope && typeof record.owner === "string") previous = record.owner;
-          } catch { /* Association locale absente. */ }
-        }
-        owner = previous || profileEmail || scope || "";
-        if (scope && owner) {
-          try { storage.setItem(ownerBindingKey, JSON.stringify({ scope, owner })); }
-          catch { /* L’identité de cette session reste disponible en mémoire. */ }
-        }
       })();
+      const task = resolveStartupOwner(storage, ownerBindingKey, confirmedScope, profileEmail, signal).then(resolved => {
+        if (!signal.aborted && !owner) owner = resolved;
+      });
       ownerTask = task;
       void task.finally(() => { if (ownerTask === task) ownerTask = null; });
       return task;
@@ -262,7 +261,11 @@
         chat.toast("Synchronisation de l’historique indisponible : " + errorMessage(error), true);
       });
     }
-    const foreground = () => { if (!document.hidden) syncHistory(); };
+    const foreground = () => {
+      if (document.hidden) return;
+      historyStorage.retry();
+      syncHistory();
+    };
     document.addEventListener("visibilitychange", foreground);
     window.addEventListener("online", syncHistory);
 
@@ -272,14 +275,14 @@
       syncSettings();
     });
     void (async () => {
-      await resolveOwner();
-      if (signal.aborted) return;
-      try { await repository.load(); }
+      try { await repository.load(resolveOwner()); }
       catch (error) { if (!signal.aborted) chat.toast("Historique local indisponible : " + errorMessage(error), true); }
       if (signal.aborted) return;
       ready = true;
       syncSettings();
       syncHistory();
+      account?.prefetchMetrics();
+      if (owner) void workspace.usage(false).catch(() => {});
     })();
 
     return () => {
@@ -287,6 +290,7 @@
       document.removeEventListener("visibilitychange", foreground);
       window.removeEventListener("online", syncHistory);
       settings?.close();
+      account?.stop();
       skills.dispose();
       answerRename(null);
       chat.disconnect();
@@ -497,7 +501,8 @@
       <LegacyFrame onframe={onFrame} />
     {:else}
       {#if !store.ready}<Startup />{/if}
-      <ChatPane {chat} {openPreview} {saveMessage} skills={settings?.skillsPanel} />
+      <ChatPane {chat} {openPreview} {saveMessage} skills={settings?.skillsPanel}
+        voiceAllowed={!settings?.open && !preview && !libraryOpen && !projects} />
       <ToastHost {chat} />
       <ConfirmDialog {chat} />
       <ImportDialog {chat} />
@@ -533,6 +538,9 @@
     {#await import("./SettingsDialog.svelte") then { default: SettingsDialog }}
       <SettingsDialog store={current} showChatToggle={false} onconfirm={text => chat.confirm(text)}
         onimport={importConversation} onarchives={store.archive.available ? () => { if (!store.archive.open) store.toggleArchive(); } : undefined}>
+        {#snippet memoryPanel()}
+          {#if chatMemory && store.ready}<LocalMemoryPanel memory={chatMemory} />{/if}
+        {/snippet}
         {#snippet conversations()}
           {@const snapshot = chat.state}
           <section class="general-section" aria-labelledby="settings-conversations-title">
@@ -559,7 +567,13 @@
   {/if}
   {#if preview}
     {#await import("./PreviewDialog.svelte") then { default: PreviewDialog }}
-      <PreviewDialog file={preview} onclose={() => { preview = null; }} />
+      <PreviewDialog file={preview} onclose={() => { preview = null; }}
+        onAnalyze={chat.engine?.sendWithInteractiveContext ? selection => {
+          chat.useInteractiveContext(chat.state.id, selection);
+          preview = null;
+          libraryOpen = false;
+          settings?.close();
+        } : undefined} />
     {:catch}
       <p role="alert">Impossible de charger l’aperçu.</p>
     {/await}

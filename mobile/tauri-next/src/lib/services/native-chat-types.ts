@@ -30,4 +30,5 @@ export interface NativePending extends PendingResponse {
   baselineIds?: string[];
   userServerId?: string;
   imageMode?: boolean;
+  variant?: { index: number; chatId?: string; prefix?: number; agentId?: number; agentName?: string; agentProvider?: string };
 }

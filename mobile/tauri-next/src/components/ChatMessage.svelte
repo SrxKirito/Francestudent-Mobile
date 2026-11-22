@@ -6,6 +6,9 @@
   import type { PreviewFile } from "../lib/services/file-preview.ts";
   import { generatedImageFile } from "../lib/services/file-preview.ts";
   import type { ChatStore } from "../lib/stores/chat.svelte.ts";
+  import type { EditorTarget } from "../lib/services/document-editor.ts";
+  import { assistantEditorSource, type InteractiveContent } from "../lib/services/interactive-content.ts";
+  import type { AppSession } from "../lib/services/interactive-app-session.ts";
   import { attachmentIcon } from "../lib/services/chat-view.ts";
   import { fileIconSvg } from "../lib/services/markdown.ts";
   import type { ChatImage, ChatMessage } from "../lib/types/chat.ts";
@@ -23,6 +26,34 @@
   }
 
   let { message, chat, openPreview, saveMessage, onread, speaking }: Props = $props();
+
+  let editorOpen = $state(false);
+  const editableReply = $derived(message.role === "assistant" && chat.state.id ? assistantEditorSource(message.content, "message") : undefined);
+
+  function appSession(fence: EditorTarget, kind: InteractiveContent["kind"]): AppSession | undefined {
+    const id = chat.state.id;
+    if (!id) return;
+    const followUp: AppSession["followUp"] = chat.engine?.sendWithInteractiveContext ? context => chat.useInteractiveContext(id,
+      context.kind === "editor" ? { ...context, message: message.index, block: fence } : context) : undefined;
+    return kind === "editor" ? chat.editorSession(id, message.index, fence, followUp)
+      : chat.appSessions.forBlock(id, message.index, fence, followUp);
+  }
+
+  const editorRequest = $derived(chat.state.messages[message.index - 1]?.editorRequest);
+  const applyEditorEdit = $derived.by(() => {
+    const id = chat.state.id;
+    const request = editorRequest;
+    return id && request && request.message < message.index - 1
+      ? (replacement: string) => chat.applyEditorSuggestion(id, request, replacement) : undefined;
+  });
+
+  let userBubble = $state<HTMLDivElement>();
+  function rememberMessage() {
+    const selection = window.getSelection();
+    const inside = selection?.anchorNode && selection.focusNode &&
+      userBubble?.contains(selection.anchorNode) && userBubble.contains(selection.focusNode);
+    void chat.remember((inside && selection?.toString().trim()) || message.content);
+  }
 
   let copied = $state(false);
   let saving = $state(false);
@@ -138,9 +169,12 @@
         {/each}
       </div>
     {/if}
-    {#if text !== ""}<div class="bubble">{message.content}</div>{:else if !message.attachments?.length}<div class="bubble"></div>{/if}
+    {#if text !== ""}<div class="bubble" bind:this={userBubble}>{message.content}</div>{:else if !message.attachments?.length}<div class="bubble"></div>{/if}
     <div class="message-actions user-actions">
       {@render saveButton()}
+      {#if chat.engine?.remember && text}
+        <button type="button" class="msg-action" onmousedown={event => event.preventDefault()} onclick={rememberMessage}>Mémoriser</button>
+      {/if}
       <button type="button" class="msg-action icon-only" title="Modifier ce message et relancer la réponse" aria-label="Modifier ce message et relancer la réponse" onclick={() => chat.engine?.editSent(message.index)}>{@html icon("edit")}</button>
       <button type="button" class="msg-action icon-only" title="Copier le texte" aria-label="Copier le texte" onclick={copyMessage}>{#if copied}<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5L20 7"/></svg>{:else}{@html icon("copy")}{/if}</button>
     </div>
@@ -182,11 +216,24 @@
     {#if text !== "" || !hasImages}
       <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
       <div class="bubble" onclick={onBubbleClick}>
-        <MessageContent content={message.content} katexReady={chat.katexReady} {openPreview} />
+        {#if editorOpen && editableReply}
+          {#await import("./InteractiveEditor.svelte") then { default: InteractiveEditor }}
+            <InteractiveEditor {...editableReply} session={appSession("message", "editor")} startEditing />
+          {:catch}
+            <p role="status">Impossible d’ouvrir l’éditeur.</p>
+          {/await}
+        {:else}
+          <MessageContent content={message.content} katexReady={chat.katexReady} {openPreview} {appSession} {applyEditorEdit} editLanguage={editorRequest?.language} />
+        {/if}
       </div>
     {/if}
     <div class="message-actions">
       {@render saveButton()}
+      {#if editableReply}
+        <button type="button" class="msg-action" aria-expanded={editorOpen} onclick={() => { editorOpen = !editorOpen; }}>
+          {editorOpen ? "Revenir à la réponse" : "Ouvrir dans l’éditeur"}
+        </button>
+      {/if}
       {#if onread && speechText(message.content)}
         <button type="button" class="msg-action icon-only" class:active={speaking === message.index} title={readLabel} aria-label={readLabel}
           aria-pressed={speaking === message.index} onclick={onread}>
@@ -197,11 +244,28 @@
         </button>
       {/if}
       <button type="button" class="msg-action icon-only" title="Copier" aria-label="Copier" onclick={copyMessage}>{#if copied}<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5L20 7"/></svg>{:else}{@html icon("copy")}{/if}</button>
+      {#if message.responseVersions && chat.engine?.selectResponseVersion}
+        {@const versions = message.responseVersions}
+        <div class="version-actions" role="group" aria-label="Variantes de réponse">
+          <button type="button" class="msg-action" aria-label="Variante précédente"
+            disabled={chat.state.busy || chat.state.pending || versions.index === 0}
+            onclick={() => chat.engine?.selectResponseVersion?.(message.index, versions.index - 1)}>‹</button>
+          <span aria-live="polite">{versions.index + 1} / {versions.count}</span>
+          <button type="button" class="msg-action" aria-label="Variante suivante"
+            disabled={chat.state.busy || chat.state.pending || versions.index + 1 >= versions.count}
+            onclick={() => chat.engine?.selectResponseVersion?.(message.index, versions.index + 1)}>›</button>
+        </div>
+      {/if}
+      {#if chat.engine?.branch}
+        <button type="button" class="msg-action" onclick={() => chat.engine?.branch?.(message.index)}>Créer une branche</button>
+      {/if}
       <button type="button" class="msg-action icon-only" title="Régénérer" aria-label="Régénérer" onclick={() => chat.engine?.regenerate(message.index)}>{@html icon("refresh")}</button>
     </div>
   </div>
 {/if}
 
 <style>
+  .version-actions { display: inline-flex; align-items: center; gap: .25rem; }
+  .version-actions button { min-width: 36px; min-height: 44px; }
   .image-open { display: block; background: transparent; padding: 0; border: 0; max-width: 100%; cursor: zoom-in; }
 </style>

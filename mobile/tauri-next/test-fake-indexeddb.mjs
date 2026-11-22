@@ -8,7 +8,7 @@ export function fakeIndexedDB() {
     opens: [],
     closed: 0,
     log: [],
-    fail: { open: false, get: false, put: 0 },
+    fail: { open: false, get: false, put: 0, putError: null },
     delay: 0
   };
   const later = fn => setTimeout(fn, state.delay);
@@ -34,7 +34,7 @@ export function fakeIndexedDB() {
     later(() => {
       if (state.fail.put > 0) {
         state.fail.put -= 1;
-        tx.error = new Error("quota dépassé");
+        tx.error = state.fail.putError ?? new Error("écriture refusée");
         tx.onabort();
         return;
       }

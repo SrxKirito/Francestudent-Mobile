@@ -7,6 +7,7 @@ import type { ApiClient } from "./api-client.ts";
 export interface Profile {
   name: string;
   email: string;
+  firstName?: string;
 }
 
 export type QuotaLevel = "" | "warn" | "danger";
@@ -101,8 +102,26 @@ export function profileName(profile: Profile): string {
   return profile.name || profile.email || "Mon compte";
 }
 
+export function profileFirstName(profile: Profile): string {
+  const name = profile.name.trim();
+  const preferred = profile.firstName?.trim();
+  return preferred && (name === preferred || name.startsWith(preferred + " ")) ? preferred : name.split(/\s+/, 1)[0];
+}
+
 export async function loadProfile(api: ApiClient, signal?: AbortSignal): Promise<Profile> {
   return parseProfile(await api.json("/user/me", { signal }));
+}
+
+export async function updateFirstName(api: ApiClient, profile: Profile, value: string, signal?: AbortSignal): Promise<Profile> {
+  const firstName = value.trim().replace(/\s+/g, " ").normalize();
+  const familyName = profile.name.trim().slice(profileFirstName(profile).length).trim();
+  const name = [firstName, familyName].filter(Boolean).join(" ");
+  if (!firstName || name.length < 2 || name.length > 100) {
+    throw new Error("Saisis un prénom valide. Le nom du compte doit contenir de 2 à 100 caractères.");
+  }
+  const updated = parseProfile(await api.json("/user/@me", { method: "PATCH", body: { name }, signal }));
+  if (updated.name.normalize() !== name.normalize()) throw new Error("Le serveur n’a pas confirmé le prénom.");
+  return { name: updated.name, email: updated.email || profile.email, firstName };
 }
 
 // --- Quota du jour ---------------------------------------------------------------------

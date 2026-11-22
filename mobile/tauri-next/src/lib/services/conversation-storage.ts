@@ -12,21 +12,22 @@ const RECORD_KEY = "conversations";
 const WARNING_INTERVAL_MS = 30_000;
 
 export const MSG_STORAGE_UNAVAILABLE =
-  "Stockage des discussions indisponible. Les données existantes sont conservées ; vérifie l’espace disponible sur le téléphone.";
-export const MSG_WRITE_FAILED = "Impossible d’enregistrer les discussions. Vérifie le stockage disponible sur le téléphone.";
-export const MSG_SETTINGS_FAILED = "Impossible d’enregistrer les réglages sur ce téléphone. Vérifie le stockage disponible.";
+  "Le stockage local des discussions est temporairement indisponible.";
+export const MSG_WRITE_FAILED = "La dernière modification des discussions n’a pas pu être enregistrée sur cet appareil.";
+const MSG_QUOTA = "La limite du stockage local de l’application est atteinte. La dernière modification des discussions reste en attente.";
 
 export interface ConversationStorageDeps {
   indexedDB: IDBFactory | undefined;
   localStorage: Pick<Storage, "getItem" | "setItem">;
   now?: () => number;
+  reclaimSpace?: () => Promise<void>;
   /** Avertissement visible (toast) ; par défaut `console.error`. Déjà limité à un message toutes les 30 s. */
   warn?: (message: string) => void;
 }
 
 export interface LoadedConversations {
   conversations: Conversation[];
-  /** Vrai si les discussions vivent dans IndexedDB ; faux = repli sur localStorage (base indisponible). */
+  /** Vrai si IndexedDB est ouvert pour les écritures ; faux = repli sur localStorage. */
   persistent: boolean;
 }
 
@@ -34,6 +35,7 @@ export interface ConversationStorage {
   load(): Promise<LoadedConversations>;
   /** Enregistre un instantané des discussions ; les écritures sont sérialisées, la dernière gagne. */
   save(conversations: readonly Conversation[]): void;
+  retry(): void;
   /** Résout quand toutes les écritures demandées jusque-là sont terminées. */
   flush(): Promise<void>;
   close(): void;
@@ -88,7 +90,9 @@ export function createConversationStorage(deps: ConversationStorageDeps): Conver
   const warnUser = deps.warn ?? ((message: string) => console.error(message));
   let database: IDBDatabase | null = null;
   let pending: string | null = null;
+  let failed: string | null = null;
   let writing: Promise<void> | null = null;
+  let legacyCleanupPending = false;
   let lastWarningAt = -Infinity;
 
   function warn(message: string): void {
@@ -97,30 +101,56 @@ export function createConversationStorage(deps: ConversationStorageDeps): Conver
     warnUser(message);
   }
 
+  function storageError(error: unknown): string {
+    return (error as { name?: string } | null)?.name ?? "";
+  }
+
+  async function write(database: IDBDatabase, conversations: Conversation[]) {
+    const put = () => runTransaction(database, "readwrite", store => store.put(conversations, RECORD_KEY));
+    try { await put(); }
+    catch (error) {
+      if (storageError(error) !== "QuotaExceededError" || !deps.reclaimSpace) throw error;
+      await deps.reclaimSpace().catch(() => {});
+      await put();
+    }
+  }
+
+  function clearLegacyCopy(): void {
+    try {
+      deps.localStorage.setItem(STORE_KEY, clearStoredConversations(deps.localStorage.getItem(STORE_KEY)));
+      legacyCleanupPending = false;
+    } catch {
+      // La copie précédente ne doit disparaître que si la migration est confirmée.
+    }
+  }
+
   async function load(): Promise<LoadedConversations> {
     // Le JSON stocké n'est pas validé élément par élément (comme dans l'ancienne interface) : le type est posé à la lecture.
     const raw = deps.localStorage.getItem(STORE_KEY);
     const legacy = readStoredConversations<Conversation>(raw);
     let conversations = legacy;
+    let loadedDatabase = false;
     try {
       if (!deps.indexedDB) throw new Error("IndexedDB absent");
       database = await openDatabase(deps.indexedDB);
       const saved: unknown = await runTransaction(database, "readonly", store => store.get(RECORD_KEY));
+      loadedDatabase = true;
       if (Array.isArray(saved)) {
         // Une copie d’avant la migration peut contenir des discussions supprimées depuis dans IndexedDB.
         conversations = hasStoredConversationFallback(raw) ? reconcileFallback(saved, legacy) : saved;
       }
       if (conversations !== saved) {
-        await runTransaction(database, "readwrite", store => store.put(conversations, RECORD_KEY));
+        await write(database, conversations);
       }
-      try {
-        // La copie de localStorage n'est vidée qu'une fois la transaction validée.
-        deps.localStorage.setItem(STORE_KEY, clearStoredConversations(deps.localStorage.getItem(STORE_KEY)));
-      } catch {
-        // Les discussions sont déjà en sûreté dans IndexedDB, qui prime à la relecture : la copie restante est inoffensive.
-      }
+      clearLegacyCopy();
       return { conversations, persistent: true };
-    } catch {
+    } catch (error) {
+      if (loadedDatabase) {
+        legacyCleanupPending = true;
+        failed = JSON.stringify(conversations);
+        if (storageError(error) !== "AbortError") warn(storageError(error) === "QuotaExceededError" ? MSG_QUOTA : MSG_WRITE_FAILED);
+        return { conversations, persistent: true };
+      }
       database?.close();
       database = null;
       warn(MSG_STORAGE_UNAVAILABLE);
@@ -133,28 +163,46 @@ export function createConversationStorage(deps: ConversationStorageDeps): Conver
       // Repli : écriture synchrone dans localStorage, comme l'ancienne interface sans IndexedDB.
       try {
         deps.localStorage.setItem(STORE_KEY, setStoredConversations(deps.localStorage.getItem(STORE_KEY), conversations, true));
-      } catch {
-        warn(MSG_SETTINGS_FAILED);
+        failed = null;
+      } catch (error) {
+        failed = JSON.stringify(conversations);
+        warn(storageError(error) === "QuotaExceededError" ? MSG_QUOTA : MSG_WRITE_FAILED);
       }
       return;
     }
     // Instantané pris maintenant : une écriture asynchrone ne peut ni réordonner ni voir des modifications ultérieures.
     pending = JSON.stringify(conversations);
+    failed = null;
+    drain(database);
+  }
+
+  function drain(db: IDBDatabase): void {
     if (writing) return;
-    const db = database;
     writing = (async () => {
       while (pending !== null) {
-        const next = JSON.parse(pending) as Conversation[];
+        const next = pending;
         pending = null;
         try {
-          await runTransaction(db, "readwrite", store => store.put(next, RECORD_KEY));
-        } catch {
-          warn(MSG_WRITE_FAILED);
+          await write(db, JSON.parse(next) as Conversation[]);
+          if (legacyCleanupPending) clearLegacyCopy();
+        } catch (error) {
+          if (pending === null) failed = next;
+          if (storageError(error) !== "AbortError") warn(storageError(error) === "QuotaExceededError" ? MSG_QUOTA : MSG_WRITE_FAILED);
         }
       }
     })().finally(() => {
       writing = null;
     });
+  }
+
+  function retry(): void {
+    if (failed === null || pending !== null) return;
+    const snapshot = failed;
+    failed = null;
+    if (database) {
+      pending = snapshot;
+      drain(database);
+    } else save(JSON.parse(snapshot) as Conversation[]);
   }
 
   async function flush(): Promise<void> {
@@ -166,5 +214,5 @@ export function createConversationStorage(deps: ConversationStorageDeps): Conver
     database = null;
   }
 
-  return { load, save, flush, close };
+  return { load, save, retry, flush, close };
 }

@@ -413,7 +413,9 @@ try {
     const out = html(store).replace(/<!--[\s\S]*?-->/g, "");
     const start = out.indexOf('<section id="panel-account"');
     assert.ok(start >= 0, "panneau Compte absent");
-    return out.slice(start, out.lastIndexOf("</section>") + "</section>".length);
+    return out.slice(start, out.lastIndexOf("</section>") + "</section>".length)
+      .replace(/\bclass="([^"]*)"/g, (_, value) =>
+        'class="' + value.split(/\s+/).filter(token => !/^svelte-[\w-]+$/.test(token)).join(" ") + '"');
   };
 
   await test("panneau Compte : chaque élément à identifiant du legacy existe avec la même balise, les mêmes classes et les mêmes attributs", async () => {
@@ -433,7 +435,7 @@ try {
 
   await test("panneau Compte : tous les textes du legacy, dans le même ordre (état initial, avant chargement)", async () => {
     const { store } = await accountStore({ activate: false });
-    const wanted = texts(legacyAccount);
+    const wanted = texts(legacyAccount).map(text => text === "Mon compte" ? "Compte" : text);
     const got = texts(accountPanel(store));
     let position = 0;
     for (const text of wanted) {
@@ -447,10 +449,11 @@ try {
     assert.ok(/id="activity-content"[^>]*\shidden/.test(out));
   });
 
-  await test("panneau Compte : nom, e-mail et avatar par défaut ou personnalisé", async () => {
+  await test("panneau Compte : prénom modifiable, e-mail et avatar", async () => {
     const { store, account } = await accountStore();
     const out = accountPanel(store);
-    assert.ok(/id="profile-name"[^>]*>Léa Martin</.test(out));
+    assert.ok(/id="profile-name"[^>]*>Léa</.test(out));
+    assert.ok(/aria-label="Modifier le prénom"/.test(out));
     assert.ok(/id="profile-email"[^>]*>lea@example\.org</.test(out));
     assert.ok(/id="avatar-remove"[^>]*\shidden/.test(out), "sans photo personnalisée, Retirer est masqué");
     assert.ok(!/id="profile-avatar"[^>]*src="data:/.test(out));
@@ -459,9 +462,9 @@ try {
     assert.ok(/id="profile-avatar"[^>]*src="data:image\/png;base64,AAAA"/.test(custom));
     assert.ok(!/id="avatar-remove"[^>]*\shidden/.test(custom));
     const anonymous = await accountStore({ data: { "/user/me": new Error("hors ligne") } });
-    assert.ok(/id="profile-name"[^>]*>Mon compte</.test(accountPanel(anonymous.store)));
+    assert.ok(/id="profile-name"[^>]*>Compte</.test(accountPanel(anonymous.store)));
     const mailOnly = await accountStore({ data: { "/user/me": { name: "", email: "x@y.org" } } });
-    assert.ok(/id="profile-name"[^>]*>x@y\.org</.test(accountPanel(mailOnly.store)));
+    assert.ok(/id="profile-email"[^>]*>x@y\.org</.test(accountPanel(mailOnly.store)));
   });
 
   await test("quota : ligne « Utilisé » avec barre, niveau d'alerte et note de réinitialisation", async () => {

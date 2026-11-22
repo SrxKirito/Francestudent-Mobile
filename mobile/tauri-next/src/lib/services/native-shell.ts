@@ -40,7 +40,6 @@ export interface NativeShellOptions {
   request: NativeRequest;
   repository: NativeConversations;
   ready(): boolean;
-  busy(): boolean;
   agents(): EngineAgent[];
   profile(): { label: string; avatar: string };
   theme(): Theme;
@@ -85,7 +84,6 @@ export function createNativeShell(deps: NativeShellOptions): ShellEngine {
   }
 
   function canNavigate() {
-    if (deps.busy()) { deps.notify("Attends la fin de la réponse en cours.", true); return false; }
     return deps.ready();
   }
 

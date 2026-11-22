@@ -27,7 +27,7 @@ export interface SessionFlowDeps {
   storage: KeyValueStorage;
   storeKey: string;
   makeId(): string;
-  /** Appelé quand les réglages n'ont pas pu être écrits (stockage plein) ; la session, elle, est déjà en sécurité. */
+  /** Appelé quand les réglages n'ont pas pu être écrits ; la session reste dans le trousseau. */
   warn?(message: string): void;
 }
 
@@ -74,7 +74,7 @@ export function createSessionFlow(deps: SessionFlowDeps): SessionFlow {
     try {
       deps.storage.setItem(deps.storeKey, patchStoredState(deps.storage.getItem(deps.storeKey), patch));
     } catch {
-      deps.warn?.("Impossible d’enregistrer les réglages sur ce téléphone. Vérifie le stockage disponible.");
+      deps.warn?.("Impossible d’enregistrer les réglages sur cet appareil.");
     }
   }
 

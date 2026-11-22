@@ -180,6 +180,23 @@ try {
     assert.equal(h.store.shareDisabled, false);
   });
 
+  await test("préchargement partagé et dernières mesures conservées pendant l’actualisation", async () => {
+    const h = harness();
+    const usage = deferred();
+    h.routes["GET /user/usage"] = () => usage.promise;
+    h.store.prefetchMetrics();
+    const opened = h.store.activate();
+    assert.equal(keys(h).filter(key => key === "GET /user/usage").length, 1);
+    usage.resolve(USAGE);
+    await opened;
+    const next = deferred();
+    h.routes["GET /user/usage"] = () => next.promise;
+    const refresh = h.store.refreshQuota();
+    assert.equal(h.store.quotaView.label, "42 %");
+    next.resolve(USAGE);
+    await refresh;
+  });
+
   await test("verrous : une actualisation pendant le chargement n'envoie pas de seconde requête", async () => {
     const h = harness();
     const usage = deferred();

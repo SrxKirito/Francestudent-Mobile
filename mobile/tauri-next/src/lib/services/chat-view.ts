@@ -89,8 +89,8 @@ export function liveStatus(live: LiveState): LiveIndicator {
  * La bulle « en direct » n'existe que pendant la génération, et seulement tant que la réponse n'est pas déjà
  * enregistrée dans la conversation (sinon elle s'afficherait deux fois).
  */
-export function liveVisible(state: { busy: boolean; messages: { role: string }[] }, live: LiveState): boolean {
-  if (!state.busy || !live.active) return false;
+export function liveVisible(state: { busy: boolean; backgroundReply?: boolean; messages: { role: string }[] }, live: LiveState): boolean {
+  if (!state.busy || state.backgroundReply || !live.active) return false;
   return state.messages[state.messages.length - 1]?.role !== "assistant";
 }
 

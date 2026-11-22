@@ -154,7 +154,9 @@ await test("les feuilles Svelte ne sont importées que paresseusement (le chemin
     assert.ok(!/^\s*import\s+["'][^"']*styles\/legacy/m.test(source), `${file} importe les styles statiquement`);
   }
   const shell = fs.readFileSync(path.join(here, "src/components/Shell.svelte"), "utf8");
-  assert.match(shell, /import\("\.\.\/styles\/legacy\.ts"\)/);
+  assert.match(shell, /import\("\.\.\/styles\/native-shell\.ts"\)/);
+  const styles = fs.readFileSync(path.join(here, "src/styles/native-shell.ts"), "utf8");
+  assert.match(styles, /import "\.\/legacy\.ts"/);
 });
 
 await test("feuille des fenêtres : zones sûres latérales, champs 16 px au tactile, chargée après les feuilles historiques", () => {
@@ -164,8 +166,8 @@ await test("feuille des fenêtres : zones sûres latérales, champs 16 px au tac
   assert.match(css, /env\(safe-area-inset-bottom\)/);
   assert.match(css, /pointer:\s*coarse[\s\S]*font-size:\s*16px/);
   assert.match(css, /100dvh/);
-  const shell = fs.readFileSync(path.join(here, "src/components/Shell.svelte"), "utf8");
-  assert.ok(shell.indexOf('import("../styles/legacy.ts")') < shell.indexOf('import("../styles/dialogs.css")'), "dialogs.css doit suivre legacy.ts");
+  const styles = fs.readFileSync(path.join(here, "src/styles/native-shell.ts"), "utf8");
+  assert.match(styles, /import "\.\/legacy\.ts";\s*import "\.\/dialogs\.css";/);
 });
 
 console.log(`test-svelte-ui : ${count} tests réussis`);

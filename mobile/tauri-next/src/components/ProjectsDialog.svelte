@@ -74,7 +74,7 @@
 
   function enter(project: Project) {
     void run(async () => {
-      if (!engine.projectReady()) throw new Error("Attends la fin de la réponse en cours.");
+      if (!(engine.canOpenProject?.() ?? engine.projectReady())) throw new Error("Le projet est temporairement indisponible.");
       const [data, chats] = await Promise.all([
         api.json<Partial<Project>>(projectPath(project.id), { signal }),
         projectChats(api, project.id, signal)

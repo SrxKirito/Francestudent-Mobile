@@ -21,6 +21,7 @@
     onarchives?: () => void;
     onimport?: () => void;
     conversations?: Snippet;
+    memoryPanel?: Snippet;
     archivePage?: Snippet;
     onconfirm?: (text: string) => Promise<boolean>;
   }
@@ -39,10 +40,11 @@
   const COLUMNS: readonly LibraryColumns[] = [1, 2, 3, 4];
   const UNAVAILABLE = "Ce modèle est indisponible pour le moment.";
 
-  let { store, showChatToggle = true, onarchives, onimport, conversations, archivePage, onconfirm = async () => false }: Props = $props();
+  let { store, showChatToggle = true, onarchives, onimport, conversations, memoryPanel, archivePage, onconfirm = async () => false }: Props = $props();
 
   let menu: MenuId | null = $state(null);
   let webDialog: HTMLDialogElement | undefined = $state();
+  let settingsPanels: HTMLDivElement | undefined = $state();
   let opener: HTMLElement | null = null;
 
   const groups = $derived(store.groups);
@@ -311,7 +313,7 @@
             </button>
           {/each}
         </nav>
-        <div class="settings-panels">
+        <div class="settings-panels" bind:this={settingsPanels}>
           {#if store.tab === "general"}
             <!-- svelte-ignore a11y_no_noninteractive_element_to_interactive_role : balisage identique à l'écran classique (testé) -->
             <section id="panel-general" class="settings-panel" data-panel="general" role="tabpanel" aria-labelledby="tab-general">
@@ -430,6 +432,7 @@
               {#if store.localError}
                 <p class="settings-hint general-status-error" role="alert">{store.localError}</p>
               {/if}
+              {@render memoryPanel?.()}
               <dialog id="web-settings-dialog" class="mcp-wizard" aria-labelledby="web-settings-title" bind:this={webDialog} oncancel={cancelWeb}>
                 <header class="mcp-wizard-head"><h3 id="web-settings-title">Recherche web</h3><button type="button" id="web-settings-close" class="settings-icon-btn" aria-label="Fermer" onclick={() => store.closeWeb()}>×</button></header>
                 <form id="web-settings-form" class="settings-form" onsubmit={submitWeb}>
@@ -456,7 +459,7 @@
           {:else if store.tab === "mcp" && store.api}
             <McpPanel api={store.api} {onconfirm} />
           {:else if store.tab === "storage" && store.workspace}
-            <StoragePanel engine={store.workspace} {onconfirm} {onarchives} {archivePage} onskills={() => store.selectTab("skills")} />
+            <StoragePanel engine={store.workspace} scrollRoot={settingsPanels} {onconfirm} {onarchives} {archivePage} onskills={() => store.selectTab("skills")} />
           {/if}
         </div>
       </div>

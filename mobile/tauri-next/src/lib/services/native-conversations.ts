@@ -1,3 +1,5 @@
+import type { EditorTarget, SavedEditorDraft } from "./document-editor.ts";
+import type { InteractiveFollowUp } from "./interactive-app-session.ts";
 import type { ImageSearch } from "./image-search.ts";
 import type { Conversation } from "../types/conversation.ts";
 import type { ChatRole, ChatSource } from "../types/chat.ts";
@@ -15,6 +17,10 @@ export interface NativeMessage {
   content: string;
   serverMessageId?: string;
   prompt?: string;
+  interactiveContext?: InteractiveFollowUp;
+  editorDrafts?: Partial<Record<EditorTarget, SavedEditorDraft>>;
+  responseVersions?: AnswerVersion[];
+  responseVersionIndex?: number;
   feedback?: "up" | "down";
   error?: boolean;
   sources?: ChatSource[];
@@ -23,11 +29,16 @@ export interface NativeMessage {
   attachments?: NativeAttachment[];
 }
 
+export type AnswerVersion = Omit<NativeMessage, "responseVersions" | "responseVersionIndex">;
+
 export interface NativeConversation extends Omit<Conversation, "messages" | "pendingResponse"> {
   messages: NativeMessage[];
   pendingResponse?: NativePending;
   serverLocked?: boolean;
   localImageSearch?: boolean;
+  /** Messages hérités localement, antérieurs au premier message du chat serveur. */
+  branchPrefixLength?: number;
+  previousServerChats?: string[];
   serverArchived?: boolean;
   owner?: string;
   importedFrom?: { source?: string; sourceConversationId?: string; shareId?: string };
@@ -48,7 +59,7 @@ type ServerRow = ProjectChat & {
 };
 
 export interface NativeConversations {
-  load(): Promise<void>;
+  load(ownerReady?: Promise<void>): Promise<void>;
   sync(): Promise<void>;
   dispose(): void;
   all(): readonly NativeConversation[];
@@ -62,7 +73,7 @@ export interface NativeConversations {
   add(conversation: NativeConversation): void;
   select(id: string | null): void;
   remove(id: string): void;
-  commit(): void;
+  commit(notify?: boolean): void;
   subscribe(fn: () => void): () => void;
   owner(): string;
   detail(id: string): Promise<void>;
@@ -141,17 +152,17 @@ export function createNativeConversations(deps: {
     for (const handler of listeners) handler();
   }
 
-  function commit() {
+  function commit(notify = true) {
     if (!ready || signal.aborted) return;
     // Le stockage existant sérialise les écritures. Les anciens champs et les données des autres comptes sont conservés.
     deps.storage.save([...entries, ...unknownRecords] as Conversation[]);
-    changed();
+    if (notify) changed();
   }
 
-  function load() {
+  function load(ownerReady?: Promise<void>) {
     if (loading) return loading;
     loading = (async () => {
-      const data = await deps.storage.load();
+      const [data] = await Promise.all([deps.storage.load(), ownerReady]);
       if (signal.aborted) { deps.storage.close(); return; }
       const currentOwner = ownerKey();
       let migrated = false;
@@ -186,6 +197,7 @@ export function createNativeConversations(deps: {
       if (local) local.serverLocked = true;
       return undefined;
     }
+    if (!local && entries.some(item => owned(item) && item.previousServerChats?.includes(row.id))) return undefined;
     if (!local) {
       local = { id: crypto.randomUUID(), chatId: row.id, messages: [], needsLoad: true, accountOwner: account };
       entries.push(local);
@@ -241,8 +253,10 @@ export function createNativeConversations(deps: {
       return;
     }
     if (!Array.isArray(data?.chatMessages)) throw new Error("Messages du serveur illisibles.");
-    const localUsers = row.messages.filter(item => item.role === "user");
-    const localAssistants = row.messages.filter(item => item.role === "assistant");
+    const inherited = row.messages.slice(0, row.branchPrefixLength ?? 0);
+    const local = row.messages.slice(inherited.length);
+    const localUsers = local.filter(item => item.role === "user");
+    const localAssistants = local.filter(item => item.role === "assistant");
     const messages: NativeMessage[] = [];
     let userIndex = 0;
     let assistantIndex = 0;
@@ -263,11 +277,17 @@ export function createNativeConversations(deps: {
           message.content = saved.content;
           message.prompt = saved.prompt;
         }
+        if (saved?.interactiveContext) message.interactiveContext = saved.interactiveContext;
         const attachments = serverAttachments(item, Array.isArray(saved?.attachments) ? saved.attachments : []);
         if (attachments.length) message.attachments = attachments;
       } else {
         const index = assistantIndex++;
         const saved = serverMessageId ? localAssistants.find(item => item.serverMessageId === serverMessageId) ?? localAssistants[index] : localAssistants[index];
+        if (saved?.content === message.content) {
+          message.editorDrafts = saved.editorDrafts;
+          message.responseVersions = saved.responseVersions;
+          message.responseVersionIndex = saved.responseVersionIndex;
+        }
         const sources: ChatSource[] = [];
         collectSourceUrls({ parts: item.parts, webSearchDomains: item.webSearchDomains }, sources, new Set());
         message.sources = sources.length ? sources : saved?.content === message.content ? saved.sources : undefined;
@@ -278,18 +298,18 @@ export function createNativeConversations(deps: {
       messages.push(message);
     }
     // Une réponse partielle du serveur ne doit pas écraser les messages encore présents sur l’appareil.
-    const locallyKnown = row.messages.filter(message => message?.role !== "error");
-    if (messages.length >= locallyKnown.length && messages.length) row.messages = messages;
+    const locallyKnown = local.filter(message => message?.role !== "error");
+    if (messages.length >= locallyKnown.length && messages.length) row.messages = [...inherited, ...messages];
     else if (messages.length) {
       const unread = new Set(messages);
-      const merged = row.messages.map(local => {
+      const merged = local.map(local => {
         const newer = messages.find(item => unread.has(item) && item.role === local?.role &&
           (local.serverMessageId ? item.serverMessageId === local.serverMessageId : item.content === local.content));
         if (!newer) return local;
         unread.delete(newer);
         return newer;
       });
-      row.messages = [...merged, ...unread];
+      row.messages = [...inherited, ...merged, ...unread];
     }
     if (data.title) row.title = data.title;
     if ("projectId" in data) row.projectId = data.projectId || null;

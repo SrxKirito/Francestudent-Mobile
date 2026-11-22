@@ -2,8 +2,9 @@
 <script lang="ts">
   import { skillQuery } from "../lib/stores/skills.svelte.ts";
   import type { SkillsStore } from "../lib/stores/skills.svelte.ts";
-  import { appSpeech, createDictation } from "../lib/services/dictation.ts";
-  import { onDestroy, tick, untrack } from "svelte";
+  import { memoryRequest } from "../lib/services/chat-memory.ts";
+  import { appSpeechReady, createDictation } from "../lib/services/dictation.ts";
+  import { onMount, tick, untrack } from "svelte";
   import type { ChatStore } from "../lib/stores/chat.svelte.ts";
   import { canSend, imageTitle, studyLabel, uploadLabel, uploadsPending, webSearchTitle } from "../lib/services/chat-view.ts";
   import type { StudyMode } from "../lib/types/chat.ts";
@@ -12,21 +13,33 @@
   interface Props {
     chat: ChatStore;
     skills?: SkillsStore;
+    voiceActive?: boolean;
+    startVoice?: () => void;
   }
 
-  let { chat, skills }: Props = $props();
+  let { chat, skills, voiceActive = false, startVoice }: Props = $props();
 
   let text = $state("");
   let prompt: HTMLTextAreaElement | undefined = $state();
   let micActive = $state(false);
   let speechBase = "";
-  const speech = appSpeech();
-  const dictation = speech ? createDictation(speech, {
-    active: enabled => { micActive = enabled; },
-    transcript: phrase => { text = speechBase + phrase; void tick().then(resize); },
-    error: message => chat.toast(message, true),
-    visible: () => !document.hidden && chat.visible
-  }) : null;
+  let dictation = $state.raw<ReturnType<typeof createDictation> | null>(null);
+  onMount(() => {
+    let mounted = true;
+    void appSpeechReady().then(speech => {
+      if (!mounted || !speech) return;
+      dictation = createDictation(speech, {
+        active: enabled => { micActive = enabled; },
+        transcript: phrase => { text = speechBase + phrase; void tick().then(resize); },
+        error: message => chat.toast(message, true),
+        visible: () => !document.hidden && chat.visible
+      });
+    });
+    return () => {
+      mounted = false;
+      void dictation?.stop();
+    };
+  });
 
   function toggleDictation() {
     if (!dictation) return;
@@ -43,7 +56,6 @@
     void dictation?.stop();
   });
 
-  onDestroy(() => { void dictation?.stop(); });
   let attachOpen = $state(false);
   let studyOpen = $state(false);
   let photoInput: HTMLInputElement | undefined = $state();
@@ -54,7 +66,8 @@
   let dismissed = $state<string | null>(null);
   let activeSkill = $state(0);
   let checkingSkill = $state(false);
-  const query = $derived(skillQuery(text));
+  const memoryCommand = $derived(chat.engine?.remember ? memoryRequest(text) : null);
+  const query = $derived(memoryCommand === null ? skillQuery(text) : null);
   const skillMenu = $derived(Boolean(skills) && !composing && !chat.state.busy && query !== null && dismissed !== text);
   const choices = $derived(skillMenu ? skills?.choices(query ?? "") ?? [] : []);
   const selected = $derived(skills?.command(text) ?? null);
@@ -80,11 +93,11 @@
   }
 
   const composer = $derived(chat.state.composer);
-  const busy = $derived(chat.state.busy);
+  const busy = $derived(chat.state.busy && !chat.state.backgroundReply);
   const attachments = $derived(composer.attachments);
   // Les fichiers sont téléversés dès la sélection : l'envoi attend la fin (ou le retrait d'un fichier en échec).
   const uploading = $derived(uploadsPending(attachments));
-  const ready = $derived(canSend(text, attachments.length, false) && !uploading);
+  const ready = $derived(canSend(text, attachments.length, chat.state.backgroundReply === true) && !uploading);
   const activeTools = $derived.by(() => {
     const active: string[] = [];
     if (composer.webSearch && composer.webSearchMode !== "disabled") active.push("Recherche web");
@@ -122,6 +135,12 @@
     });
   });
 
+  const promptContext = $derived(chat.interactiveContext?.conversationId === chat.state.id &&
+    chat.interactiveContext.projectId === chat.shell.conversations.projectId ? chat.interactiveContext : null);
+  $effect(() => {
+    if (promptContext) prompt?.focus({ preventScroll: true });
+  });
+
   async function submit(event?: Event) {
     event?.preventDefault();
     const engine = chat.engine;
@@ -135,19 +154,34 @@
     const value = text;
     const conversation = chat.shell.conversations.currentId;
     const project = chat.shell.conversations.projectId;
+    const context = promptContext;
+    if (memoryCommand !== null) {
+      if (attachments.length || context) { chat.toast("Retire les pièces jointes pour enregistrer un souvenir.", true); return; }
+      if (await chat.remember(memoryCommand) && value === text &&
+          conversation === chat.shell.conversations.currentId && project === chat.shell.conversations.projectId) {
+        text = "";
+        queueMicrotask(resize);
+      }
+      return;
+    }
     const catalog = skills;
     if (catalog && /^\s*\/[^\s/]+(?=\s|$)/.test(value)) {
       checkingSkill = true;
       const loaded = await catalog.load();
       checkingSkill = false;
       if (engine !== chat.engine || catalog !== skills || value !== text || busy || !ready ||
-          conversation !== chat.shell.conversations.currentId || project !== chat.shell.conversations.projectId) return;
+          conversation !== chat.shell.conversations.currentId || project !== chat.shell.conversations.projectId || context !== promptContext) return;
       if (!loaded || catalog.busy) {
         chat.toast(catalog.error || "Attends la fin de l’actualisation des skills.", true);
         return;
       }
     }
-    if (engine.send(value, catalog?.prefix(value))) {
+    const prefix = catalog?.prefix(value);
+    const sent = context && context.conversationId === chat.state.id
+      ? engine.sendWithInteractiveContext?.(value, context.data, prefix)
+      : engine.send(value, prefix);
+    if (sent) {
+      chat.interactiveContext = null;
       text = "";
       queueMicrotask(resize);
       return;
@@ -279,7 +313,7 @@
 
 <svelte:document onvisibilitychange={() => { if (document.hidden) void dictation?.stop(); }} onclick={onDocumentClick} onkeydown={onDocumentKey} />
 
-<form id="composer" class="composer" onsubmit={submit}>
+<form id="composer" class="composer" hidden={voiceActive} onsubmit={submit}>
   <div class="composer-box">
     {#if skillMenu}
       <div id="skill-menu" class="native-skill-menu" role="listbox" aria-label="Skills disponibles">
@@ -294,6 +328,11 @@
       </div>
     {/if}
     {#if selected}<div class="native-skill-active">Skill sélectionné · /{selected.command}</div>{/if}
+    {#if promptContext}
+      <div class="app-context"><span>{promptContext.data.kind === "table" ? "Lignes jointes" : promptContext.data.kind === "editor" ? "Texte à réviser" : "Réglages joints"} · {promptContext.data.title}</span>
+        <button type="button" aria-label={promptContext.data.kind === "table" ? "Retirer les lignes jointes" : promptContext.data.kind === "editor" ? "Retirer le texte à réviser" : "Retirer les réglages joints"} onclick={() => { chat.interactiveContext = null; }}>×</button>
+      </div>
+    {/if}
     <div id="attachments" class="attachments" class:hidden={attachments.length === 0} aria-label="Fichiers joints">
       {#each attachments as file (file.id)}
         <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions, a11y_click_events_have_key_events -->
@@ -347,6 +386,12 @@
           <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>
         </button>
       {/if}
+      {#if startVoice && !chat.state.busy && !chat.state.pending && !attachments.length && !promptContext}
+        <button type="button" class="tool-button icon-button" aria-label="Démarrer une conversation vocale"
+          title="Conversation vocale" onclick={() => { void (dictation?.stop() ?? Promise.resolve()).then(() => startVoice?.()); }}>
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M3 11v2m4-5v8m5-12v16m5-12v8m4-5v2"/></svg>
+        </button>
+      {/if}
       {#if busy}
         <button type="submit" id="send" class="send stop" aria-label="Arrêter la génération" title="Arrêter la génération"><svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2"/></svg></button>
       {:else}
@@ -354,12 +399,16 @@
       {/if}
     </div>
   </div>
-  <p class="disclaimer">L'IA peut faire des erreurs.</p>
+  <p class="disclaimer">{chat.state.backgroundReply ? "Une réponse est en cours dans une autre discussion." : "L'IA peut faire des erreurs."}</p>
 </form>
 
 <style>
 
+  .composer[hidden] { display: none; }
   .composer-box { position: relative; }
+  .app-context { display: flex; align-items: center; gap: .5rem; padding: 0 .65rem; font-size: .85rem; }
+  .app-context span { overflow-wrap: anywhere; }
+  .app-context button { min-width: 44px; min-height: 44px; color: inherit; background: transparent; border: 0; cursor: pointer; }
   .native-skill-menu { position: absolute; inset: auto 0 calc(100% + 8px); z-index: 25; max-height: min(280px, calc(var(--ios-viewport-height, 100dvh) * .38)); overflow-y: auto; overscroll-behavior: contain; padding: 6px; border: 1px solid var(--border); border-radius: 16px; background: var(--surface); }
   .native-skill-menu button { display: grid; gap: 3px; width: 100%; min-height: 44px; padding: 8px; border: 0; border-radius: 8px; background: transparent; color: inherit; text-align: left; }
   .native-skill-menu button[aria-selected="true"] { background: var(--hover); }

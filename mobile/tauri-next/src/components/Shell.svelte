@@ -1,6 +1,5 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import AppLayout from "./AppLayout.svelte";
   import Login from "./Login.svelte";
   import Startup from "./Startup.svelte";
   import { createRuntimeSessionFlow } from "../lib/services/session-runtime.ts";
@@ -13,25 +12,26 @@
   const session = new SessionStore(createRuntimeSessionFlow());
   const legacyChat = chatMode(window.location.search, window.localStorage.getItem(CHAT_FLAG_KEY)) === "legacy";
   let stylesReady = $state(false);
+  let layout: Promise<typeof import("./AppLayout.svelte")> | undefined;
+
+  function loadLayout() {
+    return layout ??= import("./AppLayout.svelte");
+  }
 
   // Même viewport que mobile/www/index.html (zoom bloqué, le clavier redimensionne le contenu).
   const VIEWPORT = "width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover, interactive-widget=resizes-content";
 
   onMount(() => {
     const stopViewport = installMobileViewport();
+    void session.start();
+    if (window.localStorage.getItem(STORE_KEY + ":account-owner")) {
+      void loadLayout().catch(() => { layout = undefined; });
+    }
     document.querySelector('meta[name="viewport"]')?.setAttribute("content", VIEWPORT);
     void (async () => {
-      // Les feuilles historiques sont chargées ici seulement : le chemin iframe n'en dépend pas.
-      await import("../styles/legacy.ts");
-      await import("../styles/dialogs.css");
-      await import("../styles/chat.css");
-      const katex = document.createElement("link");
-      katex.rel = "stylesheet";
-      katex.href = "/legacy/katex/katex.min.css";
-      document.head.append(katex);
+      await import("../styles/native-shell.ts");
       applyTheme(parseStoredState(window.localStorage.getItem(STORE_KEY), () => "").theme, document.documentElement);
       stylesReady = true;
-      await session.start();
     })();
     return stopViewport;
   });
@@ -42,5 +42,11 @@
 {:else if session.screen === "login"}
   <Login {session} />
 {:else}
-  <AppLayout {legacyChat} tokens={session.tokens} onlogout={() => session.logout()} />
+  {#await loadLayout()}
+    <Startup />
+  {:then { default: AppLayout }}
+    <AppLayout {legacyChat} tokens={session.tokens} onlogout={() => session.logout()} />
+  {:catch}
+    <p role="alert">Impossible de charger le chat. Rouvre l’application.</p>
+  {/await}
 {/if}

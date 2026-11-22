@@ -1,6 +1,7 @@
 import type { NativeRequest } from "./native-chat-network.ts";
 import type { NativeConversation } from "./native-conversations.ts";
 import type { NativePending } from "./native-chat-types.ts";
+import { stripInteractiveRenderGuide } from "./interactive-prompts.ts";
 
 interface ServerMessage {
   id: string;
@@ -74,9 +75,12 @@ export async function recentChats(request: NativeRequest, signal: AbortSignal): 
 }
 
 function matchesRequest(message: ServerMessage, pending: NativePending): boolean {
-  const text = messageText(message);
-  const known = pending.requestText || pending.text;
-  return Boolean(known) && (text === known || (!pending.requestText && text.endsWith(known ?? "")));
+  const normalise = (value: string) => stripInteractiveRenderGuide(value.replace(/\r\n/g, "\n")).trim();
+  const text = normalise(messageText(message));
+  const known = normalise(pending.requestText || pending.text || "");
+  const original = normalise(pending.text || "");
+  return Boolean(known) && (text === known || (Boolean(original) && text === original) ||
+    (!pending.requestText && text.endsWith(known)));
 }
 
 export function matchingAnswer(list: ServerMessage[], pending: NativePending): ServerMessage | undefined {

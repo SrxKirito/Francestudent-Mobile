@@ -47,6 +47,18 @@ await test("loadProfile : GET /user/me, réponse non objet → profil vide", asy
   assert.deepEqual(await account.loadProfile(fakeApi(() => null)), { name: "", email: "" });
 });
 
+await test("prénom : remplacement sur le compte avec conservation du nom de famille", async () => {
+  const api = fakeApi(() => ({ name: "Anne Marie Martin", email: "a@b.fr" }));
+  const original = { name: "Léa Martin", email: "a@b.fr" };
+  assert.equal(account.profileFirstName(original), "Léa");
+  const updated = await account.updateFirstName(api, original, " Anne  Marie ");
+  assert.equal(account.profileFirstName(updated), "Anne Marie");
+  assert.deepEqual(api.calls.map(({ method, path, body }) => [method, path, body]), [
+    ["PATCH", "/user/@me", { name: "Anne Marie Martin" }]
+  ]);
+  await assert.rejects(account.updateFirstName(fakeApi(() => original), updated, "Alice"), /n’a pas confirmé/);
+});
+
 await test("réinitialisation du quota : même jour, autre jour, valeur absente ou illisible", () => {
   const now = new Date(2026, 10, 20, 9, 0);
   assert.equal(account.formatReset(new Date(2026, 10, 20, 18, 5).toISOString(), now), "Réinitialisation à 18:05");

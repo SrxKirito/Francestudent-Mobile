@@ -10,10 +10,10 @@ const POWERPOINT = POWERPOINT_MARK + " Crée une présentation visuelle et soign
 const STUDY_RULE = "Appuie-toi sur le contenu fourni. Si seul un sujet est indiqué, utilise les connaissances générales sur ce sujet. Demande le cours ou le document lorsqu’il est nécessaire pour répondre.";
 const STUDY: Record<Exclude<StudyMode, "">, string> = {
   fiches: "Mode étudiant — FICHES DE RÉVISION. Rédige des fiches en français avec une définition, les points clés, les formules ou dates importantes, un exemple et un résumé. " + STUDY_RULE,
-  quiz: "Mode étudiant — QUIZ INTERACTIF. Fais un quiz en français avec QCM, vrai/faux et questions ouvertes. Écris un seul bloc de code quiz avec uniquement du JSON valide : " +
+  quiz: "Mode étudiant — QUIZ INTERACTIF. Fais un quiz en français avec QCM, vrai/faux et questions ouvertes. Mets le quiz dans un bloc de code quiz avec uniquement du JSON valide : " +
     '{"title":"Titre","questions":[{"type":"qcm","question":"Question ?","choices":["A","B","C","D"],"answer":0,"explanation":"Correction"}]}. ' +
     'Pour un qcm, answer est l’index dès 0. Pour vf, answer est un booléen. Pour ouverte, answer contient le texte attendu. ' + STUDY_RULE,
-  cartes: "Mode étudiant — CARTES MÉMOIRE. Crée des questions courtes en français. Écris un seul bloc de code cards avec uniquement du JSON valide : " +
+  cartes: "Mode étudiant — CARTES MÉMOIRE. Crée des questions courtes en français. Mets les cartes mémoire dans un bloc de code cards avec uniquement du JSON valide : " +
     '{"title":"Titre","cards":[{"q":"Question ?","a":"Réponse"}]}. ' + STUDY_RULE
 };
 
@@ -26,7 +26,7 @@ export function isPowerPointPrompt(value?: string): boolean {
 }
 
 export function isDedicatedFormatPrompt(value: string): boolean {
-  return isPowerPointPrompt(value) || value.startsWith("Mode étudiant —") || value.startsWith(WORD_RULE) || value.startsWith(EXCEL_RULE);
+  return isPowerPointPrompt(value) || value.startsWith(WORD_RULE) || value.startsWith(EXCEL_RULE);
 }
 
 export function chatPrompt(text: string, options: {

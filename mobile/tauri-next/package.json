@@ -1,6 +1,6 @@
 {
   "name": "francestudent-tauri",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "private": true,
   "type": "module",
   "scripts": {
@@ -13,9 +13,11 @@
     "verify:browser": "node prepare-legacy.cjs && node verify-shell-browser.mjs"
   },
   "dependencies": {
+    "@jitl/quickjs-wasmfile-release-sync": "0.32.0",
     "@tauri-apps/api": "^2.0.0",
     "@tauri-apps/plugin-dialog": "^2.8.4",
     "@tauri-apps/plugin-fs": "^2.7.1",
+    "quickjs-emscripten-core": "0.32.0",
     "svelte": "^5.0.0"
   },
   "devDependencies": {

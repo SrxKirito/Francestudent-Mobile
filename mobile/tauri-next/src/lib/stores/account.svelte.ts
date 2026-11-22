@@ -10,10 +10,12 @@ import {
   loadActivity,
   loadProfile,
   loadQuota,
+  profileFirstName,
   profileName,
   revokeAllSessions,
   revokeSession,
-  todayInParis
+  todayInParis,
+  updateFirstName
 } from "../services/account.ts";
 import type { ActivityCalendar, ActivityMetric, ActivitySummary, Profile, QuotaView, UserSession } from "../services/account.ts";
 import type { AccountGateway } from "../services/account-local.ts";
@@ -40,6 +42,8 @@ export interface AccountDeps {
   signedOut: () => Promise<unknown>;
   /** Appelé avec la nouvelle photo (data URL), ou une chaîne vide quand elle est retirée : la barre latérale s'actualise. */
   avatarChanged?: (dataUrl: string) => void;
+  profileChanged?: (profile: Profile) => void;
+  sessionSignal?: AbortSignal;
 }
 
 export type QuotaState = "idle" | "loading" | "ready" | "empty" | "error";
@@ -63,6 +67,8 @@ function httpStatus(error: unknown): number {
 export class AccountStore {
   profile = $state.raw<Profile>({ name: "", email: "" });
   avatar = $state("");
+  savingName = $state(false);
+  nameError = $state("");
 
   quotaState = $state<QuotaState>("idle");
   quotaView = $state.raw<QuotaView | null>(null);
@@ -84,6 +90,9 @@ export class AccountStore {
   readonly #deps: AccountDeps;
   #generation = 0;
   #activityToken = 0;
+  #profileRevision = 0;
+  #metricsJob: Promise<void> | undefined;
+  #prefetchedUntil = 0;
   #controller = new AbortController();
 
   constructor(deps: AccountDeps) {
@@ -93,6 +102,10 @@ export class AccountStore {
 
   get displayName(): string {
     return profileName(this.profile);
+  }
+
+  get firstName(): string {
+    return profileFirstName(this.profile);
   }
 
   get hasCustomAvatar(): boolean {
@@ -116,27 +129,55 @@ export class AccountStore {
 
   /** À l'ouverture de l'onglet : relit les données locales puis interroge le serveur (tout en parallèle). */
   async activate(): Promise<void> {
-    this.#generation += 1;
-    this.#controller.abort();
-    this.#controller = new AbortController();
+    if (this.#controller.signal.aborted) this.#controller = new AbortController();
     const generation = this.#generation;
     const signal = this.#controller.signal;
     this.#readLocal();
     await Promise.all([
       this.#syncProfile(generation, signal),
-      this.#loadQuota(generation, signal),
-      this.#loadActivity(generation, signal),
+      this.#prefetchedUntil > this.#deps.now().getTime() ? Promise.resolve() : this.#loadMetrics(),
       this.#deps.showSessions === false ? Promise.resolve() : this.#loadSessions(generation, signal)
     ]);
+  }
+
+  prefetchMetrics(): void {
+    if (this.#controller.signal.aborted) this.#controller = new AbortController();
+    const generation = this.#generation;
+    void this.#loadMetrics().then(() => {
+      if (this.#current(generation) && this.quotaState !== "error" && this.activitySummary) {
+        this.#prefetchedUntil = this.#deps.now().getTime() + 30_000;
+      }
+    });
   }
 
   /** À la fermeture de l'onglet : annule les requêtes en cours ; leurs réponses tardives sont ignorées. */
   stop(): void {
     this.#generation += 1;
     this.#controller.abort();
+    this.#metricsJob = undefined;
     this.activityLoading = false;
-    if (this.quotaState === "loading") this.quotaState = "idle";
+    if (this.quotaState === "loading") this.quotaState = this.quotaView ? "ready" : "idle";
     if (this.sessionsState === "loading") this.sessionsState = "idle";
+  }
+
+  async changeFirstName(value: string): Promise<boolean> {
+    if (this.savingName || this.#deps.sessionSignal?.aborted) return false;
+    const firstName = value.trim().replace(/\s+/g, " ");
+    this.nameError = "";
+    if (firstName && firstName === this.firstName) return true;
+    this.savingName = true;
+    try {
+      const fresh = await updateFirstName(this.#deps.api, this.profile, firstName, this.#deps.sessionSignal);
+      if (this.#deps.sessionSignal?.aborted) return false;
+      this.#profileRevision += 1;
+      this.#applyProfile(fresh);
+      return true;
+    } catch (error) {
+      if (!this.#deps.sessionSignal?.aborted) this.nameError = errorMessage(error);
+      return false;
+    } finally {
+      this.savingName = false;
+    }
   }
 
   // --- Budget du jour ---------------------------------------------------------------------------
@@ -267,7 +308,7 @@ export class AccountStore {
 
   #readLocal(): void {
     const local = this.#deps.local.read();
-    this.profile = { name: local.profile.name, email: local.profile.email };
+    this.profile = local.profile;
     this.avatar = local.avatar;
   }
 
@@ -277,28 +318,44 @@ export class AccountStore {
 
   /** Le profil du serveur complète l'affichage ; une panne ne dit rien (le profil mémorisé suffit). */
   async #syncProfile(generation: number, signal: AbortSignal): Promise<void> {
+    const revision = this.#profileRevision;
     let fresh: Profile;
     try {
       fresh = await loadProfile(this.#deps.api, signal);
     } catch {
       return;
     }
-    if (!this.#current(generation)) return;
+    if (!this.#current(generation) || revision !== this.#profileRevision || this.savingName) return;
     const known = this.profile;
-    if (fresh.name === known.name && fresh.email === known.email) return;
     if (!fresh.name && !fresh.email) return;
-    this.profile = { name: fresh.name, email: fresh.email };
+    const profile = { name: fresh.name || known.name, email: fresh.email || known.email };
+    if (profile.name === known.name && profile.email === known.email) return;
+    this.#applyProfile(profile);
+  }
+
+  #applyProfile(profile: Profile): void {
+    this.profile = profile;
     try {
-      this.#deps.local.saveProfile({ name: fresh.name, email: fresh.email });
+      this.#deps.local.saveProfile(profile);
     } catch {
       // Le stockage local refuse : le profil affiché reste celui du serveur pour cette session.
     }
+    this.#deps.profileChanged?.(profile);
+  }
+
+  #loadMetrics(): Promise<void> {
+    if (this.#metricsJob) return this.#metricsJob;
+    const generation = this.#generation;
+    const signal = this.#controller.signal;
+    const job = Promise.all([this.refreshQuota(), this.#loadActivity(generation, signal)]).then(() => {});
+    this.#metricsJob = job;
+    void job.finally(() => { if (this.#metricsJob === job) this.#metricsJob = undefined; });
+    return job;
   }
 
   async #loadQuota(generation: number, signal: AbortSignal): Promise<void> {
     this.quotaState = "loading";
     this.quotaMessage = QUOTA_LOADING;
-    this.quotaView = null;
     try {
       const view = await loadQuota(this.#deps.api, signal, this.#deps.now());
       if (!this.#current(generation)) return;
@@ -307,7 +364,6 @@ export class AccountStore {
       this.quotaMessage = view ? "" : QUOTA_EMPTY;
     } catch (error) {
       if (!this.#current(generation)) return;
-      this.quotaView = null;
       this.quotaState = "error";
       this.quotaMessage = "Quota indisponible (" + errorMessage(error) + ").";
     }
@@ -318,8 +374,7 @@ export class AccountStore {
     const token = this.#activityToken;
     const fresh = () => this.#current(generation) && token === this.#activityToken;
     this.activityLoading = true;
-    this.activitySummary = null;
-    this.activityStatus = ACTIVITY_LOADING;
+    if (!this.activitySummary) this.activityStatus = ACTIVITY_LOADING;
     try {
       const summary = await loadActivity(this.#deps.api, signal);
       if (!fresh()) return;

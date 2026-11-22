@@ -7,6 +7,7 @@ const page = (name: string) => fileURLToPath(new URL(name, import.meta.url));
 export default defineConfig({
   plugins: [svelte()],
   clearScreen: false,
+  worker: { format: "es" },
   // Two entries: the normal app and the import-only page opened by the native
   // side when a data import was requested.
   build: { rollupOptions: { input: { main: page("index.html"), migration: page("migration.html") } } },

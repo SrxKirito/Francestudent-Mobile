@@ -3,6 +3,7 @@ import type { GeneratedImage, ProcessChatStreamOptions, StreamError, StreamEvent
 import { agentLabel } from "../utils/agents.ts";
 import { STORE_KEY, patchStoredState } from "../utils/state.ts";
 import type { StatePatch } from "../utils/state.ts";
+import type { ChatMemory } from "./chat-memory.ts";
 import type { ApiClient } from "./api-client.ts";
 import type { TokenProvider } from "./auth.ts";
 import { EMPTY_CHAT_STATE, isHttpUrl } from "./chat-engine.ts";
@@ -11,6 +12,7 @@ import { collectGeneratedImages, collectSourceUrls, friendlyError, generatedImag
 import type { ShareRequest, ShareResult } from "./chat-shares.ts";
 import type { ImportOutcome, ImportRequest } from "./conversation-import.ts";
 import { canSaveCommonsImage, imageSearchQuery, normalizeCommonsImage } from "./image-search.ts";
+import { isEditorHistory, isEditorTarget, parseEditorHistory } from "./document-editor.ts";
 import { safeFileName } from "./file-preview.ts";
 import { saveBytes } from "./file-saver.ts";
 import type { PreviewFile } from "./file-preview.ts";
@@ -21,10 +23,11 @@ import { createNativeAttachments } from "./native-chat-attachments.ts";
 import { createNativeRequest } from "./native-chat-network.ts";
 import type { NativeRequest } from "./native-chat-network.ts";
 import { chatPrompt, isDedicatedFormatPrompt, isPowerPointPrompt } from "./native-chat-prompts.ts";
-import { withInteractiveRenderGuide } from "./interactive-prompts.ts";
+import type { InteractiveFollowUp } from "./interactive-app-session.ts";
+import { validInteractiveFollowUp, withInteractiveRenderGuide } from "./interactive-prompts.ts";
 import { chatPath, detailMessages, matchingAnswer, messageText, recentChats, recoverChatId, waitUntilRetry } from "./native-chat-recovery.ts";
 import type { NativeAttachment, NativePending } from "./native-chat-types.ts";
-import type { NativeConversation, NativeConversations, NativeMessage } from "./native-conversations.ts";
+import type { AnswerVersion, NativeConversation, NativeConversations, NativeMessage } from "./native-conversations.ts";
 import type { NativeFiles } from "./native-files.ts";
 import type { PreviewStorage } from "./preview-storage.ts";
 import { uploadFile } from "./transport.ts";
@@ -41,6 +44,7 @@ export interface NativeChatOptions {
   tokens: TokenProvider;
   repository: NativeConversations;
   local: LocalSettingsGateway;
+  memory?: ChatMemory;
   agents: () => readonly EngineAgent[];
   files: NativeFiles;
   previewStorage: PreviewStorage;
@@ -55,7 +59,8 @@ interface Generation {
   pending: NativePending;
   controller: AbortController;
   stop: boolean;
-  suspended: boolean;
+  wasHidden: boolean;
+  lastCheckpointAt: number;
   cancelResult?: Promise<boolean>;
   owner: string;
 }
@@ -88,14 +93,14 @@ function writePreferences(patch: StatePatch) {
   catch { /* l’option active reste disponible */ }
 }
 
-function contextSummary(messages: NativeMessage[]): string {
+function contextSummary(messages: NativeMessage[], budget = 8_000, perMessage = 1_500): string {
   const lines: string[] = [];
   let length = 0;
   for (let i = messages.length - 1; i >= 0; i--) {
     const row = messages[i];
     if (row.role === "error" || !row.content.trim()) continue;
-    const line = (row.role === "assistant" ? "Assistant : " : "Utilisateur : ") + row.content.trim().slice(0, 1500);
-    if (length + line.length > 8000) break;
+    const line = (row.role === "assistant" ? "Assistant : " : "Utilisateur : ") + row.content.trim().slice(0, perMessage);
+    if (length + line.length > budget) break;
     length += line.length;
     lines.unshift(line);
   }
@@ -120,7 +125,9 @@ function storedImages(images: GeneratedImage[]): GeneratedImage[] {
 function recoverablePending(conversation: NativeConversation, owner: string): NativePending | undefined {
   const pending = conversation.pendingResponse;
   if (pending && typeof pending === "object" && (pending.requestText || pending.text) &&
-      Number.isInteger(pending.userIndex) && pending.userIndex === lastUser(conversation.messages) &&
+      Number.isInteger(pending.userIndex) && (pending.variant
+        ? conversation.messages[pending.variant.index]?.role === "assistant" && pending.userIndex === lastUser(conversation.messages, pending.variant.index)
+        : pending.userIndex === lastUser(conversation.messages)) &&
       (!pending.owner || pending.owner.trim().toLowerCase() === owner.trim().toLowerCase())) return pending;
 }
 
@@ -138,6 +145,8 @@ export function createNativeChatEngine(options: NativeChatOptions): NativeChatEn
   let unsubscribe: (() => void) | undefined;
   let lifetime = new AbortController();
   let active: Generation | null = null;
+  let editorSaveTimer: ReturnType<typeof setTimeout> | undefined;
+  let automaticRecoveryId: string | undefined;
   let pendingCancellation = false;
   let activeAgent = prefs.agentId ?? null;
   let imageMode = prefs.imageMode === true;
@@ -193,6 +202,8 @@ export function createNativeChatEngine(options: NativeChatOptions): NativeChatEn
     const images = transientImages.get(message) ?? message.images;
     return {
       index, role: message.role, content: message.content, feedback: message.feedback,
+      responseVersions: message.responseVersions?.length ? { index: message.responseVersionIndex ?? 0, count: message.responseVersions.length } : undefined,
+      editorRequest: message.interactiveContext?.kind === "editor" ? message.interactiveContext : undefined,
       serverMessageId: message.serverMessageId, sources: message.sources, imageSearch: message.imageSearch,
       attachments: message.attachments?.map(file => ({ name: file.name, kind: file.kind, mime: file.mime ?? "" })),
       images: images?.map((image, position) => ({
@@ -209,6 +220,7 @@ export function createNativeChatEngine(options: NativeChatOptions): NativeChatEn
     return {
       ...EMPTY_CHAT_STATE, ready: Boolean(host), id: conversation?.id ?? null,
       chatId: conversation?.chatId ?? null, title: conversation?.title ?? "", busy: Boolean(active) || pendingCancellation,
+      backgroundReply: Boolean(active && active.conversation !== conversation),
       stopping: active?.stop === true, pending: Boolean(conversation?.pendingResponse),
       conversationAgent: conversation && conversation.agentId !== undefined ? {
         id: conversation.agentId, name: conversation.agentName ?? "", provider: conversation.agentProvider ?? ""
@@ -354,7 +366,13 @@ export function createNativeChatEngine(options: NativeChatOptions): NativeChatEn
         return new Response(JSON.stringify({ chatMessages: answer ? [answer] : [] }), { status: 200 });
       },
       resolveImage,
-      save: () => { if (received(task)) repository.commit(); }
+      save: () => {
+        const now = Date.now();
+        if (received(task) && now - task.lastCheckpointAt >= 2000) {
+          task.lastCheckpointAt = now;
+          repository.commit();
+        }
+      }
     };
     return (host?.readStream ?? processChatStream)(args);
   }
@@ -363,8 +381,11 @@ export function createNativeChatEngine(options: NativeChatOptions): NativeChatEn
     const { conversation, pending, controller } = task;
     const signal = controller.signal;
     if (!conversation.chatId) {
-      try { conversation.chatId = await recoverChatId(request, conversation, pending, signal); }
-      catch { signal.throwIfAborted(); }
+      for (let attempt = 0; attempt < 3 && !conversation.chatId; attempt++) {
+        try { conversation.chatId = await recoverChatId(request, conversation, pending, signal); }
+        catch { signal.throwIfAborted(); }
+        if (!conversation.chatId && attempt < 2) await waitUntilRetry(1500, signal);
+      }
       if (!conversation.chatId) throw new Error(INTERRUPTED);
       repository.commit();
     }
@@ -432,8 +453,12 @@ export function createNativeChatEngine(options: NativeChatOptions): NativeChatEn
     const prompt = pending.text ?? "";
     const requestText = imagePrompt + sourcePrompt + prompt;
     const userMessage = conversation.messages[pending.userIndex ?? -1];
-    pending.requestText = pending.imageMode || isDedicatedFormatPrompt(prompt)
-      ? requestText : withInteractiveRenderGuide(requestText, userMessage?.content ?? prompt);
+    const memory = options.memory?.read();
+    const branchHistory = conversation.branchPrefixLength !== undefined && !conversation.chatId
+      ? contextSummary(conversation.messages.slice(0, pending.userIndex), 20_000, 7_000) : undefined;
+    pending.requestText = withInteractiveRenderGuide(requestText, userMessage?.content ?? prompt,
+      userMessage?.interactiveContext, !pending.imageMode && !isDedicatedFormatPrompt(prompt),
+      { branchHistory, memories: memory?.enabled ? memory.entries.map(entry => entry.text) : undefined });
     pending.dispatchStarted = true;
     pending.startedAt = Date.now();
     repository.commit();
@@ -465,22 +490,77 @@ export function createNativeChatEngine(options: NativeChatOptions): NativeChatEn
     }
   }
 
+  function answerVersions(message: NativeMessage): { versions: AnswerVersion[]; index: number } {
+    const { responseVersions, responseVersionIndex, ...current } = message;
+    const versions = responseVersions?.slice() ?? [];
+    const index = responseVersionIndex ?? 0;
+    versions[index] = current;
+    return { versions, index };
+  }
+
+  function retireServerChat(conversation: NativeConversation) {
+    if (conversation.chatId) {
+      conversation.previousServerChats = [...new Set([...(conversation.previousServerChats ?? []), conversation.chatId])];
+    }
+    conversation.chatId = undefined;
+  }
+
+  function restoreVariantContext(conversation: NativeConversation, variant: NonNullable<NativePending["variant"]>) {
+    retireServerChat(conversation);
+    conversation.chatId = variant.chatId;
+    conversation.branchPrefixLength = variant.prefix;
+    conversation.agentId = variant.agentId;
+    conversation.agentName = variant.agentName;
+    conversation.agentProvider = variant.agentProvider;
+    conversation.pendingResponse = undefined;
+  }
+
+  function selectResponseVersion(index: number, version: number) {
+    const conversation = repository.current();
+    if (!canUse(conversation) || active || pendingCancellation || conversation.pendingResponse) return;
+    const message = conversation.messages[index];
+    if (!message?.responseVersions || !Number.isInteger(version)) return;
+    const { versions, index: current } = answerVersions(message);
+    const selected = versions[version];
+    if (!selected || version === current) return;
+    conversation.messages[index] = { ...selected, responseVersions: versions, responseVersionIndex: version };
+    retireServerChat(conversation);
+    conversation.branchPrefixLength = conversation.messages.length;
+    repository.commit();
+  }
+
   function finalise(task: Generation, saved: NativeMessage, images: GeneratedImage[], sources: ChatSource[], output: string) {
     const { conversation, pending } = task;
-    conversation.messages = conversation.messages.slice(0, (pending.userIndex as number) + 1);
+    if (pending.variant && !output.trim() && !images.length) {
+      restoreVariantContext(conversation, pending.variant);
+      return;
+    }
     saved.content = output || (images.length ? "" : task.stop ? "*Génération arrêtée.*" : "*Réponse vide.*");
     if (images.length) {
       saved.images = storedImages(images);
       transientImages.set(saved, images);
     }
     if (sources.length) saved.sources = sources;
-    conversation.messages.push(saved);
+    if (pending.variant) {
+      const index = pending.variant.index;
+      const { versions } = answerVersions(conversation.messages[index]);
+      const selected = { ...saved, responseVersions: [...versions, saved], responseVersionIndex: versions.length };
+      conversation.messages[index] = selected;
+      if (images.length) transientImages.set(selected, images);
+      if (index < conversation.messages.length - 1) {
+        retireServerChat(conversation);
+        conversation.branchPrefixLength = conversation.messages.length;
+      }
+    } else {
+      conversation.messages = conversation.messages.slice(0, (pending.userIndex as number) + 1);
+      conversation.messages.push(saved);
+    }
     conversation.pendingResponse = undefined;
   }
 
   async function run(conversation: NativeConversation, pending: NativePending, sent: NativeAttachment[], resume: boolean) {
     const task: Generation = {
-      conversation, pending, controller: new AbortController(), stop: false, suspended: false, owner: repository.owner()
+      conversation, pending, controller: new AbortController(), stop: false, wasHidden: false, lastCheckpointAt: 0, owner: repository.owner()
     };
     active = task;
     const images = resume ? [...(pending.images ?? [])] : [];
@@ -491,7 +571,7 @@ export function createNativeChatEngine(options: NativeChatOptions): NativeChatEn
     try {
       const answer = resume ? await resumeResponse(task, images, sources, saved) : await startResponse(task, sent, images, sources, saved);
       if (!received(task)) return;
-      if (task.stop || task.suspended) throw task.controller.signal.reason ?? new Error(INTERRUPTED);
+      if (task.stop) throw task.controller.signal.reason ?? new Error(INTERRUPTED);
       finalise(task, saved, images, sources, answer);
       if (local.read().completionNotifications && document.visibilityState === "hidden") {
         void options.notifyCompletion?.(conversation.title || "Discussion").catch(() => {});
@@ -504,12 +584,19 @@ export function createNativeChatEngine(options: NativeChatOptions): NativeChatEn
       else {
         const failure = error as StreamError;
         const explicit = failure?.auth || failure?.fromStream || Boolean(failure?.status && (!resume || ![404, 409, 410, 503, 504].includes(failure.status)));
-        const interrupted = pending.dispatchStarted !== false && (task.stop || task.suspended || !explicit);
+        const interrupted = pending.dispatchStarted !== false && (task.stop || !explicit);
+        const retry = interrupted && !task.stop && (!resume || task.wasHidden);
         if (interrupted) pending.state = "interrupted";
         else conversation.pendingResponse = undefined;
+        if (retry) automaticRecoveryId = conversation.id;
+        if (pending.variant) {
+          if (!interrupted) restoreVariantContext(conversation, pending.variant);
+          if (!retry) toast(interrupted ? INTERRUPTED : friendlyError(error, typeof navigator === "undefined" ? undefined : navigator.onLine), true);
+          return;
+        }
         conversation.messages = conversation.messages.slice(0, (pending.userIndex as number) + 1);
         if (pending.output) conversation.messages.push({ role: "assistant", content: pending.output });
-        if (!task.suspended || task.stop) conversation.messages.push({
+        if (!retry) conversation.messages.push({
           role: "error", content: interrupted ? INTERRUPTED : friendlyError(error, typeof navigator === "undefined" ? undefined : navigator.onLine)
         });
       }
@@ -520,15 +607,20 @@ export function createNativeChatEngine(options: NativeChatOptions): NativeChatEn
       }
       if (active === task) active = null;
       changed();
-      if (task.suspended && typeof document !== "undefined" && !document.hidden) queueMicrotask(recoverOnForeground);
+      if (automaticRecoveryId) queueMicrotask(recoverOnForeground);
     }
   }
 
-  async function resume(id: string) {
+  async function resume(id: string, select = true) {
     if (active || pendingCancellation || !host) return;
     const conversation = repository.get(id);
     const pending = canUse(conversation) ? recoverablePending(conversation, repository.owner()) : undefined;
     if (!conversation || !pending) throw new Error("Aucune réponse à reprendre.");
+    if (pending.dispatchStarted === false && pending.variant) {
+      restoreVariantContext(conversation, pending.variant);
+      repository.commit();
+      return;
+    }
     if (pending.dispatchStarted === false) {
       conversation.pendingResponse = undefined;
       conversation.messages = conversation.messages.slice(0, (pending.userIndex as number) + 1);
@@ -536,7 +628,9 @@ export function createNativeChatEngine(options: NativeChatOptions): NativeChatEn
       repository.commit();
       return;
     }
-    repository.select(id);
+    if (select) repository.select(id);
+    // Une reprise remplace l’aperçu partiel par le flux de cette même réponse.
+    if (!pending.variant) conversation.messages = conversation.messages.slice(0, (pending.userIndex as number) + 1);
     await run(conversation, pending, [], true);
   }
 
@@ -553,6 +647,11 @@ export function createNativeChatEngine(options: NativeChatOptions): NativeChatEn
         throw new Error("Le serveur n’a pas confirmé l’arrêt de cette réponse.");
       }
       if (lifetime.signal.aborted || owner !== repository.owner()) return;
+      if (pending.variant) {
+        restoreVariantContext(conversation, pending.variant);
+        repository.commit();
+        return;
+      }
       conversation.messages = conversation.messages.slice(0, (pending.userIndex as number) + 1);
       if (pending.output) conversation.messages.push({ role: "assistant", content: pending.output });
       conversation.pendingResponse = undefined;
@@ -566,23 +665,37 @@ export function createNativeChatEngine(options: NativeChatOptions): NativeChatEn
   function recoverOnForeground() {
     if ((typeof document !== "undefined" && document.hidden) || (typeof navigator !== "undefined" && !navigator.onLine) ||
         active || pendingCancellation || !host) return;
-    const conversation = repository.current();
+    const preferred = automaticRecoveryId;
+    automaticRecoveryId = undefined;
+    const conversation = (preferred && repository.get(preferred)) || repository.current();
     if (canUse(conversation) && conversation.pendingResponse?.state === "interrupted") {
-      void resume(conversation.id).catch(error => toast(error instanceof Error ? error.message : INTERRUPTED, true));
+      void resume(conversation.id, false).catch(error => toast(error instanceof Error ? error.message : INTERRUPTED, true));
     }
+  }
+
+  function flushEditorDrafts() {
+    if (editorSaveTimer === undefined) return;
+    clearTimeout(editorSaveTimer);
+    editorSaveTimer = undefined;
+    repository.commit(false);
+  }
+
+  function editorMessage(conversationId: string, index: number): NativeMessage | undefined {
+    if (lifetime.signal.aborted) return;
+    const conversation = repository.get(conversationId);
+    const message = canUse(conversation) ? conversation.messages[index] : undefined;
+    if (message?.role === "assistant") return message;
   }
 
   function visibilityChanged() {
     if (!document.hidden) { recoverOnForeground(); return; }
+    flushEditorDrafts();
     const task = active;
     if (!task || task.stop || task.controller.signal.aborted) return;
-    // Seule la lecture locale du SSE est interrompue. Le serveur peut continuer à générer.
-    if (task.pending.dispatchStarted !== false) {
-      task.suspended = true;
-      task.pending.state = "interrupted";
-      repository.commit();
-      task.controller.abort();
-    }
+    // Laisser la connexion ouverte. Si iOS suspend le processus, le curseur permet une reprise en lecture.
+    task.wasHidden = true;
+    if (task.pending.dispatchStarted !== false) task.pending.state = "interrupted";
+    repository.commit();
   }
 
   function begin(conversation: NativeConversation, text: string, sent: NativeAttachment[]) {
@@ -616,12 +729,34 @@ export function createNativeChatEngine(options: NativeChatOptions): NativeChatEn
     }
   }
 
-  function send(text: string, skillPrefix?: string): boolean {
+  function branch(index: number) {
+    const source = repository.current();
+    if (!host || !canUse(source) || !Number.isSafeInteger(index) || source.messages[index]?.role !== "assistant") return;
+    try {
+      const messages = structuredClone(source.messages.slice(0, index + 1));
+      for (const message of messages) {
+        delete message.serverMessageId;
+        delete message.feedback;
+      }
+      const created: NativeConversation = {
+        id: crypto.randomUUID(), messages, branchPrefixLength: messages.length, projectId: source.projectId,
+        title: ("Branche · " + (source.title || "Discussion").replace(/^Branche · /, "")).slice(0, 100),
+        updatedAt: Date.now(), agentId: source.agentId, agentName: source.agentName, agentProvider: source.agentProvider
+      };
+      repository.add(created);
+      repository.select(created.id);
+      toast("Branche ouverte.");
+    } catch (error) {
+      toast(error instanceof Error ? error.message : "Impossible de créer la branche.", true);
+    }
+  }
+
+  function send(text: string, skillPrefix?: string, interactiveContext?: InteractiveFollowUp): boolean {
     const displayed = text.trim();
     if (!host || active || pendingCancellation || !attachments.ready() || (!displayed && !carried.length && !attachments.snapshot().length)) return false;
     const current = repository.current();
     if ((current && !canUse(current)) || current?.pendingResponse) return false;
-    const query = !skillPrefix && !imageMode && !carried.length && !attachments.snapshot().length ? imageSearchQuery(displayed) : null;
+    const query = !interactiveContext && !skillPrefix && !imageMode && !carried.length && !attachments.snapshot().length ? imageSearchQuery(displayed) : null;
     if (query) return openImageSearch(displayed, query);
     const existing = current?.localImageSearch ? undefined : current;
     const agent = pickedAgent();
@@ -650,7 +785,11 @@ export function createNativeChatEngine(options: NativeChatOptions): NativeChatEn
     }
     const changedAgent = conversation.agentId !== undefined && conversation.agentId !== agent.id;
     if (changedAgent) conversation.chatId = undefined;
-    const recap = before !== undefined || changedAgent ? contextSummary(conversation.messages) : "";
+    if (conversation.branchPrefixLength !== undefined && !conversation.chatId) {
+      conversation.branchPrefixLength = conversation.messages.length;
+    }
+    const recap = conversation.branchPrefixLength === undefined && (before !== undefined || changedAgent)
+      ? contextSummary(conversation.messages) : "";
     conversation.agentId = agent.id;
     conversation.agentName = agent.name;
     conversation.agentProvider = agent.provider;
@@ -659,7 +798,7 @@ export function createNativeChatEngine(options: NativeChatOptions): NativeChatEn
     const prompt = chatPrompt(input, { skillPrefix, studyMode, powerpointMode, previousPrompt: last?.prompt });
     // La marque PowerPoint reste la première ligne du prompt de format.
     const prepared = isPowerPointPrompt(prompt) ? prompt + (recap ? "\n\n" + recap : "") : recap + prompt;
-    conversation.messages.push({ role: "user", content: displayed, prompt: prepared, attachments: sent.length ? sent : undefined });
+    conversation.messages.push({ role: "user", content: displayed, prompt: prepared, interactiveContext, attachments: sent.length ? sent : undefined });
     draft = { seq: draft.seq + 1, text: "" };
     begin(conversation, prepared, sent);
     return true;
@@ -674,6 +813,27 @@ export function createNativeChatEngine(options: NativeChatOptions): NativeChatEn
     }
     const userIndex = lastUser(conversation.messages, index);
     if (userIndex < 0) return;
+    if (conversation.messages[index]?.role === "assistant" && index === userIndex + 1) {
+      const agent = pickedAgent();
+      if (!agent) return;
+      const message = conversation.messages[userIndex];
+      const sent = message.attachments ?? [];
+      const prompt = message.prompt || chatPrompt(fileContents(message.content, sent) ||
+        (sent.some(file => file.kind === "image") ? "Décris cette image." : "Analyse ce fichier."), { studyMode, powerpointMode });
+      const pending: NativePending = {
+        text: prompt, output: "", lastEventId: "", owner: repository.owner(), userIndex, dispatchStarted: false,
+        imageMode: imageMode && !isPowerPointPrompt(prompt), variant: { index, chatId: conversation.chatId, prefix: conversation.branchPrefixLength,
+          agentId: conversation.agentId, agentName: conversation.agentName, agentProvider: conversation.agentProvider }
+      };
+      retireServerChat(conversation);
+      conversation.branchPrefixLength = userIndex;
+      conversation.agentId = agent.id;
+      conversation.agentName = agent.name;
+      conversation.agentProvider = agent.provider;
+      conversation.pendingResponse = pending;
+      void run(conversation, pending, sent, false);
+      return;
+    }
     const message = conversation.messages[userIndex];
     const agent = pickedAgent();
     if (!agent) return;
@@ -685,8 +845,15 @@ export function createNativeChatEngine(options: NativeChatOptions): NativeChatEn
       conversation.agentId = agent.id;
       conversation.agentName = agent.name;
       conversation.agentProvider = agent.provider;
-      const recap = contextSummary(conversation.messages.slice(0, userIndex));
-      prompt = isPowerPointPrompt(prompt) ? prompt + "\n\n" + recap : recap + prompt;
+      if (conversation.branchPrefixLength === undefined) {
+        const recap = contextSummary(conversation.messages.slice(0, userIndex));
+        prompt = isPowerPointPrompt(prompt) ? prompt + "\n\n" + recap : recap + prompt;
+      }
+    }
+    if (conversation.branchPrefixLength !== undefined &&
+        (!conversation.chatId || userIndex < conversation.branchPrefixLength)) {
+      conversation.chatId = undefined;
+      conversation.branchPrefixLength = userIndex;
     }
     begin(conversation, prompt, sent);
   }
@@ -851,12 +1018,21 @@ export function createNativeChatEngine(options: NativeChatOptions): NativeChatEn
       unsubscribe = repository.subscribe(repoChanged);
       if (typeof document !== "undefined") document.addEventListener("visibilitychange", visibilityChanged);
       if (typeof window !== "undefined") window.addEventListener("online", recoverOnForeground);
+      if (typeof window !== "undefined") {
+        window.addEventListener("pageshow", recoverOnForeground);
+        window.addEventListener("pagehide", flushEditorDrafts);
+      }
       repoChanged();
     },
     detach() {
+      flushEditorDrafts();
       host = null;
       if (typeof document !== "undefined") document.removeEventListener("visibilitychange", visibilityChanged);
       if (typeof window !== "undefined") window.removeEventListener("online", recoverOnForeground);
+      if (typeof window !== "undefined") {
+        window.removeEventListener("pageshow", recoverOnForeground);
+        window.removeEventListener("pagehide", flushEditorDrafts);
+      }
       if (active && active.pending.dispatchStarted !== false) {
         active.pending.state = "interrupted";
         repository.commit();
@@ -864,6 +1040,7 @@ export function createNativeChatEngine(options: NativeChatOptions): NativeChatEn
       lifetime.abort();
       active?.controller.abort();
       active = null;
+      automaticRecoveryId = undefined;
       attachments.clear();
       carried = [];
       unsubscribe?.();
@@ -910,7 +1087,24 @@ export function createNativeChatEngine(options: NativeChatOptions): NativeChatEn
         attribution: { url: image.source, artist: image.artist, license: image.license }
       }]);
     },
-    state, send, regenerate, setOption, editSent, editFailed, vote, preview, resolveImage, downloadImage, resume, cancelPending,
+    sendWithInteractiveContext: (text, context, skillPrefix) => validInteractiveFollowUp(context) && send(text, skillPrefix, context),
+    readEditorDraft(conversationId, index, block, revision) {
+      const saved = editorMessage(conversationId, index)?.editorDrafts?.[block];
+      if (saved?.revision === revision && isEditorHistory(saved.history)) return JSON.stringify(saved.history);
+    },
+    saveEditorDraft(conversationId, index, block, revision, snapshot) {
+      const message = editorMessage(conversationId, index);
+      const history = parseEditorHistory(snapshot);
+      if (!message || !history || !isEditorTarget(block)) return;
+      message.editorDrafts = { ...message.editorDrafts, [block]: { revision, history } };
+      clearTimeout(editorSaveTimer);
+      editorSaveTimer = setTimeout(flushEditorDrafts, 450);
+    },
+    remember: options.memory ? text => {
+      if (!host || lifetime.signal.aborted) throw new Error("La session a changé.");
+      return options.memory!.save(text).enabled;
+    } : undefined,
+    state, send, regenerate, selectResponseVersion, branch, setOption, editSent, editFailed, vote, preview, resolveImage, downloadImage, resume, cancelPending,
     busy: () => Boolean(active) || pendingCancellation,
     settingsChanged() {
       if (local.read().webSearchMode === "disabled") { webSearch = false; writePreferences({ webSearch }); }
@@ -918,7 +1112,7 @@ export function createNativeChatEngine(options: NativeChatOptions): NativeChatEn
     },
     stop() {
       const task = active;
-      if (!task || task.stop) return;
+      if (!task || task.stop || repository.current() !== task.conversation) return;
       task.stop = true;
       task.cancelResult = task.pending.dispatchStarted === false ? Promise.resolve(true) :
         task.conversation.chatId ? cancelServer(task.conversation.chatId) : Promise.resolve(false);

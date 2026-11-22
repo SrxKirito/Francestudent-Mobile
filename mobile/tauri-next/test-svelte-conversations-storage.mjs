@@ -41,12 +41,12 @@ function fakeLocalStorage(initial = {}) {
   };
 }
 
-function setup({ local = {}, idb } = {}) {
+function setup({ local = {}, idb, reclaimSpace } = {}) {
   const indexedDB = idb ?? fakeIndexedDB();
   const localStorage = fakeLocalStorage(local);
   const warnings = [];
   let clock = 1_000_000;
-  const storage = createConversationStorage({ indexedDB, localStorage, now: () => clock, warn: message => warnings.push(message) });
+  const storage = createConversationStorage({ indexedDB, localStorage, now: () => clock, warn: message => warnings.push(message), reclaimSpace });
   return { indexedDB, localStorage, warnings, storage, advance: ms => (clock += ms) };
 }
 
@@ -119,17 +119,21 @@ await test("ouverture refusée : discussions et localStorage conservés tels que
   assert.equal(warnings.length, 2);
 });
 
-await test("copie vers IndexedDB refusée : localStorage garde les discussions (aucune perte)", async () => {
+await test("copie vers IndexedDB refusée : les discussions sont conservées et la migration peut être retentée", async () => {
   const idb = fakeIndexedDB();
   idb.state.fail.put = 1;
   const raw = stored([conv("a")]);
   const { localStorage, storage, warnings } = setup({ idb, local: { [STORE_KEY]: raw } });
   const loaded = await storage.load();
-  assert.equal(loaded.persistent, false);
+  assert.equal(loaded.persistent, true);
   assert.deepEqual(loaded.conversations.map(c => c.id), ["a"]);
   assert.equal(localStorage.getItem(STORE_KEY), raw);
-  assert.equal(idb.state.closed, 1, "la base ouverte doit être fermée");
+  assert.equal(idb.state.closed, 0, "la base reste accessible pour une nouvelle tentative");
   assert.equal(warnings.length, 1);
+  storage.retry();
+  await storage.flush();
+  assert.equal(idb.state.data.get("conversations")[0].id, "a");
+  assert.deepEqual(JSON.parse(localStorage.getItem(STORE_KEY)).conversations, []);
 });
 
 await test("lecture refusée : repli sur localStorage et base fermée", async () => {
@@ -223,6 +227,19 @@ await test("échec d'écriture : avertissement, puis les enregistrements suivant
   await storage.flush();
   assert.deepEqual(indexedDB.state.data.get("conversations").map(c => c.id), ["ok"]);
   assert.equal(warnings.length, 1);
+});
+
+await test("quota IndexedDB confirmé : libérer les aperçus puis réessayer", async () => {
+  let cleared = 0;
+  const { indexedDB, storage, warnings } = setup({ reclaimSpace: async () => { cleared++; } });
+  await storage.load();
+  indexedDB.state.fail.put = 1;
+  indexedDB.state.fail.putError = new DOMException("quota", "QuotaExceededError");
+  storage.save([conv("récupéré")]);
+  await storage.flush();
+  assert.equal(cleared, 1);
+  assert.deepEqual(warnings, []);
+  assert.equal(indexedDB.state.data.get("conversations")[0].id, "récupéré");
 });
 
 await test("flush() sans écriture en cours se résout immédiatement ; close() ferme la base", async () => {

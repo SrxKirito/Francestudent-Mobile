@@ -42,6 +42,7 @@ export interface PendingResponse {
 export interface WorkspaceEngine {
   files(): RemoteFile[];
   moreFiles(): boolean;
+  cachedUsage?(): FileUsage | null;
   usage(force: boolean): Promise<FileUsage>;
   refreshFiles(): Promise<unknown>;
   loadFiles(): Promise<unknown>;
@@ -59,6 +60,7 @@ export interface WorkspaceEngine {
   classifyLocal(id: string, projectId: string): Promise<void>;
   libraryColumns(): number;
   projectReady(): boolean;
+  canOpenProject?(): boolean;
   enterProject(project: Project, chats: ProjectChat[]): void;
   updateProject(project: Project): void;
   deleteProjectContext(id: string): void;

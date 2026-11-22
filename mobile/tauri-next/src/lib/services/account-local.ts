@@ -37,8 +37,9 @@ function text(value: unknown): string {
 
 function normalize(input: unknown): AccountLocal {
   const source = input && typeof input === "object" && !Array.isArray(input) ? (input as Record<string, unknown>) : {};
+  const firstName = text(source.firstName);
   return {
-    profile: { name: text(source.name), email: text(source.email) },
+    profile: { name: text(source.name), email: text(source.email), ...(firstName ? { firstName } : {}) },
     avatar: isAvatarDataUrl(source.avatar) ? (source.avatar as string) : ""
   };
 }
@@ -63,13 +64,16 @@ export function createStorageAccount(storage: AccountStorage, key: string = STOR
       throw new Error(failure);
     }
   }
+  function read(): AccountLocal {
+    const state = parseStoredState(readRaw(), () => "");
+    return normalize({ ...state.profile, avatar: state.avatar });
+  }
   return {
-    read() {
-      const state = parseStoredState(readRaw(), () => "");
-      return normalize({ name: state.profile?.name, email: state.profile?.email, avatar: state.avatar });
-    },
+    read,
     saveProfile(profile) {
-      write({ profile: { name: profile.name, email: profile.email } }, PROFILE_REFUSED);
+      const saved = read().profile;
+      const firstName = profile.firstName || (saved.name === profile.name && saved.email === profile.email ? saved.firstName : undefined);
+      write({ profile: { name: profile.name, email: profile.email, ...(firstName ? { firstName } : {}) } }, PROFILE_REFUSED);
     },
     setAvatar(dataUrl) {
       if (!isAvatarDataUrl(dataUrl)) throw new Error(AVATAR_INVALID);

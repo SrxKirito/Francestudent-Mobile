@@ -48,10 +48,64 @@ relue avant d'être retirée de ce stockage ; en cas de conflit ou d'erreur, la
 copie existante est conservée. Cela ne récupère pas automatiquement les
 données d'origine Capacitor, dont l'origine Web et le conteneur peuvent différer.
 
-La bibliothèque propose une liste paginée des fichiers du compte et affiche le
-quota. La suppression côté serveur nécessite une action explicite ; le classement
+La bibliothèque et les catégories Fichiers et Images de Stockage chargent les
+pages suivantes au défilement. Les aperçus d’images FRST de 4 Mio maximum sont
+réutilisés depuis un cache local cloisonné par compte, plafonné à 24 Mio et
+48 entrées, avec une durée de réutilisation de sept jours. Les valeurs du budget,
+de l’activité et du quota de stockage sont préchargées après la connexion.
+Le chat garde la génération associée à sa discussion pendant la navigation.
+En cas de coupure lors d’un passage en arrière-plan, il reprend le flux par
+son curseur ou relit la réponse enregistrée côté serveur. Un échec d’écriture
+local peut être retenté au premier plan. En cas de quota local confirmé,
+l’application libère le cache des aperçus FRST avant de retenter l’écriture.
+La suppression côté serveur nécessite une action explicite ; le classement
 par projet de l'ancienne bibliothèque reste local, car aucun rattachement direct
 de fichiers aux projets n'est documenté dans l'OpenAPI.
+
+## Démarrage
+
+Le chat charge les styles et restaure la session en parallèle. La détection du
+microphone continue après le montage. Pour une session déjà associée à ce
+compte, l’historique local s’affiche dès que le périmètre de session est
+confirmé et que le stockage est lu. Le profil et la synchronisation serveur
+se mettent à jour séparément. Si le compte n’a pas encore d’association locale,
+l’app attend son identification avant d’afficher l’historique.
+
+## Conversation vocale
+
+Le bouton de conversation vocale apparaît lorsque la reconnaissance et la
+lecture vocales sont disponibles. Après une pause dans la dictée, le chat
+envoie la question. Il lit la réponse textuelle puis reprend l’écoute.
+Un changement de discussion, l’ouverture d’un panneau ou le passage en
+arrière-plan coupe l’écoute. Le bouton « Terminer le mode vocal » arrête
+le microphone et la lecture. La génération du chat peut continuer.
+
+## Variantes de réponse
+
+« Régénérer » génère une nouvelle version. Les flèches sous la réponse
+permettent de revenir aux versions précédentes. Les autres échanges restent
+visibles. Le prochain envoi prend en compte la version sélectionnée.
+
+## Branches de discussion
+
+« Créer une branche », sous une réponse, ouvre une nouvelle discussion dans le
+même projet avec les échanges jusqu’à cette réponse. Les messages copiés restent
+dans l’historique local de la branche. Au premier envoi, le chat transmet au modèle
+jusqu’à 20 000 caractères des échanges les plus récents. Le serveur crée alors
+une discussion distincte. Les pièces jointes des anciens messages restent
+consultables dans la branche. Pour les analyser de nouveau, joins-les au message.
+
+## Mémoire des discussions
+
+Dans **Paramètres → Général → Mémoire**, l’utilisateur peut ajouter, modifier
+ou oublier des souvenirs, puis autoriser leur utilisation. Dans le chat,
+« Mémorise que… », « Souviens-toi que… » ou « Mémoriser » sous un message
+affiche une confirmation avec le texte proposé. Une demande dictée ouvre la
+même confirmation. Le stockage reste
+local à l’appareil et cloisonné par compte. Le chat ajoute les souvenirs
+actifs à l’envoi dans un contexte masqué dans l’historique visible. Désactiver
+la mémoire ou oublier un souvenir agit sur les prochains envois. Le contexte
+des conversations déjà envoyées reste géré par le serveur.
 
 Vérifications locales : `npm ci`, `npm run check`, `npm run build`, puis
 `cargo check --locked` dans `src-tauri`. Pour les tests du client, exécuter
