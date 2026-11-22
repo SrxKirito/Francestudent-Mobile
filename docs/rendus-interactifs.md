@@ -1,7 +1,7 @@
 
 # Rendus interactifs du chat Tauri
 
-Chaque réponse peut contenir plusieurs blocs de code `frst-ui`. Le même parseur s’applique à tous les modèles et aux réponses stockées dans l’historique. Les instructions de format sont ajoutées au prompt de chat selon la demande. La conformité effective du JSON dépend du modèle.
+Chaque réponse peut contenir plusieurs blocs de code `frst-ui`, `quiz` et `cards`. Le même parseur s’applique à tous les modèles et aux réponses stockées dans l’historique. Le chat standard présente ses formats au modèle à chaque envoi et lui demande de choisir spontanément les rendus utiles. La consigne est retirée lors de la relecture de l’historique. Les modes spécialisés conservent leurs consignes. La conformité effective du JSON dépend du modèle.
 
 ```frst-ui
 {"version":1,"kind":"simulator","title":"Puissance","fields":[{"id":"intensite","label":"Intensité","type":"range","min":0,"max":100,"value":35}],"results":[{"label":"Puissance","unit":"W","formula":{"op":"mul","args":[{"field":"intensite"},2]}}]}

@@ -1,5 +1,4 @@
 import type { StudyMode } from "../types/chat.ts";
-import { widgetInstruction } from "./interactive-prompts.ts";
 
 const POWERPOINT_MARK = "Création PowerPoint.";
 const POWERPOINT = POWERPOINT_MARK + " Crée une présentation visuelle et soignée. Donne une courte introduction puis un seul bloc de code pptx contenant uniquement ce JSON valide : " +
@@ -8,7 +7,7 @@ const POWERPOINT = POWERPOINT_MARK + " Crée une présentation visuelle et soign
   'Une photo est facultative : "image":{"url":"URL HTTPS directe vérifiée","caption":"Légende et crédit"}. Respecte le nombre demandé (1 à 40 diapositives), avec 2 à 4 points courts par page. ' +
   "Appuie-toi sur la demande et les documents fournis. Demande le sujet si nécessaire et ne fournis aucun script ni faux lien.";
 
-const STUDY_RULE = "Appuie-toi uniquement sur le contenu fourni. S'il manque, demande le cours ou le document.";
+const STUDY_RULE = "Appuie-toi sur le contenu fourni. Si seul un sujet est indiqué, utilise les connaissances générales sur ce sujet. Demande le cours ou le document lorsqu’il est nécessaire pour répondre.";
 const STUDY: Record<Exclude<StudyMode, "">, string> = {
   fiches: "Mode étudiant — FICHES DE RÉVISION. Rédige des fiches en français avec une définition, les points clés, les formules ou dates importantes, un exemple et un résumé. " + STUDY_RULE,
   quiz: "Mode étudiant — QUIZ INTERACTIF. Fais un quiz en français avec QCM, vrai/faux et questions ouvertes. Écris un seul bloc de code quiz avec uniquement du JSON valide : " +
@@ -21,24 +20,23 @@ const STUDY: Record<Exclude<StudyMode, "">, string> = {
 const WORD_RULE = "Pour générer un document Word, donne le texte final dans un seul bloc de code docx. Écris sur la première ligne # document.docx, puis le contenu. Utilise # devant les titres.";
 const EXCEL_RULE = 'Pour générer un classeur Excel, écris un seul bloc de code xlsx. La première ligne peut être # tableau.xlsx. Ensuite, écris uniquement un tableau JSON de lignes, par exemple [["Nom","Valeur"],["A",12]]. Les valeurs sont texte, nombres, booléens ou null.';
 
-const CHART_PATTERN = /\b(?:graphique|histogramme|camembert|nuage de points|courbe interactive|graphe de fonction)s?\b/i;
-const CHART_RULE = "Si des données fiables sont disponibles et que la demande porte sur un graphique, ajoute un bloc de code frst-ui avec uniquement du JSON : " +
-  '{"version":1,"kind":"chart","title":"Titre","chart":"line","series":[{"name":"Série","points":[{"label":"Janvier","y":12}]}]}. ' +
-  "Utilise line, bar, pie ou scatter. Pour scatter, fournis x et y sur chaque point. Pour une courbe mathématique utilise line, ajoute axis: numeric et fournis x et y sur chaque point. Ne présente pas des données inventées comme des données réelles.";
 
 export function isPowerPointPrompt(value?: string): boolean {
   return value?.startsWith(POWERPOINT_MARK) === true;
 }
 
+export function isDedicatedFormatPrompt(value: string): boolean {
+  return isPowerPointPrompt(value) || value.startsWith("Mode étudiant —") || value.startsWith(WORD_RULE) || value.startsWith(EXCEL_RULE);
+}
+
 export function chatPrompt(text: string, options: {
   skillPrefix?: string; studyMode: StudyMode; powerpointMode: boolean; previousPrompt?: string;
 }): string {
-  const mode = options.studyMode || (/\b(flashcards?|cartes m[ée]moire)\b/i.test(text)
-    ? "cartes" : /\bquiz\b/i.test(text) ? "quiz" : /\bfiches? de r[ée]vision\b/i.test(text) ? "fiches" : "");
+  const mode = options.studyMode;
   const powerpoint = options.powerpointMode || /\b(power[ -]?point|pptx)\b/i.test(text) ||
     (isPowerPointPrompt(options.previousPrompt) && /\b(modifi|corrig|ajout|am[ée]lior|diapos|slides?)/i.test(text));
   const office = /\b(xlsx|classeur excel|tableau excel|fichier excel)\b/i.test(text) ? EXCEL_RULE :
     /\b(docx|document word|fichier word)\b/i.test(text) ? WORD_RULE : "";
-  const format = options.powerpointMode ? POWERPOINT : office || (powerpoint ? POWERPOINT : mode ? STUDY[mode] : [CHART_PATTERN.test(text) ? CHART_RULE : "", widgetInstruction(text)].filter(Boolean).join("\n"));
+  const format = options.powerpointMode ? POWERPOINT : office || (powerpoint ? POWERPOINT : mode ? STUDY[mode] : "");
   return (format ? format + "\n\n" : "") + (options.skillPrefix || "") + text;
 }

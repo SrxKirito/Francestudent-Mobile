@@ -4,7 +4,8 @@ import { calculate } from "./src/lib/services/interactive-widgets.ts";
 import { readDelimited, readSheets } from "./src/lib/services/preview-formats.ts";
 import { generatedArtifacts } from "./src/lib/services/file-preview.ts";
 import { parseMarkdownBlocks } from "./src/lib/services/markdown.ts";
-import { chatPrompt } from "./src/lib/services/native-chat-prompts.ts";
+import { chatPrompt, isDedicatedFormatPrompt } from "./src/lib/services/native-chat-prompts.ts";
+import { stripInteractiveRenderGuide, withInteractiveRenderGuide } from "./src/lib/services/interactive-prompts.ts";
 
 const parse = fields => parseInteractiveContent("frst-ui", JSON.stringify({ version: 1, ...fields }));
 const chart = (kind, points) => parse({ kind: "chart", chart: kind, series: [{ name: "Résultats", points }] });
@@ -28,8 +29,21 @@ const block = parseMarkdownBlocks(fence + 'frst-ui\n{"version":1,"kind":"checkli
 assert.equal(block.language, "frst-ui");
 assert.equal(block.open, false);
 const options = { studyMode: "", powerpointMode: false };
-assert.match(chatPrompt("Fais un histogramme", options), /frst-ui/);
 assert.equal(chatPrompt("Bonjour", options), "Bonjour");
+const mixedRequest = "Fais un quiz, une carte interactive, un calculateur et un tableau de bord HTML.";
+assert.equal(chatPrompt(mixedRequest, options), mixedRequest);
+const combined = withInteractiveRenderGuide(mixedRequest, mixedRequest);
+assert.match(combined, /Combine plusieurs blocs/);
+assert.match(combined, /Un bloc quiz/);
+assert.match(combined, /"kind":"simulator"/);
+assert.match(combined, /un bloc html/);
+assert.equal(stripInteractiveRenderGuide(combined), mixedRequest);
+const retry = withInteractiveRenderGuide("Test", "Test");
+assert.match(retry, /un essai de rendu demandé dans un tour précédent/);
+assert.match(retry, /Choisis toi-même un rendu/);
+assert.equal(stripInteractiveRenderGuide(retry), "Test");
+assert.equal(isDedicatedFormatPrompt(chatPrompt("Crée un PowerPoint", options)), true);
+assert.equal(isDedicatedFormatPrompt(chatPrompt("Révision", { ...options, studyMode: "quiz" })), true);
 const table = parse({ kind: "table", columns: ["Nom", "Quantité"], rows: [["Deux", 2], ["Un", 1]] });
 assert.deepEqual(table.rows[1], ["Un", 1]);
 assert.equal(parse({ kind: "table", columns: [null], rows: [["Un"]] }), null);
@@ -53,5 +67,5 @@ assert.equal(generatedArtifacts(fence + 'frst-ui\n{"version":1,"kind":"checklist
 for (const [request, kind] of [
   ["fais-moi un tableau interactif", "table"], ["ouvre un simulateur", "simulator"], ["crée une carte interactive", "map"],
   ["prépare une frise chronologique", "timeline"], ["fais un formulaire", "form"], ["donne la météo", "cards"]
-]) assert.match(chatPrompt(request, options), new RegExp('"kind":"' + kind + '"'));
+]) assert.match(withInteractiveRenderGuide(request, request), new RegExp('"kind":"' + kind + '"'));
 console.log("Rendus structurés : formats, bornes, données inertes et reconnaissance du bloc vérifiés.");

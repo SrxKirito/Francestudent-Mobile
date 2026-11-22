@@ -5,6 +5,7 @@ import type { GeneratedImage } from "../types/chat-stream.ts";
 import { providerLabel } from "../utils/agents.ts";
 import type { ApiClient } from "./api-client.ts";
 import { collectGeneratedImages, collectSourceUrls } from "./chat-stream.ts";
+import { stripInteractiveRenderGuide } from "./interactive-prompts.ts";
 import type { ConversationStorage } from "./conversation-storage.ts";
 import type { NativeAttachment, NativePending } from "./native-chat-types.ts";
 import type { Project, ProjectChat } from "./projects.ts";
@@ -252,6 +253,7 @@ export function createNativeConversations(deps: {
       const message: NativeMessage = { role, content: text(item.content), serverMessageId };
       if (typeof item.isUpvoted === "boolean") message.feedback = item.isUpvoted ? "up" : "down";
       if (role === "user") {
+        message.content = stripInteractiveRenderGuide(message.content);
         const index = userIndex++;
         const exact = serverMessageId ? localUsers.find(item => item.serverMessageId === serverMessageId) : undefined;
         const fallback = localUsers[index];

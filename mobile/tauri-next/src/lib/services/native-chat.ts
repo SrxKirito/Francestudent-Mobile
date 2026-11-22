@@ -20,7 +20,8 @@ import type { LocalSettingsGateway } from "./local-settings.ts";
 import { createNativeAttachments } from "./native-chat-attachments.ts";
 import { createNativeRequest } from "./native-chat-network.ts";
 import type { NativeRequest } from "./native-chat-network.ts";
-import { chatPrompt, isPowerPointPrompt } from "./native-chat-prompts.ts";
+import { chatPrompt, isDedicatedFormatPrompt, isPowerPointPrompt } from "./native-chat-prompts.ts";
+import { withInteractiveRenderGuide } from "./interactive-prompts.ts";
 import { chatPath, detailMessages, matchingAnswer, messageText, recentChats, recoverChatId, waitUntilRetry } from "./native-chat-recovery.ts";
 import type { NativeAttachment, NativePending } from "./native-chat-types.ts";
 import type { NativeConversation, NativeConversations, NativeMessage } from "./native-conversations.ts";
@@ -428,7 +429,11 @@ export function createNativeChatEngine(options: NativeChatOptions): NativeChatEn
       "[Génération d’image] Utilise obligatoirement l’outil de génération d’image pour créer l’image demandée.\n\n" : "";
     const sourcePrompt = source ?
       "[Image source] Si la demande est une modification, utilise la dernière image générée jointe et conserve les éléments non concernés.\n\n" : "";
-    pending.requestText = imagePrompt + sourcePrompt + pending.text;
+    const prompt = pending.text ?? "";
+    const requestText = imagePrompt + sourcePrompt + prompt;
+    const userMessage = conversation.messages[pending.userIndex ?? -1];
+    pending.requestText = pending.imageMode || isDedicatedFormatPrompt(prompt)
+      ? requestText : withInteractiveRenderGuide(requestText, userMessage?.content ?? prompt);
     pending.dispatchStarted = true;
     pending.startedAt = Date.now();
     repository.commit();
