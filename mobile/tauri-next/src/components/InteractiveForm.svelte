@@ -1,5 +1,6 @@
 
 <script lang="ts">
+  import RenderOptions from "./RenderOptions.svelte";
   import { onMount, untrack } from "svelte";
   import { advanceSimulationPlayback, calculate, sampleSimulationPlot, simulationPlotProbe, snapSimulationField,
     type InteractiveWidget } from "../lib/services/interactive-widgets.ts";
@@ -174,6 +175,9 @@
       <div class="simulation-controls">
         {#if data.playback}
           <button type="button" class="settings-btn" onclick={togglePlayback}>{playing ? "Mettre en pause" : "Lancer la lecture"}</button>
+        {/if}
+        <RenderOptions label="Options de la simulation">
+        {#if data.playback}
           <label class="speed">Vitesse
             <select class="settings-input" bind:value={speed}>
               <option value={0.5}>0,5×</option>
@@ -186,8 +190,9 @@
         <button type="button" class="settings-btn" onclick={reset}>Réinitialiser</button>
         {#if session?.followUp}
           <button type="button" class="settings-btn" onclick={shareSettings}>Joindre les réglages à ma question</button>
-          {#if settingsError}<p role="status">Ces réglages dépassent la taille autorisée.</p>{/if}
         {/if}
+        </RenderOptions>
+        {#if settingsError}<p role="status">Ces réglages dépassent la taille autorisée.</p>{/if}
       </div>
     {/if}
   </form>

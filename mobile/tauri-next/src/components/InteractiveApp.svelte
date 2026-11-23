@@ -1,4 +1,5 @@
 <script lang="ts">
+  import RenderOptions from "./RenderOptions.svelte";
   import { onMount } from "svelte";
   import type { AppElement, AppEvent, AppResponse, InteractiveApp } from "../lib/services/interactive-app.ts";
 
@@ -81,7 +82,12 @@
 <section aria-label={data.title} class="interactive-app">
   <header>
     <strong>{data.title}</strong>
-    <button type="button" onclick={reset}>Réinitialiser</button>
+    <RenderOptions label="Options de l’application">
+      <button type="button" onclick={reset}>Réinitialiser</button>
+      {#if session?.followUp && view.length && !failed}
+        <button type="button" disabled={pending} onclick={() => session?.followUp?.({ kind: "app", title: data.title, state: snapshot })}>Joindre les réglages à ma question</button>
+      {/if}
+    </RenderOptions>
   </header>
   {#if failed}
     <p role="status">Cette application interactive n’a pas pu s’exécuter.</p>
@@ -120,16 +126,12 @@
         {/if}
       {/each}
     </div>
-    {#if session?.followUp}
-      <footer><button type="button" disabled={pending} onclick={() => session?.followUp?.({ kind: "app", title: data.title, state: snapshot })}>Joindre les réglages à ma question</button></footer>
-    {/if}
   {/if}
 </section>
 
 <style>
   .interactive-app { margin: .8rem 0; padding: .85rem; border: 1px solid var(--border); border-radius: .75rem; overflow-wrap: anywhere; }
   header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .55rem; }
-  footer { margin-top: .7rem; }
   p, ul { margin: 0; white-space: pre-wrap; }
   .app-view { display: grid; gap: .7rem; margin-top: .65rem; }
   .app-heading { font-weight: 650; }

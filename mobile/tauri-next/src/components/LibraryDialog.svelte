@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onMount, tick } from "svelte";
   import type { ApiClient } from "../lib/services/api-client.ts";
   import type { LibraryRecord, PendingResponse, RemoteFile, WorkspaceEngine } from "../lib/services/workspace-engine.ts";
   import { FILE_KINDS, FILE_SORTS, formatBytes } from "../lib/services/workspace-engine.ts";
@@ -14,6 +14,10 @@
     onconfirm: (text: string) => Promise<boolean>;
   } = $props();
   let dialog: HTMLDialogElement;
+  let actionsDialog: HTMLDialogElement;
+  let actionKey = $state<string | null>(null);
+  let actionsOpener: HTMLButtonElement | undefined;
+  let savingFile = $state(false);
   let files = $state.raw<RemoteFile[]>([]);
   let localFiles = $state.raw<LibraryRecord[]>([]);
   let projects = $state.raw<{ id: string; name: string }[]>([]);
@@ -51,6 +55,8 @@
     const timestamp = (date: number) => date < 1e12 ? date * 1000 : date;
     return (timestamp(a.date) - timestamp(b.date)) * (sort === "date-asc" ? 1 : -1);
   }));
+
+  const activeFile = $derived(cards.find(file => file.key === actionKey));
 
   function nextPage() {
     return operate(async () => {
@@ -124,16 +130,45 @@
     });
   }
 
-  function fileAction(id: string, local: boolean, action: "save" | "chat") {
-    void operate(async () => {
-      if (action === "chat") onclose();
-      if (local) {
-        await engine.localFileAction(id, action);
-        if (action === "save") ontoast("Fichier enregistré.", false);
-      } else if (typeof await engine.saveRemote(id) === "string") {
-        ontoast("Fichier enregistré.", false);
-      }
-    });
+  async function showActions(key: string, button: HTMLButtonElement) {
+    actionsOpener = button;
+    actionKey = key;
+    await tick();
+    if (inView && actionKey === key && !actionsDialog.open) actionsDialog.showModal();
+  }
+
+  function closeActions() {
+    actionKey = null;
+    actionsDialog.close();
+  }
+
+  function dialogClosed() {
+    if (actionsDialog.open) return;
+    actionKey = null;
+    if (inView && actionsOpener?.isConnected) actionsOpener.focus({ preventScroll: true });
+  }
+
+  async function fileAction(id: string, local: boolean, action: "save" | "chat") {
+    closeActions();
+    if (action === "chat") {
+      void operate(async () => { onclose(); await engine.localFileAction(id, "chat"); });
+      return;
+    }
+    if (savingFile) return;
+    savingFile = true;
+    actionMessage = "";
+    try {
+      await tick();
+      if (local) await engine.localFileAction(id, "save");
+      else await engine.saveRemote(id);
+      if (inView) actionMessage = "Fichier enregistré.";
+      else ontoast("Fichier enregistré.", false);
+    } catch (error) {
+      const description = errorMessage(error);
+      if (description.includes("Enregistrement annulé")) return;
+      if (inView) actionMessage = description;
+      else ontoast(description, true);
+    } finally { savingFile = false; }
   }
 
   function classify(fileId: string, projectId: string) {
@@ -166,8 +201,8 @@
   </div></details>
   {#if fileMessage}<p role="alert" class="settings-error">{fileMessage}</p>{/if}
   {#if localMessage}<p role="alert" class="settings-error">{localMessage}</p>{/if}
-  {#if actionMessage}<p role="alert" class="settings-error">{actionMessage}</p>{/if}
-  <p role="status">{busy ? "Chargement…" : cards.length + " fichier(s) affiché(s)"}</p>
+  {#if actionMessage}<p role="status">{actionMessage}</p>{/if}
+  <p role="status">{savingFile ? "Préparation de l’enregistrement…" : busy ? "Chargement…" : cards.length + " fichier(s) affiché(s)"}</p>
   <div class="library-grid" style:--library-columns={engine.libraryColumns()}>
     {#each cards as file, index (file.key)}
       <article class="library-card">
@@ -179,19 +214,8 @@
         {#if file.attribution && file.attribution.url.startsWith("https://commons.wikimedia.org/wiki/File:")}
           <small>{file.attribution.artist} · {file.attribution.license} · <a href={file.attribution.url} target="_blank" rel="noopener noreferrer">Source</a></small>
         {/if}
-        <details class="library-actions">
-          <summary aria-label={"Actions pour " + file.name}>•••</summary>
-          <div class="library-card-menu">
-            <button type="button" disabled={busy} onclick={() => fileAction(file.id, file.local, "save")}>Enregistrer</button>
-            {#if file.local}
-              <button type="button" disabled={busy} onclick={() => fileAction(file.id, true, "chat")}>Ouvrir le chat</button>
-              <select aria-label={"Classer localement " + file.name + " dans un projet"} value={file.projectId} disabled={busy} onchange={event => { const selected = event.currentTarget.value; event.currentTarget.value = file.projectId; classify(file.id, selected); }}>
-                <option value="">Sans projet</option>
-                {#each projects as item (item.id)}<option value={item.id}>{item.name}</option>{/each}
-              </select>
-            {/if}
-          </div>
-        </details>
+        <button type="button" class="library-actions-button" aria-label={"Actions pour " + file.name} aria-haspopup="dialog"
+          onclick={event => void showActions(file.key, event.currentTarget)}>•••</button>
       </article>
     {/each}
   </div>
@@ -203,7 +227,38 @@
   {/if}
 </dialog>
 
+<dialog class="library-file-actions" aria-labelledby="library-file-action-title" bind:this={actionsDialog} onclose={dialogClosed}>
+  {#if activeFile}
+    <header><strong id="library-file-action-title">{activeFile.name}</strong>
+      <button type="button" aria-label="Fermer les actions" onclick={closeActions}>×</button>
+    </header>
+    <button type="button" disabled={savingFile} onclick={() => void fileAction(activeFile.id, activeFile.local, "save")}>Enregistrer</button>
+    {#if activeFile.local}
+      <button type="button" disabled={busy} onclick={() => void fileAction(activeFile.id, true, "chat")}>Ouvrir le chat</button>
+      <select aria-label="Classer dans un projet" value={activeFile.projectId} disabled={busy} onchange={event => {
+        const id = activeFile.id;
+        const projectId = event.currentTarget.value;
+        closeActions();
+        classify(id, projectId);
+      }}>
+        <option value="">Sans projet</option>
+        {#each projects as item (item.id)}<option value={item.id}>{item.name}</option>{/each}
+      </select>
+    {/if}
+    <button type="button" class="settings-btn" onclick={closeActions}>Annuler</button>
+  {/if}
+</dialog>
+
 <style>
+  .library-actions-button { min-height: 44px; padding: 0; }
+  .library-file-actions { position: fixed; inset: auto 0 max(12px, env(safe-area-inset-bottom)); margin: 0 auto;
+    box-sizing: border-box; width: min(420px, calc(100% - 24px)); max-height: 75dvh; overflow: auto;
+    padding: .8rem; background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 1rem; }
+  .library-file-actions[open] { display: grid; gap: .45rem; }
+  .library-file-actions::backdrop { background: #0008; }
+  .library-file-actions header { display: flex; align-items: center; justify-content: space-between; gap: .4rem; overflow-wrap: anywhere; }
+  .library-file-actions button, .library-file-actions select { min-height: 44px; }
+  .library-file-actions select { font-size: 16px; }
   .library-header-actions { display: flex; align-items: center; gap: .5rem; }
   .library-refresh { display: grid; place-items: center; flex: none; width: 44px; height: 44px; padding: 0; }
   .library-search { width: 100%; margin-block: .6rem; }

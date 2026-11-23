@@ -1,4 +1,5 @@
 <script lang="ts">
+  import RenderOptions from "./RenderOptions.svelte";
   import InteractiveChart from "./InteractiveChart.svelte";
   import InteractiveTable from "./InteractiveTable.svelte";
   import { dashboardCellLabel, dashboardCsv, dashboardRows, dashboardSeries, dashboardValue,
@@ -107,7 +108,9 @@
     <p class="summary">Aucune valeur à tracer pour ces filtres.</p>
   {/if}
   <InteractiveTable title="Données du tableau de bord" columns={data.columns} rows={visible} embedded />
-  <button type="button" class="settings-btn" disabled={saving || !visible.length} onclick={() => void download()}>Enregistrer les données en CSV</button>
+  <RenderOptions label="Options du tableau de bord">
+    <button type="button" class="settings-btn" disabled={saving || !visible.length} onclick={() => void download()}>Enregistrer les données en CSV</button>
+  </RenderOptions>
   {#if saveStatus}<p class="summary" role="status">{saveStatus}</p>{/if}
 </section>
 

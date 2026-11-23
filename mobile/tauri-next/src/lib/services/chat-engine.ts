@@ -31,7 +31,6 @@ export interface ChatEngine {
   regenerate(index: number): void;
   selectResponseVersion?(index: number, version: number): void;
   branch?(index: number): void;
-  remember?(text: string): boolean;
   removeAttachment(id: string): void;
   /** Relance le téléversement d'une pièce jointe en échec (absent des anciens ponts : sans effet). */
   retryUpload(id: string): void;

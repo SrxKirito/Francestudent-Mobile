@@ -807,15 +807,18 @@ async function nativePhase(baseUrl, pageErrors) {
     await waitFor(has("#storage-archives"), "retour aux catégories");
     await closeSettings();
   });
-  await check("messages enregistrés : ajouter, retrouver et retirer dans la bibliothèque", async () => {
+  await check("messages déjà enregistrés : retrouver et retirer dans la bibliothèque", async () => {
     await ev(`window.__backend.chats.find(c => c.title === "Maths").chatMessages = [
       { id: "saved-m1", role: "assistant", content: "Contenu à retrouver" }
     ]`);
     await click("Maths", historyItem("Maths"));
     await waitFor(contains("#thread", "Contenu à retrouver"), "message chargé");
-    await click("Enregistrer le message", q("#thread .assistant .message-actions button"));
-    await waitFor("window.__backend.savedMessages.length === 1", "message stocké côté serveur");
-    await ev('window.__backend.savedMessages[0].message = { content: "Contenu à retrouver $x^2$" }');
+    assert.equal(await ev(contains("#thread .assistant .message-actions", "Enregistrer")), false);
+    assert.equal(await ev(contains("#thread .assistant .message-actions", "Ouvrir dans l’éditeur")), false);
+    await ev(`window.__backend.savedMessages = [{
+      chatId: window.__backend.chats.find(c => c.title === "Maths").id, messageId: "saved-m1",
+      message: { content: "Contenu à retrouver $x^2$" }
+    }]`);
     await click("Bibliothèque", q("#library-open"));
     await waitFor(has("#svelte-library[open]"), "bibliothèque ouverte");
     await click("Messages enregistrés", q("#svelte-library > button[aria-expanded]"));
@@ -852,6 +855,7 @@ async function nativePhase(baseUrl, pageErrors) {
     await click("Sélectionner la barre du matin", q('#thread svg[aria-label="Mesures"] rect[data-point="0:0"]'));
     assert.equal(await ev(q("#thread figure label select") + ".value"), "0:0");
     const wordButton = word => `[...document.querySelectorAll("#thread button")].find(button => button.textContent.includes(${JSON.stringify(word)}))`;
+    await click("Options du graphique", q('#thread summary[aria-label="Options du graphique"]'));
     await click("Agrandir", wordButton("Agrandir le graphique"));
     assert.equal(await ev(wordButton("Agrandir le graphique") + '.getAttribute("aria-pressed")'), "true");
     await click("Voir les données", wordButton("Voir les données"));
@@ -1085,15 +1089,11 @@ async function nativePhase(baseUrl, pageErrors) {
     }
     await closeSettings();
   });
-  await check("lire une réponse et arrêter en changeant de discussion", async () => {
+  await check("dictée disponible sans réponse vocale", async () => {
     await click("Ouvrir Maths", historyItem("Maths"));
-    const read = '#thread .assistant button[aria-label="Lire à voix haute"]';
-    await waitFor(has(read), "lecture vocale disponible");
-    await click("Lire à voix haute", q(read));
-    await waitFor(has('#thread button[aria-label="Arrêter la lecture"][aria-pressed=true]'), "lecture active");
-    assert.equal(await ev("window.__backend.speech.started.at(-1).text"), "Contenu à retrouver");
-    await click("Changer de discussion", historyItem("Histoire"));
-    await waitFor("window.__backend.speech.cancelled === 1", "lecture interrompue");
+    await waitFor(contains("#thread", "Contenu à retrouver"), "message chargé");
+    await waitFor(has('#mic[aria-label="Dicter un message"]'), "dictée disponible");
+    assert.equal(await ev(has('#thread button[aria-label="Lire à voix haute"], button[aria-label="Démarrer une conversation vocale"]')), false);
   });
   await check("ouvrir et enregistrer des exports Word et Excel", async () => {
     const fence = String.fromCharCode(96).repeat(3);
@@ -1208,6 +1208,17 @@ async function nativePhase(baseUrl, pageErrors) {
       await click("Bibliothèque avec session valide", q("#library-open"));
       await waitFor(contains("#svelte-library", "notes-frst.txt"), "liste Files V2 chargée");
       assert.equal(await ev(contains("#svelte-library", "Connecte-toi")), false);
+      if (mode === "missing") {
+        const opener = q('#svelte-library button[aria-label="Actions pour notes-frst.txt"]');
+        const actions = "dialog.library-file-actions[open]";
+        await click("Actions du fichier", opener);
+        await waitFor(has(actions), "actions ouvertes");
+        await click("Fermer les actions", q(actions + ' button[aria-label="Fermer les actions"]'));
+        await waitFor("!" + has(actions) + " && document.activeElement === " + opener, "retour à la carte");
+        await click("Actions du fichier", opener);
+        await click("Enregistrer le fichier", q(actions + " > button:first-of-type"));
+        await waitFor("!" + has(actions) + " && " + contains("#svelte-library[open]", "Fichier enregistré."), "fichier enregistré sans fermer la bibliothèque");
+      }
       await escape();
       await waitFor("!" + has("#svelte-library[open]"), "bibliothèque fermée");
     }

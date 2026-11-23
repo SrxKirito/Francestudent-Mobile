@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "allow-export-file"
+description = "Allows exporting a staged copy via the iOS document picker."
+commands.allow = ["export_file"]

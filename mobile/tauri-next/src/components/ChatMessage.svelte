@@ -7,12 +7,11 @@
   import { generatedImageFile } from "../lib/services/file-preview.ts";
   import type { ChatStore } from "../lib/stores/chat.svelte.ts";
   import type { EditorTarget } from "../lib/services/document-editor.ts";
-  import { assistantEditorSource, type InteractiveContent } from "../lib/services/interactive-content.ts";
+  import type { InteractiveContent } from "../lib/services/interactive-content.ts";
   import type { AppSession } from "../lib/services/interactive-app-session.ts";
   import { attachmentIcon } from "../lib/services/chat-view.ts";
   import { fileIconSvg } from "../lib/services/markdown.ts";
   import type { ChatImage, ChatMessage } from "../lib/types/chat.ts";
-  import { speechText } from "../lib/services/read-aloud.ts";
   import { copyText } from "../lib/utils/clipboard.ts";
   import { icon } from "../lib/utils/icons.ts";
 
@@ -20,15 +19,9 @@
     message: ChatMessage;
     chat: ChatStore;
     openPreview?: (file: PreviewFile) => void;
-    saveMessage?: (chatId: string, messageId: string) => Promise<void>;
-    onread?: () => void;
-    speaking?: number | null;
   }
 
-  let { message, chat, openPreview, saveMessage, onread, speaking }: Props = $props();
-
-  let editorOpen = $state(false);
-  const editableReply = $derived(message.role === "assistant" && chat.state.id ? assistantEditorSource(message.content, "message") : undefined);
+  let { message, chat, openPreview }: Props = $props();
 
   function appSession(fence: EditorTarget, kind: InteractiveContent["kind"]): AppSession | undefined {
     const id = chat.state.id;
@@ -47,32 +40,13 @@
       ? (replacement: string) => chat.applyEditorSuggestion(id, request, replacement) : undefined;
   });
 
-  let userBubble = $state<HTMLDivElement>();
-  function rememberMessage() {
-    const selection = window.getSelection();
-    const inside = selection?.anchorNode && selection.focusNode &&
-      userBubble?.contains(selection.anchorNode) && userBubble.contains(selection.focusNode);
-    void chat.remember((inside && selection?.toString().trim()) || message.content);
-  }
-
   let copied = $state(false);
-  let saving = $state(false);
-
-  async function save() {
-    if (saving || !saveMessage || !chat.state.chatId || !message.serverMessageId) return;
-    saving = true;
-    try { await saveMessage(chat.state.chatId, message.serverMessageId); }
-    catch (error) {
-      if (!(error instanceof DOMException && error.name === "AbortError")) chat.toast("Enregistrement du message impossible.", true);
-    } finally { saving = false; }
-  }
 
   /** Une image remplacée lors d'une régénération ne réutilise pas la source de l'ancienne. */
   let imageSources = $state.raw<Record<string, string | null>>({});
   const requested = new Set<string>();
   const hasImages = $derived((message.images?.length ?? 0) > 0);
   const text = $derived(message.content.trim());
-  const readLabel = $derived(speaking === message.index ? "Arrêter la lecture" : "Lire à voix haute");
 
   function imageKey(image: ChatImage) {
     return [message.serverMessageId ?? message.content, image.index, image.id ?? image.url ?? ""].join(":");
@@ -128,12 +102,6 @@
 
 </script>
 
-{#snippet saveButton()}
-  {#if saveMessage && chat.state.chatId && message.serverMessageId}
-    <button type="button" class="msg-action" disabled={saving} onclick={save}>Enregistrer</button>
-  {/if}
-{/snippet}
-
 {#if message.imageSearch && chat.state.id}
   {@const id = chat.state.id}
   <div class="message assistant">
@@ -169,12 +137,8 @@
         {/each}
       </div>
     {/if}
-    {#if text !== ""}<div class="bubble" bind:this={userBubble}>{message.content}</div>{:else if !message.attachments?.length}<div class="bubble"></div>{/if}
+    {#if text !== ""}<div class="bubble">{message.content}</div>{:else if !message.attachments?.length}<div class="bubble"></div>{/if}
     <div class="message-actions user-actions">
-      {@render saveButton()}
-      {#if chat.engine?.remember && text}
-        <button type="button" class="msg-action" onmousedown={event => event.preventDefault()} onclick={rememberMessage}>Mémoriser</button>
-      {/if}
       <button type="button" class="msg-action icon-only" title="Modifier ce message et relancer la réponse" aria-label="Modifier ce message et relancer la réponse" onclick={() => chat.engine?.editSent(message.index)}>{@html icon("edit")}</button>
       <button type="button" class="msg-action icon-only" title="Copier le texte" aria-label="Copier le texte" onclick={copyMessage}>{#if copied}<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5L20 7"/></svg>{:else}{@html icon("copy")}{/if}</button>
     </div>
@@ -216,33 +180,10 @@
     {#if text !== "" || !hasImages}
       <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
       <div class="bubble" onclick={onBubbleClick}>
-        {#if editorOpen && editableReply}
-          {#await import("./InteractiveEditor.svelte") then { default: InteractiveEditor }}
-            <InteractiveEditor {...editableReply} session={appSession("message", "editor")} startEditing />
-          {:catch}
-            <p role="status">Impossible d’ouvrir l’éditeur.</p>
-          {/await}
-        {:else}
-          <MessageContent content={message.content} katexReady={chat.katexReady} {openPreview} {appSession} {applyEditorEdit} editLanguage={editorRequest?.language} />
-        {/if}
+        <MessageContent content={message.content} katexReady={chat.katexReady} {openPreview} {appSession} {applyEditorEdit} editLanguage={editorRequest?.language} />
       </div>
     {/if}
     <div class="message-actions">
-      {@render saveButton()}
-      {#if editableReply}
-        <button type="button" class="msg-action" aria-expanded={editorOpen} onclick={() => { editorOpen = !editorOpen; }}>
-          {editorOpen ? "Revenir à la réponse" : "Ouvrir dans l’éditeur"}
-        </button>
-      {/if}
-      {#if onread && speechText(message.content)}
-        <button type="button" class="msg-action icon-only" class:active={speaking === message.index} title={readLabel} aria-label={readLabel}
-          aria-pressed={speaking === message.index} onclick={onread}>
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            {#if speaking === message.index}<rect x="6" y="6" width="12" height="12" rx="2"/>
-            {:else}<path d="M4 9h4l5-4v14l-5-4H4zM16 9a4 4 0 0 1 0 6m2-8a7 7 0 0 1 0 10"/>{/if}
-          </svg>
-        </button>
-      {/if}
       <button type="button" class="msg-action icon-only" title="Copier" aria-label="Copier" onclick={copyMessage}>{#if copied}<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5L20 7"/></svg>{:else}{@html icon("copy")}{/if}</button>
       {#if message.responseVersions && chat.engine?.selectResponseVersion}
         {@const versions = message.responseVersions}

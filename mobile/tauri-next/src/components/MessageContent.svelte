@@ -4,7 +4,7 @@
   import { generatedArtifacts, generatedFile } from "../lib/services/file-preview.ts";
   import type { PreviewFile, GeneratedArtifact } from "../lib/services/file-preview.ts";
   import type { AppSession } from "../lib/services/interactive-app-session.ts";
-  import { codeEditorSource, parseInteractiveContent, type InteractiveContent } from "../lib/services/interactive-content.ts";
+  import { parseInteractiveContent, type InteractiveContent } from "../lib/services/interactive-content.ts";
 
   let { content, katexReady, openPreview, streaming = false, appSession, applyEditorEdit, editLanguage }: {
     content: string; katexReady: boolean; openPreview?: (file: PreviewFile) => void; streaming?: boolean;
@@ -12,7 +12,6 @@
     applyEditorEdit?: (replacement: string) => string;
     editLanguage?: string;
   } = $props();
-  let editingFence = $state<number>();
   const completed = new Map<number, { source: string; language: string; data: InteractiveContent | null }>();
 
   function interactiveAt(index: number, source: string, language: string): InteractiveContent | null {
@@ -39,8 +38,7 @@
       const artifact = byIndex.get(block.index);
       const inline = artifact && /\.html?$/i.test(artifact.name) ? artifact : null;
       const documentOnly = Boolean(openPreview && artifact && /\.(pdf|pptx|docx|xlsx)$/i.test(artifact.name));
-      const editableCode = !streaming && appSession ? codeEditorSource(block) : undefined;
-      return { interactive, inline, editableCode, fence: block.index,
+      return { interactive, inline, fence: block.index,
         status: structured && !interactive ? "Ce rendu interactif n’a pas pu être affiché. Tu peux régénérer la réponse." : "",
         html: structured || inline || documentOnly ? "" : renderCodeBlockInner(block.content, block.language) };
     });
@@ -53,13 +51,7 @@
 </script>
 
 {#each rendered.parts as part, index (index)}
-  {#if part.editableCode && part.fence !== undefined && editingFence === part.fence}
-    {#await import("./InteractiveEditor.svelte") then { default: InteractiveEditor }}
-      <InteractiveEditor {...part.editableCode} session={appSession?.(part.fence, "editor")} startEditing />
-    {:catch}
-      <p role="status">Impossible d’ouvrir l’éditeur.</p>
-    {/await}
-  {:else if part.interactive}
+  {#if part.interactive}
     {#await import("./InteractiveBlock.svelte") then { default: InteractiveBlock }}
       <InteractiveBlock data={part.interactive} session={appSession?.(part.fence ?? index, part.interactive.kind)} {applyEditorEdit} {editLanguage} />
     {:catch}
@@ -77,12 +69,6 @@
   {:else}
     {@html part.html}
   {/if}
-  {#if part.editableCode && part.fence !== undefined}
-    <button type="button" class="settings-btn edit-code" aria-expanded={editingFence === part.fence}
-      onclick={() => { editingFence = editingFence === part.fence ? undefined : part.fence; }}>
-      {editingFence === part.fence ? "Revenir au code" : "Modifier le code"}
-    </button>
-  {/if}
 {/each}
 
 {#if openPreview && rendered.artifacts.length}
@@ -97,7 +83,6 @@
 {/if}
 
 <style>
-  .edit-code { min-height: 44px; margin: .35rem 0; }
   .render-status { margin-block: .65rem; }
   .assistant-artifacts { display: flex; flex-wrap: wrap; gap: .55rem; margin-top: .85rem; }
   .artifact {

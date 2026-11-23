@@ -17,7 +17,6 @@
   import { createStorageAccount } from "../lib/services/account-local.ts";
   import { loadProfile, profileFirstName, type Profile } from "../lib/services/account.ts";
   import { readAvatarImage } from "../lib/services/avatar-image.ts";
-  import { savedMessages } from "../lib/services/saved-messages.ts";
   import { saveBytes, saveResponse } from "../lib/services/file-saver.ts";
   import type { TokenProvider } from "../lib/services/auth.ts";
   import type { PreviewFile } from "../lib/services/file-preview.ts";
@@ -69,7 +68,6 @@
   const avatarSrc = $derived(store.avatar && store.avatar !== "image.png" ? store.avatar : logo);
   let projects = $state.raw<{ editId?: string; target?: { id: string; projectId: string | null } } | null>(null);
   let libraryOpen = $state(false);
-  let saveMessage = $state.raw<((chatId: string, messageId: string) => Promise<void>) | undefined>(undefined);
   let settings = $state.raw<SettingsStore | null>(null);
   let chatMemory = $state.raw<ChatMemory | null>(null);
   let preview = $state.raw<PreviewFile | null>(null);
@@ -113,10 +111,6 @@
     const lifetime = new AbortController();
     const signal = lifetime.signal;
     const api = createRuntimeApiClient(sessionTokens);
-    saveMessage = async (chatId, messageId) => {
-      await savedMessages(api).set(chatId, messageId, true, signal);
-      if (!signal.aborted) chat.toast("Message enregistré dans la bibliothèque.");
-    };
     const request = createNativeRequest(sessionTokens);
     const local = createStorageSettings(storage);
     const accountLocal = createStorageAccount(storage);
@@ -501,8 +495,7 @@
       <LegacyFrame onframe={onFrame} />
     {:else}
       {#if !store.ready}<Startup />{/if}
-      <ChatPane {chat} {openPreview} {saveMessage} skills={settings?.skillsPanel}
-        voiceAllowed={!settings?.open && !preview && !libraryOpen && !projects} />
+      <ChatPane {chat} {openPreview} skills={settings?.skillsPanel} />
       <ToastHost {chat} />
       <ConfirmDialog {chat} />
       <ImportDialog {chat} />

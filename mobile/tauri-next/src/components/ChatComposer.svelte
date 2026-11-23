@@ -2,7 +2,6 @@
 <script lang="ts">
   import { skillQuery } from "../lib/stores/skills.svelte.ts";
   import type { SkillsStore } from "../lib/stores/skills.svelte.ts";
-  import { memoryRequest } from "../lib/services/chat-memory.ts";
   import { appSpeechReady, createDictation } from "../lib/services/dictation.ts";
   import { onMount, tick, untrack } from "svelte";
   import type { ChatStore } from "../lib/stores/chat.svelte.ts";
@@ -13,11 +12,9 @@
   interface Props {
     chat: ChatStore;
     skills?: SkillsStore;
-    voiceActive?: boolean;
-    startVoice?: () => void;
   }
 
-  let { chat, skills, voiceActive = false, startVoice }: Props = $props();
+  let { chat, skills }: Props = $props();
 
   let text = $state("");
   let prompt: HTMLTextAreaElement | undefined = $state();
@@ -66,8 +63,7 @@
   let dismissed = $state<string | null>(null);
   let activeSkill = $state(0);
   let checkingSkill = $state(false);
-  const memoryCommand = $derived(chat.engine?.remember ? memoryRequest(text) : null);
-  const query = $derived(memoryCommand === null ? skillQuery(text) : null);
+  const query = $derived(skillQuery(text));
   const skillMenu = $derived(Boolean(skills) && !composing && !chat.state.busy && query !== null && dismissed !== text);
   const choices = $derived(skillMenu ? skills?.choices(query ?? "") ?? [] : []);
   const selected = $derived(skills?.command(text) ?? null);
@@ -155,15 +151,6 @@
     const conversation = chat.shell.conversations.currentId;
     const project = chat.shell.conversations.projectId;
     const context = promptContext;
-    if (memoryCommand !== null) {
-      if (attachments.length || context) { chat.toast("Retire les pièces jointes pour enregistrer un souvenir.", true); return; }
-      if (await chat.remember(memoryCommand) && value === text &&
-          conversation === chat.shell.conversations.currentId && project === chat.shell.conversations.projectId) {
-        text = "";
-        queueMicrotask(resize);
-      }
-      return;
-    }
     const catalog = skills;
     if (catalog && /^\s*\/[^\s/]+(?=\s|$)/.test(value)) {
       checkingSkill = true;
@@ -313,7 +300,7 @@
 
 <svelte:document onvisibilitychange={() => { if (document.hidden) void dictation?.stop(); }} onclick={onDocumentClick} onkeydown={onDocumentKey} />
 
-<form id="composer" class="composer" hidden={voiceActive} onsubmit={submit}>
+<form id="composer" class="composer" onsubmit={submit}>
   <div class="composer-box">
     {#if skillMenu}
       <div id="skill-menu" class="native-skill-menu" role="listbox" aria-label="Skills disponibles">
@@ -386,12 +373,6 @@
           <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>
         </button>
       {/if}
-      {#if startVoice && !chat.state.busy && !chat.state.pending && !attachments.length && !promptContext}
-        <button type="button" class="tool-button icon-button" aria-label="Démarrer une conversation vocale"
-          title="Conversation vocale" onclick={() => { void (dictation?.stop() ?? Promise.resolve()).then(() => startVoice?.()); }}>
-          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M3 11v2m4-5v8m5-12v16m5-12v8m4-5v2"/></svg>
-        </button>
-      {/if}
       {#if busy}
         <button type="submit" id="send" class="send stop" aria-label="Arrêter la génération" title="Arrêter la génération"><svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2"/></svg></button>
       {:else}
@@ -404,7 +385,6 @@
 
 <style>
 
-  .composer[hidden] { display: none; }
   .composer-box { position: relative; }
   .app-context { display: flex; align-items: center; gap: .5rem; padding: 0 .65rem; font-size: .85rem; }
   .app-context span { overflow-wrap: anywhere; }

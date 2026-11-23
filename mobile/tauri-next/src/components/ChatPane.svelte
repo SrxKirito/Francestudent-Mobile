@@ -1,6 +1,6 @@
 <!-- Chat Svelte : barre du haut, messages, saisie. Posé par-dessus l'iframe historique, qui reste le moteur (voir ChatStore). -->
 <script lang="ts">
-  import { onMount, tick, untrack } from "svelte";
+  import { tick } from "svelte";
   import ChatComposer from "./ChatComposer.svelte";
   import ChatMessage from "./ChatMessage.svelte";
   import MessageContent from "./MessageContent.svelte";
@@ -8,11 +8,6 @@
   import logo from "../../../www/image.png";
   import { liveStatus, liveVisible } from "../lib/services/chat-view.ts";
   import type { PreviewFile } from "../lib/services/file-preview.ts";
-  import { createNativeReadAloud, createReadAloud, type ReadAloudPlayer } from "../lib/services/read-aloud.ts";
-  import { memoryRequest } from "../lib/services/chat-memory.ts";
-  import { appSpeechReady } from "../lib/services/dictation.ts";
-  import { createVoiceConversation, type VoicePhase } from "../lib/services/voice-conversation.ts";
-  import { native } from "../lib/services/transport.ts";
   import type { ChatStore } from "../lib/stores/chat.svelte.ts";
   import { PROVIDER_LOGOS } from "../lib/data/provider-logos.ts";
   import { agentLabel, providerMark } from "../lib/utils/agents.ts";
@@ -21,86 +16,16 @@
 
   interface Props {
     skills?: SkillsStore;
-    voiceAllowed?: boolean;
     chat: ChatStore;
     openPreview?: (file: PreviewFile) => void;
-    saveMessage?: (chatId: string, messageId: string) => Promise<void>;
   }
 
-  let { chat, skills, openPreview, saveMessage, voiceAllowed = true }: Props = $props();
+  let { chat, skills, openPreview }: Props = $props();
 
   let messagesEl: HTMLElement | undefined = $state();
   let modelOpen = $state(false);
   let showScroll = $state(false);
   let stick = true;
-  let reader = $state.raw<ReadAloudPlayer | null>(null);
-  let speaking = $state<number | null>(null);
-  let voice = $state.raw<ReturnType<typeof createVoiceConversation> | null>(null);
-  let voicePhase = $state<VoicePhase>("idle");
-  let transcript = $state("");
-  const voiceLabel: Record<VoicePhase, string> = {
-    idle: "", listening: "À l’écoute", sending: "Envoi de la question…",
-    thinking: "Réponse en cours…", speaking: "Lecture de la réponse"
-  };
-
-  function beginVoice() {
-    reader?.stop();
-    voice?.start();
-  }
-
-  $effect(() => {
-    const state = chat.state;
-    void chat.shell.conversations.projectId;
-    if (!voiceAllowed || !chat.visible) untrack(() => voice?.stop());
-    else untrack(() => voice?.sync(state));
-  });
-  onMount(() => {
-    let mounted = true;
-    const language = document.documentElement.lang || "fr-FR";
-    const onSpeaking = (index: number | null) => { speaking = index; };
-    const onError = () => {
-      if (voicePhase === "speaking") voice?.playbackFailed();
-      else chat.toast("Lecture vocale indisponible.", true);
-    };
-    const onEnd = () => voice?.playbackEnded();
-    void native.readAloudSupported().then(async supported => {
-      if (!mounted) return;
-      if (supported) {
-        reader = createNativeReadAloud({ start: native.readAloudStart, stop: native.readAloudStop }, onSpeaking, onError, language, onEnd);
-      } else if (window.speechSynthesis && window.SpeechSynthesisUtterance) {
-        reader = createReadAloud(window.speechSynthesis, text => new SpeechSynthesisUtterance(text), onSpeaking, onError, language, onEnd);
-      }
-      const speech = await appSpeechReady();
-      if (mounted && reader && speech) voice = createVoiceConversation(speech, {
-        state: () => chat.state, project: () => chat.shell.conversations.projectId,
-        visible: () => voiceAllowed && chat.visible && !document.hidden,
-        update: (next, text) => { voicePhase = next; transcript = text; },
-        send: text => {
-          const requested = chat.engine?.remember ? memoryRequest(text) : null;
-          if (requested !== null) {
-            voice?.stop();
-            void chat.remember(requested);
-            return false;
-          }
-          return chat.engine?.send(text) === true;
-        },
-        speak: (index, text) => reader?.play(index, text),
-        quiet: () => reader?.stop(),
-        error: text => chat.toast(text, true)
-      });
-    });
-    const hidden = () => {
-      if (document.hidden) { voice?.stop(); reader?.stop(); }
-    };
-    document.addEventListener("visibilitychange", hidden);
-    return () => {
-      mounted = false;
-      document.removeEventListener("visibilitychange", hidden);
-      voice?.stop();
-      reader?.stop();
-    };
-  });
-
   const snap = $derived(chat.state);
   const live = $derived(chat.live);
   const agents = $derived(chat.shell.agents);
@@ -145,7 +70,6 @@
     const id = snap.id;
     if (id !== lastConversation) {
       lastConversation = id;
-      reader?.stop();
       stick = true;
     }
   });
@@ -219,9 +143,7 @@
       </div>
       <div id="thread" class="thread" aria-live="polite">
         {#each snap.messages as message (String(snap.id) + ":" + message.index)}
-          <ChatMessage {message} {chat} {openPreview} {saveMessage}
-            onread={reader && voicePhase === "idle" ? () => reader?.play(message.index, message.content) : undefined}
-            {speaking} />
+          <ChatMessage {message} {chat} {openPreview} />
         {/each}
         {#if showLive}
           <div class="message assistant message-enter">
@@ -279,26 +201,5 @@
     <button id="scroll-bottom" class="scroll-bottom" class:hidden={!showScroll} type="button" aria-label="Aller en bas" title="Aller en bas" onclick={() => toBottom(true)}><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14"/><path d="M6 13l6 6 6-6"/></svg></button>
   </div>
 
-  {#if voicePhase !== "idle"}
-    <section class="voice-controls" aria-label="Conversation vocale">
-      <strong role="status">{voiceLabel[voicePhase]}</strong>
-      {#if transcript}<p>{transcript}</p>{/if}
-      <div>
-        {#if voicePhase === "listening" && transcript.trim()}
-          <button type="button" class="settings-btn" onclick={() => void voice?.send()}>Envoyer maintenant</button>
-        {:else if voicePhase === "speaking"}
-          <button type="button" class="settings-btn" onclick={() => voice?.skip()}>Passer la lecture</button>
-        {/if}
-        <button type="button" class="settings-btn" onclick={() => voice?.stop()}>Terminer le mode vocal</button>
-      </div>
-    </section>
-  {/if}
-  <ChatComposer {chat} {skills} voiceActive={voicePhase !== "idle"} startVoice={voice && voiceAllowed ? beginVoice : undefined} />
+  <ChatComposer {chat} {skills} />
 </div>
-
-<style>
-  .voice-controls { display: grid; gap: .4rem; padding: .7rem 1rem max(.7rem, env(safe-area-inset-bottom)); border-top: 1px solid var(--border); }
-  .voice-controls div { display: flex; flex-wrap: wrap; gap: .4rem; }
-  .voice-controls button { min-height: 44px; }
-  .voice-controls p { margin: 0; max-height: 5rem; overflow: auto; overflow-wrap: anywhere; }
-</style>

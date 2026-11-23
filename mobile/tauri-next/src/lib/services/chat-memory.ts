@@ -2,11 +2,6 @@ export const memoryEntryLimit = 280;
 const maxEntries = 20;
 const prefix = "fs-chat-memory:";
 
-export function memoryRequest(value: string): string | null {
-  const match = /^(?:m[ée]morise\s+que|souviens-toi\s+que|\/m[ée]moriser)(?:\s+([\s\S]*))?$/i.exec(value.trim());
-  return match ? (match[1] ?? "").trim() : null;
-}
-
 export interface MemoryEntry { id: string; text: string }
 export interface MemorySnapshot { enabled: boolean; entries: MemoryEntry[] }
 

@@ -1,22 +1,49 @@
+import { isTauri, invoke } from "@tauri-apps/api/core";
+import { appCacheDir, join } from "@tauri-apps/api/path";
 import { save } from "@tauri-apps/plugin-dialog";
-import { open } from "@tauri-apps/plugin-fs";
+import { mkdir, open, remove } from "@tauri-apps/plugin-fs";
 import { saveResponseWithDialog, saveWithDialog } from "../../save-file.js";
 
-// Enregistrement d'un fichier généré par l'application (CSV d'activité, …) : boîte de dialogue système puis écriture par blocs.
-// Même chemin que `saveFile` du transport historique ; rejette avec « Enregistrement annulé. » si l'utilisateur annule.
+function appleMobile(): boolean {
+  return isTauri() && (/iPhone|iPad|iPod/.test(navigator.userAgent) ||
+    (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1));
+}
+
+function fileName(name: string): string {
+  return name.split(/[\\/]/).pop()?.replace(/[<>:"|?*\x00-\x1f]/g, "-").replace(/^[. ]+|[. ]+$/g, "") || "fichier";
+}
+
+async function exportOnIos(name: string, write: (path: string) => Promise<unknown>): Promise<string> {
+  const directory = await join(await appCacheDir(), "frst-exports", crypto.randomUUID());
+  const path = await join(directory, fileName(name));
+  await mkdir(directory, { recursive: true });
+  try {
+    await write(path);
+    return await invoke<string>("plugin:file-preview|export_file", { path });
+  } finally {
+    await remove(path).catch(() => {});
+    await remove(directory).catch(() => {});
+  }
+}
 
 export function saveBytes(name: string, bytes: Uint8Array): Promise<string> {
-  return saveWithDialog(save, open, name, bytes);
+  return appleMobile()
+    ? exportOnIos(name, path => saveWithDialog(async () => path, open, name, bytes))
+    : saveWithDialog(save, open, name, bytes);
 }
 
-/** Sauvegarde un téléchargement en flux via le sélecteur natif. */
 export function saveResponse(name: string, response: Response): Promise<string> {
-  return saveResponseWithDialog(save, open, name, response);
+  return appleMobile()
+    ? exportOnIos(name, path => saveResponseWithDialog(async () => path, open, name, response))
+        .catch(async error => { await response.body?.cancel().catch(() => {}); throw error; })
+    : saveResponseWithDialog(save, open, name, response);
 }
 
-/** Demande la destination avant de démarrer le flux réseau ou de charger le fichier local. */
 export async function saveStream(name: string, read: () => Promise<Response>): Promise<string> {
-  const defaultPath = name.split(/[\\/]/).pop()?.replace(/[<>:"|?*\x00-\x1f]/g, "-").replace(/^[. ]+|[. ]+$/g, "") || "fichier";
+  if (appleMobile()) {
+    return exportOnIos(name, async path => saveResponseWithDialog(async () => path, open, name, await read()));
+  }
+  const defaultPath = fileName(name);
   const path = await save({ defaultPath });
   if (!path) throw new Error("Enregistrement annulé.");
   return saveResponseWithDialog(async () => path, open, defaultPath, await read());

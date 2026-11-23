@@ -1,4 +1,5 @@
 <script lang="ts">
+  import RenderOptions from "./RenderOptions.svelte";
   import { editorRevision, editorTextLimit, readEditorHistory, redoEditor, reviseEditor, undoEditor,
     type EditorHistory } from "../lib/services/document-editor.ts";
   import type { AppSession } from "../lib/services/interactive-app-session.ts";
@@ -134,8 +135,10 @@
     {:else}{@render preview(uid)}{/if}
     <div class="editor-actions">
       <button type="button" class="settings-btn" aria-controls={uid} onclick={() => editing = !editing}>{editing ? "Voir l’aperçu" : "Modifier"}</button>
-      <button type="button" class="settings-btn" aria-haspopup="dialog" bind:this={expandButton} onclick={() => void expand()}>Agrandir l’éditeur</button>
-      {@render documentActions()}
+      <RenderOptions label="Options du document">
+        <button type="button" class="settings-btn" aria-haspopup="dialog" bind:this={expandButton} onclick={() => void expand()}>Agrandir l’éditeur</button>
+        {@render documentActions()}
+      </RenderOptions>
     </div>
     {#if message}<p role="status">{message}</p>{/if}
   </section>
@@ -161,7 +164,7 @@
       </div>
     </div>
     <footer class="workspace-footer">
-      <div class="editor-actions">{@render documentActions()}</div>
+      <RenderOptions label="Options du document">{@render documentActions()}</RenderOptions>
       {#if message}<p role="status">{message}</p>{/if}
     </footer>
   {/if}
@@ -169,7 +172,7 @@
 
 <style>
   section { margin: .8rem 0; padding: .8rem; border: 1px solid var(--border); border-radius: .75rem; }
-  .editor-actions { display: flex; flex-wrap: wrap; gap: .5rem; }
+  .editor-actions { display: flex; flex-wrap: wrap; align-items: flex-start; gap: .5rem; }
   .editor-actions button, .workspace-header button { min-height: 44px; }
   .editor-preview { margin-block: .6rem; overflow-wrap: anywhere; }
   pre { overflow: auto; }

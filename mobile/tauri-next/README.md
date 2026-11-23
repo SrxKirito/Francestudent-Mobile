@@ -1,8 +1,7 @@
 # Migration Tauri (travail en cours)
 
-Ce projet est une base expérimentale : il ne remplace pas encore l'application
-Capacitor et ne doit pas être publié sur SideStore. `npm run dev` et `npm run
-build` copient l'interface actuelle depuis `mobile/www` dans `public/legacy`
+La préversion Tauri est distribuée par une source SideStore séparée de
+l’application Capacitor. `npm run dev` et `npm run build` copient l'interface actuelle depuis `mobile/www` dans `public/legacy`
 pour conserver le design existant. L'entrée France IDE et ses scripts sont
 retirés de cette copie pour la version en cours ; la source et les données de
 France IDE restent intactes pour une réintégration ultérieure. La copie est
@@ -16,6 +15,12 @@ de passe utilise le parcours existant avec un transport Rust limité aux deux
 domaines observés ; elle reste à valider avec un compte de test autorisé. Les
 transferts mobiles n'ont pas encore été validés sur appareil. Cette base n'est
 pas une preuve de parité fonctionnelle.
+
+## Préversion SideStore 0.1.7
+
+- Le menu des fichiers de la bibliothèque se ferme explicitement. Sur iOS, le fichier est préparé avant l’ouverture du sélecteur d’enregistrement.
+- Les rendus interactifs privilégient les gestes. Les commandes secondaires sont regroupées sous « … ».
+- Le chat conserve la dictée et retire la conversation vocale, la lecture à voix haute et les actions d’enregistrement, d’ouverture dans l’éditeur et de mémorisation du message.
 
 ## Reprise des données de l'ancienne application
 
@@ -71,15 +76,6 @@ confirmé et que le stockage est lu. Le profil et la synchronisation serveur
 se mettent à jour séparément. Si le compte n’a pas encore d’association locale,
 l’app attend son identification avant d’afficher l’historique.
 
-## Conversation vocale
-
-Le bouton de conversation vocale apparaît lorsque la reconnaissance et la
-lecture vocales sont disponibles. Après une pause dans la dictée, le chat
-envoie la question. Il lit la réponse textuelle puis reprend l’écoute.
-Un changement de discussion, l’ouverture d’un panneau ou le passage en
-arrière-plan coupe l’écoute. Le bouton « Terminer le mode vocal » arrête
-le microphone et la lecture. La génération du chat peut continuer.
-
 ## Variantes de réponse
 
 « Régénérer » génère une nouvelle version. Les flèches sous la réponse
@@ -98,10 +94,7 @@ consultables dans la branche. Pour les analyser de nouveau, joins-les au message
 ## Mémoire des discussions
 
 Dans **Paramètres → Général → Mémoire**, l’utilisateur peut ajouter, modifier
-ou oublier des souvenirs, puis autoriser leur utilisation. Dans le chat,
-« Mémorise que… », « Souviens-toi que… » ou « Mémoriser » sous un message
-affiche une confirmation avec le texte proposé. Une demande dictée ouvre la
-même confirmation. Le stockage reste
+ou oublier des souvenirs, puis autoriser leur utilisation. Le stockage reste
 local à l’appareil et cloisonné par compte. Le chat ajoute les souvenirs
 actifs à l’envoi dans un contexte masqué dans l’historique visible. Désactiver
 la mémoire ou oublier un souvenir agit sur les prochains envois. Le contexte

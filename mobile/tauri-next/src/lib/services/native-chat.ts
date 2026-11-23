@@ -1100,10 +1100,6 @@ export function createNativeChatEngine(options: NativeChatOptions): NativeChatEn
       clearTimeout(editorSaveTimer);
       editorSaveTimer = setTimeout(flushEditorDrafts, 450);
     },
-    remember: options.memory ? text => {
-      if (!host || lifetime.signal.aborted) throw new Error("La session a changé.");
-      return options.memory!.save(text).enabled;
-    } : undefined,
     state, send, regenerate, selectResponseVersion, branch, setOption, editSent, editFailed, vote, preview, resolveImage, downloadImage, resume, cancelPending,
     busy: () => Boolean(active) || pendingCancellation,
     settingsChanged() {

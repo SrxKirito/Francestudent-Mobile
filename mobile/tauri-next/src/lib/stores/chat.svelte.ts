@@ -1,7 +1,6 @@
 // État réactif du chat et raccordement à son moteur.
 // Tout ce qui est décidable sans DOM vit dans lib/services (testé sous Node) ; ce magasin ne fait que relier les
 // contrôleurs aux composants. Aucun jeton, aucun code PIN n'est conservé ici.
-import { memoryEntryLimit } from "../services/chat-memory.ts";
 import { editorRevision, editorTextLimit, readEditorHistory, reviseEditor, type EditorTarget } from "../services/document-editor.ts";
 import { assistantEditorSource } from "../services/interactive-content.ts";
 import { validInteractiveFollowUp } from "../services/interactive-prompts.ts";
@@ -186,28 +185,6 @@ export class ChatStore {
     return new Promise<boolean>(resolve => {
       this.confirmRequest = { message, resolve };
     });
-  }
-
-  async remember(text: string): Promise<boolean> {
-    const engine = this.engine;
-    if (!engine?.remember) return false;
-    const value = text.trim();
-    if (!value || value.length > memoryEntryLimit) {
-      this.toast("Choisis un souvenir de 1 à 280 caractères.", true);
-      return false;
-    }
-    const conversation = this.state.id;
-    const project = this.shell.conversations.projectId;
-    const yes = await this.confirm("Enregistrer ce souvenir sur cet appareil ?\n\n« " + value + " »");
-    if (!yes || this.engine !== engine || this.state.id !== conversation || this.shell.conversations.projectId !== project) return false;
-    try {
-      const enabled = engine.remember(value);
-      this.toast(enabled ? "Souvenir enregistré." : "Souvenir enregistré. La mémoire est désactivée dans les discussions.");
-      return true;
-    } catch (error) {
-      this.toast(error instanceof Error ? error.message : "Impossible d’enregistrer ce souvenir.", true);
-      return false;
-    }
   }
 
   answerConfirm(ok: boolean): void {

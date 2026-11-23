@@ -1,4 +1,5 @@
 <script lang="ts">
+  import RenderOptions from "./RenderOptions.svelte";
   import type { ChartPoint, ChartSeries, InteractiveContent } from "../lib/services/interactive-content.ts";
   import { saveBytes } from "../lib/services/file-saver.ts";
   import { safeFileName } from "../lib/services/file-preview.ts";
@@ -100,8 +101,36 @@
     if (point) selectPoint(point);
   }
 
+  let touch: { id: number; x: number; y: number } | undefined;
+
+  function startProbe(event: PointerEvent) {
+    if (event.pointerType === "touch" && !magnified && event.isPrimary) touch = { id: event.pointerId, x: event.clientX, y: event.clientY };
+  }
+
+  function endProbe() { touch = undefined; hoverPoint = ""; }
+
   function probe(event: PointerEvent) {
-    if (event.pointerType === "mouse") hoverPoint = findPoint(event);
+    if (event.pointerType === "mouse") { hoverPoint = findPoint(event); return; }
+    if (!touch || touch.id !== event.pointerId || data.chart === "pie") return;
+    const dx = Math.abs(event.clientX - touch.x), dy = Math.abs(event.clientY - touch.y);
+    if (dx <= 5 || dx <= dy) return;
+    if (onseek || data.chart === "bar") { pickPoint(event); return; }
+    const position = screenPosition(event);
+    if (!position || position.x < left || position.x > width - right) return;
+    let nearest = "";
+    let distanceX = Infinity, distanceY = Infinity;
+    for (const [seriesIndex, series] of data.series.entries()) {
+      for (const [pointIndex, point] of series.points.entries()) {
+        const x = Math.abs(cx(point.x) - position.x);
+        const y = Math.abs(cy(point.y) - position.y);
+        if (x < distanceX || (x === distanceX && y < distanceY)) {
+          nearest = seriesIndex + ":" + pointIndex;
+          distanceX = x;
+          distanceY = y;
+        }
+      }
+    }
+    if (nearest) selectPoint(nearest);
   }
 
   const pie = $derived.by(() => {
@@ -179,7 +208,7 @@
   {#if data.chart === "pie"}
     <!-- svelte-ignore a11y_no_noninteractive_element_interactions, a11y_click_events_have_key_events (Le sélecteur sous le graphique donne accès aux mêmes points au clavier.) -->
     <svg viewBox="0 0 180 180" role="img" aria-label={data.title} bind:this={svg} onclick={pickPoint}
-      onpointermove={probe} onpointerleave={() => hoverPoint = ""}>
+      onpointerdown={startProbe} onpointermove={probe} onpointerup={endProbe} onpointercancel={endProbe} onpointerleave={endProbe}>
       {#each pie as segment, index (index)}
         <circle data-point={"0:" + index} cx="90" cy="90" r="57" pathLength="100" fill="none" stroke={colors(index)} stroke-width="34"
           opacity={!activePoint || activePoint === "0:" + index ? 1 : .38}
@@ -196,7 +225,7 @@
   {:else}
     <!-- svelte-ignore a11y_no_noninteractive_element_interactions, a11y_click_events_have_key_events (Le sélecteur sous le graphique donne accès aux mêmes points au clavier.) -->
     <svg viewBox={"0 0 " + width + " " + height} role="img" aria-label={data.title} bind:this={svg} onclick={pickPoint}
-      onpointermove={probe} onpointerleave={() => hoverPoint = ""}>
+      onpointerdown={startProbe} onpointermove={probe} onpointerup={endProbe} onpointercancel={endProbe} onpointerleave={endProbe}>
       {#each yLabels as tick, i (i)}
         <path d={"M" + left + " " + cy(tick) + "H" + (width - right)} fill="none" stroke="currentColor" opacity=".18" />
         <text x={left - 6} y={cy(tick)} dominant-baseline="middle" text-anchor="end" fill="currentColor" font-size="10">{axisValue.format(tick)}</text>
@@ -248,6 +277,7 @@
     <p class="point-detail">{data.xLabel || "X"} {value.format(cursor.x)}{#each cursor.points as point, index (index)}{" · "}{point.series} {value.format(point.y)}{/each}</p>
   {/if}
   {#if selected}<p class="point-detail">{caption(selected.series, selected.point)}</p>{/if}
+  <RenderOptions label="Options du graphique">
   {#if points.length}
     <label>Point du graphique
       <select class="settings-input" value={focusPoint} onchange={event => selectPoint(event.currentTarget.value)}>
@@ -268,7 +298,6 @@
     Couleurs
   </button>
   <button type="button" class="settings-btn" disabled={saving} onclick={() => void exportPng()}>Enregistrer en PNG</button>
-  {#if saveStatus}<p class="settings-hint" role="status">{saveStatus}</p>{/if}
   {#if appearanceOpen}
     <div class="palette">
       {#each legend as label, index (index)}
@@ -292,6 +321,8 @@
       </table>
     </div>
   {/if}
+  </RenderOptions>
+  {#if saveStatus}<p class="settings-hint" role="status">{saveStatus}</p>{/if}
 </figure>
 
 <style>
@@ -300,6 +331,7 @@
   .axes-label { color: var(--muted); font-size: .85rem; margin: .3rem 0 0; }
   .point-detail { font-size: .9rem; margin: .25rem 0 .5rem; }
   .plot { overflow: auto; }
+  .plot:not(.magnified) svg { touch-action: pan-y pinch-zoom; }
   [data-point] { cursor: pointer; }
   .plot.magnified svg { width: 175%; max-height: none; }
   svg { display: block; margin-inline: auto; width: 100%; max-height: 16rem; }

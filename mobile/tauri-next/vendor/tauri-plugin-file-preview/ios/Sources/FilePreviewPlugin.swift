@@ -6,10 +6,12 @@ import UIKit
 private struct OpenArgs: Decodable { let path: String }
 
 /// Keeps the security-scoped URL alive until Quick Look is dismissed.
-final class FilePreviewPlugin: Plugin, QLPreviewControllerDataSource, QLPreviewControllerDelegate {
+final class FilePreviewPlugin: Plugin, QLPreviewControllerDataSource, QLPreviewControllerDelegate, UIDocumentPickerDelegate, UIAdaptivePresentationControllerDelegate {
     private var documentURL: URL?
     private var hasSecurityScope = false
     private var controller: QLPreviewController?
+    private var exportRequest: Invoke?
+    private weak var exportPicker: UIDocumentPickerViewController?
 
     @objc public func open(_ invoke: Invoke) throws {
         let args = try invoke.parseArgs(OpenArgs.self)
@@ -56,6 +58,54 @@ final class FilePreviewPlugin: Plugin, QLPreviewControllerDataSource, QLPreviewC
             self.controller = controller
             presenter.present(controller, animated: true) { invoke.resolve() }
         }
+    }
+
+    @objc public func exportFile(_ invoke: Invoke) throws {
+        let args = try invoke.parseArgs(OpenArgs.self)
+        let url = URL(fileURLWithPath: args.path).standardizedFileURL.resolvingSymlinksInPath()
+        let folder = url.deletingLastPathComponent()
+        let root = folder.deletingLastPathComponent()
+        let cache = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first?.standardizedFileURL.resolvingSymlinksInPath()
+        guard let cache = cache, root.lastPathComponent == "frst-exports", UUID(uuidString: folder.lastPathComponent) != nil,
+              root.deletingLastPathComponent().pathComponents.starts(with: cache.pathComponents),
+              (try? url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true else {
+            invoke.reject("Fichier d’export indisponible.")
+            return
+        }
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self, self.exportRequest == nil,
+                  let presenter = self.manager.viewController, presenter.presentedViewController == nil else {
+                invoke.reject("Impossible d’ouvrir le sélecteur de fichiers maintenant.")
+                return
+            }
+            let picker = UIDocumentPickerViewController(forExporting: [url], asCopy: true)
+            picker.delegate = self
+            picker.presentationController?.delegate = self
+            self.exportRequest = invoke
+            self.exportPicker = picker
+            presenter.present(picker, animated: true)
+        }
+    }
+
+    func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
+        guard controller === exportPicker else { return }
+        finishExport(urls.first?.path)
+    }
+
+    func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
+        if controller === exportPicker { finishExport(nil) }
+    }
+
+    func presentationControllerDidDismiss(_ presentationController: UIPresentationController) {
+        if presentationController.presentedViewController === exportPicker { finishExport(nil) }
+    }
+
+    private func finishExport(_ path: String?) {
+        let request = exportRequest
+        exportPicker = nil
+        exportRequest = nil
+        if let path = path { request?.resolve(path) }
+        else { request?.reject("Enregistrement annulé.") }
     }
 
     func numberOfPreviewItems(in controller: QLPreviewController) -> Int { documentURL == nil ? 0 : 1 }

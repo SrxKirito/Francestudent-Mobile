@@ -1,4 +1,5 @@
 <script lang="ts">
+  import RenderOptions from "./RenderOptions.svelte";
   import type { Point3D, SimulationScene } from "../lib/services/interactive-widgets.ts";
   import { DEFAULT_SCENE_CAMERA, SCENE_HEIGHT, SCENE_WIDTH, evaluateSimulationScene, sceneFaceColor, sceneProjection,
     type SceneCamera } from "../lib/services/simulation-scene.ts";
@@ -128,13 +129,13 @@
     {/each}
   </svg>
   {#if !faces.length && !labels.length}<p class="settings-hint">La figure est indéfinie pour ces valeurs.</p>{/if}
-  <div class="scene-actions">
+  <RenderOptions label="Options de la figure 3D">
     <button type="button" class="settings-btn" aria-label="Réduire le zoom de la figure 3D" disabled={camera.zoom <= .5} onclick={() => zoom(.8)}>−</button>
     <button type="button" class="settings-btn" aria-label="Agrandir la figure 3D" disabled={camera.zoom >= 5} onclick={() => zoom(1.25)}>+</button>
     <button type="button" class="settings-btn" onclick={reset}>Vue initiale</button>
     <button type="button" class="settings-btn" aria-pressed={wire} onclick={() => wire = !wire}>Filaire</button>
     <button type="button" class="settings-btn" aria-pressed={axesShown} onclick={() => axesShown = !axesShown}>Axes</button>
-  </div>
+  </RenderOptions>
 </figure>
 
 <style>
@@ -146,6 +147,4 @@
   svg:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   text { font-size: 12px; }
   text:not([fill]), circle { fill: currentColor; }
-  .scene-actions { display: flex; flex-wrap: wrap; gap: .4rem; }
-  .scene-actions button { min-width: 44px; min-height: 44px; }
 </style>

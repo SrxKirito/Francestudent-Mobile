@@ -1,8 +1,17 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "ios-file-preview",
-  "description": "Aperçu natif iOS des fichiers enregistrés",
+  "description": "Aperçu et export natifs iOS des fichiers",
   "windows": ["main"],
   "platforms": ["iOS"],
-  "permissions": ["file-preview:allow-open"]
+  "permissions": [
+    "file-preview:allow-open",
+    "file-preview:allow-export-file",
+    "fs:allow-mkdir",
+    "fs:allow-remove",
+    {
+      "identifier": "fs:scope",
+      "allow": [{ "path": "$APPCACHE/frst-exports" }, { "path": "$APPCACHE/frst-exports/**" }]
+    }
+  ]
 }

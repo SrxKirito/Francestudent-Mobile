@@ -1,4 +1,5 @@
 <script lang="ts">
+  import RenderOptions from "./RenderOptions.svelte";
   import { tick, untrack } from "svelte";
   import { groupMapMarkers, mapSpan } from "../lib/services/interactive-map.ts";
   import type { InteractiveWidget } from "../lib/services/interactive-widgets.ts";
@@ -198,6 +199,7 @@
       </g>
     {/each}
   </svg>
+  <RenderOptions label="Options de la carte">
   <div class="actions">
     <button type="button" class="settings-btn" aria-label="Réduire le zoom de la carte" disabled={camera.scale <= 1}
       onclick={() => setCamera(camera.x, camera.y, camera.scale / 2)}>−</button>
@@ -205,6 +207,10 @@
       onclick={() => setCamera(camera.x, camera.y, camera.scale * 2)}>+</button>
     <button type="button" class="settings-btn" onclick={() => { cluster = []; fit(data.places); }}>Recentrer</button>
   </div>
+  <label>Lieu <select class="settings-input" value={selected} onchange={event => select(Number(event.currentTarget.value), true)}>
+    {#each data.places as point, index (index)}<option value={index}>{point.title}</option>{/each}
+  </select></label>
+  </RenderOptions>
   {#if cluster.length > 1}
     <div class="cluster">
       <p role="status">{cluster.length} lieux proches. Choisis un lieu.</p>
@@ -216,14 +222,6 @@
         {/each}
         <button type="button" class="settings-btn" onclick={() => { cluster = []; }}>Masquer le groupe</button>
       </div>
-    </div>
-  {:else}
-    <div class="actions places" role="group" aria-label="Lieux sur la carte">
-      {#each data.places as point, index (index)}
-        <button type="button" class="settings-btn" aria-pressed={selected === index} onclick={() => select(index, true)}>
-          {index + 1}. {point.title}
-        </button>
-      {/each}
     </div>
   {/if}
   <p aria-live="polite">{place.text || place.title} · {coordinates.format(place.lat)}, {coordinates.format(place.lon)}</p>
